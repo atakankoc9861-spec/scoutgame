@@ -57,6 +57,7 @@ func setup(name: String, split := false) -> void:
 		cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.add_child(cont)
 		var sv := SubViewport.new()
+		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 		sv.msaa_3d = Viewport.MSAA_2X if shadows and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 		sv.world_3d = w3
 		cont.add_child(sv)

@@ -139,6 +139,8 @@ func _ready() -> void:
 	add_child(svc)
 	sv = SubViewport.new()
 	sv.own_world_3d = true
+	# görünürlük tespitine güvenme (CanvasLayer içinde bazı GPU'larda hiç çizilmiyor)
+	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var q: String = Game.quality()
 	sv.msaa_3d = Viewport.MSAA_2X if q == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 	# mantıksal boyut fiziksel ekrandan büyük olabilir (stretch=expand); gerçek piksele göre ölçekle

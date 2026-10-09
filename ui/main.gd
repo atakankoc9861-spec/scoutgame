@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.13"
+const VERSION := "v0.13.1"
 
 var bg: ColorRect
 var hub
@@ -1419,8 +1419,10 @@ func _run_viewer(data: Dictionary, focus: Array):
 	if hub:
 		hub.set_active(false)
 	Sfx.music_off()
-	var layer := CanvasLayer.new()
-	layer.layer = 10
+	# CanvasLayer yerine ana ağaçta en üst kardeş (bazı GPU'larda CanvasLayer içindeki 3D çizilmiyor)
+	var layer := Control.new()
+	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(layer)
 	# Ekran yönü değiştirilmez (siyah ekran sorunu): içerik 90° döndürülür, telefon yan tutulur
 	var rot := RotHolder.new()
@@ -2361,7 +2363,7 @@ func _player_career(pid: String, p: Dictionary) -> void:
 # ================================================================ SAHNELER (diyaloglu eylemler)
 
 signal dlg_next(val)
-var dlg_layer: CanvasLayer = null
+var dlg_layer: Control = null
 var stage = null
 var dlg_root: Control = null
 var bubble: PanelContainer = null
@@ -2391,8 +2393,9 @@ func _scene_open(set_name: String, place: String) -> void:
 	Watch.bc("sahne " + set_name + " / " + place)
 	if hub:
 		hub.set_active(false)
-	dlg_layer = CanvasLayer.new()
-	dlg_layer.layer = 8
+	dlg_layer = Control.new()
+	dlg_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dlg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dlg_layer)
 	stage = Stage3D.new()
 	dlg_layer.add_child(stage)

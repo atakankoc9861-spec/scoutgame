@@ -56,6 +56,8 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		paused = false
 		hb = Time.get_ticks_msec()
+		pre = hb
+		post = hb
 		bc("on plana geldi")
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
 		alive = false
@@ -93,8 +95,11 @@ func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) 
 	lum /= n
 	alpha /= n
 	var bad := lum < 0.012 or alpha < 0.1
-	bc("3D %s: %s lum=%.3f a=%.2f boyut=%dx%d msaa=%d olcek=%.2f" % [tag, "BOS/SIYAH" if bad else "ok", lum, alpha, w, h, sv.msaa_3d, sv.scaling_3d_scale])
+	var cam := sv.get_camera_3d()
+	bc("3D %s: %s lum=%.3f a=%.2f boyut=%dx%d msaa=%d olcek=%.2f upd=%d cam=%s vis=%s" % [tag, "BOS/SIYAH" if bad else "ok", lum, alpha, w, h, sv.msaa_3d, sv.scaling_3d_scale, sv.render_target_update_mode, "var" if cam != null else "YOK", str(sv.get_parent() is CanvasItem and (sv.get_parent() as CanvasItem).is_visible_in_tree())])
 	if bad and tries > 0:
+		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		sv.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
 		sv.msaa_3d = Viewport.MSAA_DISABLED
 		sv.scaling_3d_scale = 1.0
 		if fallback.is_valid():
