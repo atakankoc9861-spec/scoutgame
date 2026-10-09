@@ -1,7 +1,7 @@
 extends Node
 ## Avrupa dünyası: yeni kariyer (farklı ülkeler), tam sezon, süre/boyut ölçümü
 func _ready() -> void:
-	for cc in ["PT", "SM"]:
+	for cc in ["AR", "SA"]:
 		Game.delete_save()
 		var t0 := Time.get_ticks_msec()
 		Game.new_game("Test", "tr", cc)
@@ -24,6 +24,11 @@ func _ready() -> void:
 			# bir yabancı lig arama + plan
 			if w == 3:
 				Game.ensure_league("DE1")
+				Game.board().abroad.append("africa")
+				var vis0 := Game.search({"country": "NG"}).size()
+				var tr := Game.do_trip("NG", "academy")
+				var vis1 := Game.search({"country": "NG"}).size()
+				print("[EURO] trip ok=", tr.ok, " bulunan=", tr.get("pids", []).map(func(x): return "%s %d/%d" % [Game.pname(Game.player(x)), Game.player(x).ovr, Game.player(x).pa]), " görünür ", vis0, "->", vis1, " msg=", tr.get("msg", ""))
 			var ms := Game.week_matches([Game.my_club().league])
 			if not ms.is_empty():
 				Game.plan_match(ms[0].m.day, Game.match_key(ms[0].lg, ms[0].idx))

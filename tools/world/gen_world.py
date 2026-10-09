@@ -62,6 +62,20 @@ C = {
  "SM": ("San Marino", "San Marino", "IT", 38, 22, [14], "it"),
  "GI": ("Cebelitarık", "Gibraltar", "EN", 44, 28, [10], "en"),
  "BR": ("Brezilya", "Brazil", "PT", 72, 86, [18], "pt"),
+ "AR": ("Arjantin", "Argentina", "ES", 71, 84, [18, 18], "es"),
+ "SA": ("Suudi Arabistan", "Saudi Arabia", "AR", 70, 80, [16], "ar"),
+ "EG": ("Mısır", "Egypt", "AR", 60, 60, [8], "ar"),
+ "MA": ("Fas", "Morocco", "AR", 60, 58, [8], "ar"),
+ "TN": ("Tunus", "Tunisia", "AR", 56, 52, [6], "ar"),
+ "DZ": ("Cezayir", "Algeria", "AR", 56, 52, [8], "ar"),
+ "QA": ("Katar", "Qatar", "AR", 58, 56, [6], "ar"),
+ "AE": ("Birleşik Arap Emirlikleri", "UAE", "AR", 58, 56, [7], "ar"),
+ "SN": ("Senegal", "Senegal", "FR", 52, 44, [7], "fr"),
+ "NG": ("Nijerya", "Nigeria", "EN", 52, 44, [8], "en"),
+ "GH": ("Gana", "Ghana", "EN", 51, 42, [6], "en"),
+ "CI": ("Fildişi Sahili", "Ivory Coast", "FR", 52, 44, [6], "fr"),
+ "CM": ("Kamerun", "Cameroon", "FR", 50, 40, [6], "fr"),
+ "ML": ("Mali", "Mali", "FR", 49, 38, [6], "fr"),
 }
 import re
 _DATA = open(os.path.join(os.path.dirname(__file__), "..", "..", "autoload", "Data.gd"), encoding="utf-8").read()
@@ -70,6 +84,10 @@ def _hand(name):
     rows = re.findall(r'\["([^"]+)", "([^"]+)", "([^"]+)", (\d+), "(#[0-9a-fA-F]+)", "(#[0-9a-fA-F]+)"\]', m.group(1))
     return [[a, b, c, int(d), e, f] for (a, b, c, d, e, f) in rows]
 HAND = {"EN": _hand("EN_LIG"), "IT": _hand("IT_LIG"), "BR": _hand("BR_LIG")}
+# Ligi simüle edilmeyen, yalnızca keşif (scout) yapılan ülkeler
+SCOUT_ONLY = {"HU", "RO", "BG", "SK", "SI", "IL", "CY", "AZ", "KZ", "BY", "MD", "BA", "ME", "MK", "AL", "XK", "IE", "NIR", "WAL",
+              "IS", "FI", "EE", "LV", "LT", "GE", "AM", "LU", "MT", "FO", "AD", "SM", "GI",
+              "EG", "MA", "TN", "DZ", "QA", "AE", "SN", "NG", "GH", "CI", "CM", "ML"}
 # Ülkeler arası yakınlık (yabancı oyuncu havuzu) – bölgeler
 REGION = {
  "west": ["EN", "SCO", "WAL", "NIR", "IE", "FR", "BE", "NL", "LU", "ES", "PT", "AD", "GI"],
@@ -78,6 +96,9 @@ REGION = {
  "balkan": ["HR", "RS", "BA", "ME", "MK", "AL", "XK", "BG", "RO", "MD", "GR", "CY", "SI"],
  "east": ["RU", "UA", "BY", "KZ", "GE", "AM", "AZ", "LV", "LT", "EE", "MD"],
  "south": ["IT", "SM", "MT", "ES", "PT", "GR", "CY", "IL"],
+ "mena": ["SA", "EG", "MA", "TN", "DZ", "QA", "AE"],
+ "africa": ["SN", "NG", "GH", "CI", "CM", "ML"],
+ "sam": ["BR", "AR"],
 }
 GLOBAL_FOREIGN = {"BR": 6, "AR": 3, "FR": 4, "NG": 3, "SN": 3, "GH": 2, "CM": 2, "MA": 2, "PT": 2, "ES": 2, "NL": 1, "RS": 2, "HR": 2, "UY": 1}
 
@@ -116,10 +137,11 @@ NICK = {
  "lv": "Ērgļi Vanagi Vilki Vilnis Zvaigzne Zibens".split(),
  "lt": "Ereliai Sakalai Vilkai Bangos Žvaigždė Žaibas".split(),
  "ca": "Àligues Falcons Llops Onada Estels Llamps".split(),
+ "ar": "Al-Nusur Al-Suqur Al-Fursan Al-Najm Al-Asad Al-Barq Al-Mawj Al-Nakheel Al-Shuhub Al-Sahm Al-Qamar Al-Dhiab".split(),
 }
 SUFFIX = {"en": ["FC", "", "", "AFC"], "de": ["", "", "SC"], "nl": ["", "", "FC"], "da": ["", "BK", "IF"], "sv": ["", "IF", "FF"],
           "no": ["", "FK", "IL"], "fi": ["", "", "FC"], "is": ["", ""], "fr": ["", "", "FC"], "it": ["", "", "Calcio"]}
-PREFIX_STYLE = {"ru", "ua", "kz", "pl", "cs", "sk", "sh", "sl", "mk", "bg", "ro", "el", "he", "es", "pt", "ca", "it"}
+PREFIX_STYLE = {"ar", "ru", "ua", "kz", "pl", "cs", "sk", "sh", "sl", "mk", "bg", "ro", "el", "he", "es", "pt", "ca", "it"}
 PALETTE = ["#c8102e", "#034694", "#ffffff", "#000000", "#fbe122", "#00843d", "#6cabdd", "#7a263a", "#f58220", "#5b2c83",
            "#1c2c5b", "#e30613", "#009639", "#003399", "#ffcc00", "#95bfe5", "#8b0000", "#004d98", "#a50044", "#00a0dd",
            "#2e7d32", "#d32f2f", "#1565c0", "#fdd835", "#424242", "#ef6c00", "#00838f", "#6a1b9a", "#c0ca33", "#bdbdbd"]
@@ -145,6 +167,8 @@ def main():
             out["names"][k] = [v[0].replace("_", " ").split(), [x.replace("_", " ") for x in v[1].split()]]
     for cc, (ntr, nen, lang, top_ovr, ptop, tiers, style) in C.items():
         cities = CITIES[cc]
+        if cc in SCOUT_ONLY:
+            tiers = [8 if sum(tiers) >= 12 or len(cities) >= 8 else 6]
         total = sum(tiers)
         # şehir başına kulüp ataması: büyük şehirler (listede önde) birden fazla kulüp alabilir
         slots = []
@@ -217,8 +241,12 @@ def main():
         tot = sum(v for k, v in fw.items() if k != cc)
         fw[cc] = int(round(tot * home / (1 - home)))
         base = round(top_ovr - 0.30 * ptop, 1)
+        if cc in SCOUT_ONLY:
+            home = 0.9
+            tot = sum(v for k, v in fw.items() if k != cc)
+            fw[cc] = int(round(tot * home / (1 - home)))
         out["countries"][cc] = {"tr": ntr, "en": nen, "lang": lang, "base": base, "ptop": ptop,
-                                "leagues": leagues, "clubs": clubs, "nats": fw}
+                                "leagues": leagues, "clubs": clubs, "nats": fw, "scout": cc in SCOUT_ONLY}
     out["lang_names"] = {
         "EN": ["İngilizce", "English"], "ES": ["İspanyolca", "Spanish"], "DE": ["Almanca", "German"], "IT": ["İtalyanca", "Italian"],
         "FR": ["Fransızca", "French"], "PT": ["Portekizce", "Portuguese"], "NL": ["Felemenkçe", "Dutch"], "EL": ["Yunanca", "Greek"],
@@ -228,7 +256,7 @@ def main():
         "BG": ["Bulgarca", "Bulgarian"], "SL": ["Slovence", "Slovene"], "HE": ["İbranice", "Hebrew"], "AZ": ["Azerice", "Azerbaijani"],
         "MK": ["Makedonca", "Macedonian"], "SQ": ["Arnavutça", "Albanian"], "IS": ["İzlandaca", "Icelandic"], "FI": ["Fince", "Finnish"],
         "ET": ["Estonca", "Estonian"], "LV": ["Letonca", "Latvian"], "LT": ["Litvanca", "Lithuanian"], "KA": ["Gürcüce", "Georgian"],
-        "HY": ["Ermenice", "Armenian"], "CA": ["Katalanca", "Catalan"], "TR": ["Türkçe", "Turkish"],
+        "HY": ["Ermenice", "Armenian"], "CA": ["Katalanca", "Catalan"], "TR": ["Türkçe", "Turkish"], "AR": ["Arapça", "Arabic"],
     }
     path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "world.json")
     os.makedirs(os.path.dirname(path), exist_ok=True)

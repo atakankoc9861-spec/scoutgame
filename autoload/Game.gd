@@ -7,7 +7,7 @@ const Timeline = preload("res://sim/timeline.gd")
 const LiveEngine = preload("res://sim/live_engine.gd")
 
 const SAVE_PATH := "user://kariyer.json"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 const WEEKS := 34
 const WORK_DAYS := 5          # Pzt-Cum
 const WED := 2                # U19 günü
@@ -30,7 +30,9 @@ const CRASH_FLAG := "user://mac_suruyor.flag"
 func _build_leagues() -> void:
 	LEAGUES = {}
 	for lg in Data.LG:
-		LEAGUES[lg] = int(Data.LG[lg].tier)
+		# keşif ülkelerinin "havuz" ligleri simüle edilmez
+		if not Data.is_scout_cc(str(Data.LG[lg].cc)):
+			LEAGUES[lg] = int(Data.LG[lg].tier)
 
 func tier_groups(cc: String, t: int) -> Array:
 	return Data.COUNTRIES.get(cc, {}).get("tiers", {}).get(t, [])
@@ -144,7 +146,11 @@ func title_key() -> String:
 
 func visible(p: Dictionary) -> bool:
 	## Arama ve listelerde görünür mü (altyapı oyuncuları keşfedilene kadar gizli)
-	return not p.get("youth", false) or p.get("disc", false)
+	if p.get("disc", false):
+		return true
+	if p.get("youth", false):
+		return false
+	return not Data.is_scout_cc(club_country(p.get("club", "")))
 
 # ================================================================ oyuncu üretimi
 
@@ -272,7 +278,10 @@ func pick_weight(d: Dictionary) -> String:
 	return d.keys()[0]
 
 func tier(lg: String) -> int:
-	return int(LEAGUES.get(lg, 5))
+	return int(Data.LG.get(lg, {}).get("tier", 5))
+
+func is_scout_club(cid: String) -> bool:
+	return Data.is_scout_cc(club_country(cid))
 
 func club_tier(cid: String) -> int:
 	return tier(club(cid).get("league", "L2A"))
@@ -316,6 +325,10 @@ func ensure_squad(cid: String) -> bool:
 	c.squad = []
 	c.u19 = []
 	gen_squad(cid, c.league)
+	if Data.is_scout_cc(club_country(cid)):
+		# keşif ülkesi: oyuncular gidip görülene kadar gizli
+		for pid in c.squad + c.u19:
+			s.players[pid].disc = false
 	return true
 
 func ensure_league(lg: String) -> int:
@@ -423,7 +436,7 @@ func new_manager(nat := "TR") -> Dictionary:
 # ================================================================ yeni oyun
 
 func new_game(scout_name: String, lang: String, start_cc := "TR") -> void:
-	if not Data.COUNTRIES.has(start_cc):
+	if not Data.COUNTRIES.has(start_cc) or Data.is_scout_cc(start_cc):
 		start_cc = "TR"
 	s = {
 		"version": SAVE_VERSION, "lang": lang,
@@ -1045,6 +1058,94 @@ func do_source(pid: String, kind: String, want := "") -> Dictionary:
 	_gain_xp("net", 2)
 	changed.emit()
 	return {"ok": true, "msg": "src_ok", "trait": t, "lvl": lvl, "kind": kind}
+
+# ================================================================ keşif seyahati
+
+const TRIP_KINDS := ["academy", "league"]
+
+func trip_city(cc: String) -> String:
+	## Ülkenin ana şehri (veri dosyasındaki ilk şehir)
+	for city in Data.CITY_W:
+		if str(Data.CITY_W[city][2]) == cc:
+			return city
+	return ""
+
+func trip_cost(cc: String) -> int:
+	var city := trip_city(cc)
+	if city == "" or my_club().is_empty():
+		return 0
+	return int(round(float(travel_info(city).cost) * 1.6 / 10.0) * 10)
+
+func trip_check(cc: String) -> String:
+	if s.week < 1:
+		return "trip_preseason"
+	if free_days() < 2:
+		return "trip_days"
+	if not board_abroad_ok(cc):
+		return "need_board_abroad"
+	return ""
+
+func do_trip(cc: String, kind := "academy") -> Dictionary:
+	## Keşif ülkesine 2 günlük seyahat: altyapı turnuvası ya da yerel lig. Gizli oyuncuları ortaya çıkarır.
+	var why := trip_check(cc)
+	if why != "":
+		return {"ok": false, "msg": why}
+	var city := trip_city(cc)
+	_take_day("trip", "")
+	_take_day("trip", "")
+	var info := _spend_travel(city)
+	s.scout.spent += int(float(info.cost) * 0.6)
+	var clubs := []
+	for cid in s.clubs:
+		if club_country(cid) == cc:
+			clubs.append(cid)
+	clubs.shuffle()
+	var visit: Array = clubs.slice(0, 4 if kind == "academy" else 3)
+	var pool := []
+	for cid in visit:
+		ensure_squad(cid)
+		var c := club(cid)
+		for pid in (c.u19 + c.squad if kind == "academy" else c.squad):
+			var p := player(pid)
+			if p.is_empty():
+				continue
+			if kind == "academy" and int(p.age) > 19:
+				continue
+			if kind == "league" and int(p.age) > 30:
+				continue
+			pool.append(pid)
+	var found := []
+	var eye := float(s.scout.eye)
+	var n := 6 if kind == "academy" else 5
+	for i in n:
+		var best := ""
+		var bv := -999.0
+		for k in 8:
+			if pool.is_empty():
+				break
+			var pid: String = pick(pool)
+			if pid in found:
+				continue
+			var p := player(pid)
+			var val := float(p.pa if kind == "academy" else p.ovr)
+			val += rng.randfn(0.0, (22.0 - eye) * 0.6)
+			if val > bv:
+				bv = val
+				best = pid
+		if best == "":
+			continue
+		found.append(best)
+		var bp := player(best)
+		if not bp.disc:
+			bp.disc = true
+			s.scout.stats.disc += 1
+		observe(best, 0.16 if kind == "academy" else 0.13, ["tec", "phy", "men"], 1.1)
+		log_discovery(best, "trip", Data.country_name(cc))
+	area_gain(Data.zone_of(cc), 3.0)
+	_gain_xp("eye", 1)
+	add_news("n_trip", [Data.country_name(cc), found.size()], true, "career")
+	changed.emit()
+	return {"ok": true, "pids": found, "cc": cc, "kind": kind, "cost": int(info.cost * 1.6)}
 
 func rest_day() -> bool:
 	if free_days() <= 0:
@@ -1808,7 +1909,7 @@ func _ai_transfers() -> void:
 				by_rival[rv] = []
 			by_rival[rv].append(pid)
 	for cid in s.clubs:
-		if cid == s.scout.club_id or is_lazy(cid):
+		if cid == s.scout.club_id or is_lazy(cid) or is_scout_club(cid):
 			continue
 		var c := club(cid)
 		# önce scoutlarının ilgilendiği oyuncular
@@ -2422,7 +2523,7 @@ func _season_end() -> void:
 	var mine := my_club()
 	for cid in s.clubs:
 		var c := club(cid)
-		if cid == mine.id:
+		if cid == mine.id or is_scout_club(cid):
 			continue
 		# yurtdışı teklif nadir: o bölgede ağın (itibarın) varsa artar
 		var home_c := club_country(cid) == club_country(mine.id)
@@ -2440,7 +2541,7 @@ func _season_end() -> void:
 		add_news("n_fired", [mine.name], true, "bad")
 		if s.offers.is_empty():
 			for cid in s.clubs:
-				if cid != mine.id and club(cid).prestige <= mine.prestige - 3:
+				if cid != mine.id and club(cid).prestige <= mine.prestige - 3 and club_country(cid) == club_country(mine.id):
 					s.offers.append(cid)
 			s.offers.shuffle()
 			s.offers = s.offers.slice(0, 3)

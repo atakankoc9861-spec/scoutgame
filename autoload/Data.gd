@@ -154,7 +154,7 @@ func _load_world() -> void:
 			lgs.append(l.id)
 			tiers[int(l.tier)] = [l.id]
 			LG[l.id] = {"cc": cc, "tier": int(l.tier)}
-		COUNTRIES[cc] = {"leagues": lgs, "lang": c.lang, "base": float(c.base), "tr": c.tr, "en": c.en, "tiers": tiers, "ptop": int(c.ptop)}
+		COUNTRIES[cc] = {"leagues": lgs, "lang": c.lang, "base": float(c.base), "tr": c.tr, "en": c.en, "tiers": tiers, "ptop": int(c.ptop), "scout": bool(c.get("scout", false))}
 		WORLD_CLUBS[cc] = c.clubs
 		if not CLUB_NATS.has(cc):
 			CLUB_NATS[cc] = c.nats
@@ -186,15 +186,18 @@ const ZONES := {
 	"west": ["FR", "BE", "NL", "LU", "ES", "PT", "AD", "GI"],
 	"central": ["DE", "AT", "CH", "CZ", "SK", "PL", "HU", "SI"],
 	"south": ["IT", "SM", "MT", "GR", "CY", "IL"],
+	"mena": ["SA", "EG", "MA", "TN", "DZ", "QA", "AE"],
+	"africa": ["SN", "NG", "GH", "CI", "CM", "ML"],
 	"balkan": ["HR", "RS", "BA", "ME", "MK", "AL", "XK", "BG", "RO", "MD"],
 	"nordic": ["DK", "SE", "NO", "FI", "IS", "FO", "EE", "LV", "LT"],
 	"east": ["RU", "UA", "BY", "KZ", "GE", "AM", "AZ"],
-	"sa": ["BR"],
+	"sa": ["BR", "AR"],
 }
 const ZONE_NAMES := {
 	"tr": ["Türkiye", "Türkiye"], "brit": ["Britanya & İrlanda", "Britain & Ireland"], "west": ["Batı Avrupa", "Western Europe"],
 	"central": ["Orta Avrupa", "Central Europe"], "south": ["Akdeniz", "Mediterranean"], "balkan": ["Balkanlar", "Balkans"],
 	"nordic": ["Kuzey Avrupa", "Northern Europe"], "east": ["Doğu Avrupa", "Eastern Europe"], "sa": ["Güney Amerika", "South America"],
+	"mena": ["Orta Doğu & K. Afrika", "Middle East & N. Africa"], "africa": ["Batı & Orta Afrika", "West & Central Africa"],
 }
 
 func zone_of(cc: String) -> String:
@@ -210,6 +213,16 @@ func zone_name(z: String) -> String:
 func lang_name(code: String) -> String:
 	var n: Array = LANG_NAMES.get(code, [code, code])
 	return n[0] if T.lang == "tr" else n[1]
+
+func is_scout_cc(cc: String) -> bool:
+	## Ligi simüle edilmeyen, yalnızca keşif yapılan ülke
+	return bool(COUNTRIES.get(cc, {}).get("scout", false))
+
+func playable_countries() -> Array:
+	return COUNTRY_ORDER.filter(func(c): return not is_scout_cc(c))
+
+func scout_countries() -> Array:
+	return COUNTRY_ORDER.filter(func(c): return is_scout_cc(c))
 
 func country_strength(cc: String) -> float:
 	if cc == "TR":

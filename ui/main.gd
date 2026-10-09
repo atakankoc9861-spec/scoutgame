@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.18"
+const VERSION := "v0.19"
 
 var bg: ColorRect
 var hub
@@ -523,14 +523,14 @@ func _pick_list(title: String, items: Array, cur := "") -> String:
 	layer.queue_free()
 	return r
 
-func _country_items() -> Array:
+func _country_items(playable := true) -> Array:
 	var out := []
-	for cc in Data.COUNTRY_ORDER:
+	for cc in (Data.playable_countries() if playable else Data.COUNTRY_ORDER):
 		var c: Dictionary = Data.COUNTRIES[cc]
 		var n := 0
 		for lg in c.leagues:
 			n += 1
-		out.append([cc, Data.country_name(cc), T.t("n_leagues", [c.tiers.size()])])
+		out.append([cc, Data.country_name(cc), T.t("trip_pick") if Data.is_scout_cc(cc) else T.t("n_leagues", [c.tiers.size()])])
 	return out
 
 func _toast(text: String) -> void:
@@ -600,6 +600,7 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 		"obs": _scr_obs()
 		"season": _scr_season()
 		"crash": _scr_crash()
+		"trip": _scr_trip()
 	_fix_filters(outer)
 	if viewer == null:
 		Sfx.music_on()
@@ -1577,7 +1578,7 @@ func _home_club() -> void:
 func _cal_strip() -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 6)
-	var acts := {"video": "play", "train": "cone", "meet": "chat", "src_coach": "phone", "src_agent": "phone", "src_journalist": "phone", "u19": "youth", "rest": "moon", "travel": "plane", "board": "chat"}
+	var acts := {"video": "play", "train": "cone", "meet": "chat", "src_coach": "phone", "src_agent": "phone", "src_journalist": "phone", "u19": "youth", "rest": "moon", "travel": "plane", "board": "chat", "trip": "plane"}
 	for d in 7:
 		var pc := PanelContainer.new()
 		pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1883,6 +1884,49 @@ func _watch_u19(idx: int) -> void:
 
 # ================================================================ TAKVİM
 
+var trip_res := {}
+
+func _trip_flow() -> void:
+	## Keşif seyahati: ülke -> tür -> sonuç
+	var items := []
+	for cc in Data.scout_countries():
+		var lock := "" if Game.board_abroad_ok(cc) else T.t("locked_s")
+		items.append([cc, Data.country_name(cc), "%s%s" % [Game.money_str(Game.trip_cost(cc)), ("  • " + lock) if lock != "" else ""]])
+	items.sort_custom(func(a, b): return a[1] < b[1])
+	var cc := await _pick_list(T.t("trip_pick"), items)
+	if cc == "":
+		return
+	var why := Game.trip_check(cc)
+	if why != "":
+		_toast(T.t(why))
+		return
+	var kind := await _pick_list(T.t("trip_kind"), [["academy", T.t("trip_academy"), T.t("trip_academy_d")], ["league", T.t("trip_league"), T.t("trip_league_d")]])
+	if kind == "":
+		return
+	var r := Game.do_trip(cc, kind)
+	if not r.ok:
+		_toast(T.t(r.msg))
+		return
+	Sfx.play("pen", -8.0)
+	trip_res = r
+	Game.save_game()
+	_show("trip")
+
+func _scr_trip() -> void:
+	_sheet()
+	_back_row(T.t("trip_title"))
+	var r := trip_res
+	if r.is_empty():
+		return
+	var v := _card(null, "manila", 20)
+	v.add_child(_head(Data.country_name(r.cc).to_upper(), 34))
+	v.add_child(_typed(T.t("trip_" + r.kind) + " • " + T.t("trip_cost_l", [Game.money_str(r.cost)]), 17, C_INK2))
+	v.add_child(_hand(T.t("trip_found", [r.pids.size()]), 28, C_BLUE))
+	_section(T.t("trip_list"), null, "eye")
+	for pid in r.pids:
+		_search_row(pid)
+	page.add_child(_typed(T.t("trip_hint"), 16, C_INK2))
+
 func _scr_week() -> void:
 	_sheet([["this", T.t("st_thisweek")], ["matches", T.t("st_matches")], ["u19", T.t("st_u19")]], sub.week, _sub_cb("week"))
 	match sub.week:
@@ -1902,6 +1946,8 @@ func _week_this() -> void:
 			Game.rest_day()
 			_toast(T.t("rest_done"))
 			_refresh(), "ghost", page, "moon")
+	if Game.s.week >= 1:
+		_btn(T.t("trip_btn"), _trip_flow, "small", page, "plane")
 	# planlanan maçlar
 	_section(T.t("weekend_plan"), null, "ball")
 	for day in ["sat", "sun"]:
@@ -2483,12 +2529,14 @@ func _players_search() -> void:
 		search_f.tier = 0
 		_refresh(), "toggle_on" if scc == mcc else "small", f1).custom_minimum_size = Vector2(0, 52)
 	_btn(T.t("country_lbl", [Data.country_name(scc)]) if scc != "" and scc != mcc else T.t("other_country"), func():
-		var k := await _pick_list(T.t("pick_country"), _country_items(), scc)
+		var k := await _pick_list(T.t("pick_country"), _country_items(false), scc)
 		if k != "":
 			search_f.country = k
 			search_f.tier = 0
 			_refresh(), "toggle_on" if scc != "" and scc != mcc else "small", f1, "globe").custom_minimum_size = Vector2(0, 52)
-	if scc != "" and Game.max_tier(scc) > 1:
+	if scc != "" and Data.is_scout_cc(scc):
+		fc.add_child(_hand(T.t("scout_country_note"), 22, C_RED))
+	if scc != "" and Game.max_tier(scc) > 1 and not Data.is_scout_cc(scc):
 		var f1b := HFlowContainer.new()
 		f1b.add_theme_constant_override("h_separation", 8)
 		f1b.add_theme_constant_override("v_separation", 8)
@@ -2498,7 +2546,7 @@ func _players_search() -> void:
 			_btn("—" if t == 0 else Game.tier_name(scc, t), func():
 				search_f.tier = tt
 				_refresh(), "toggle_on" if int(search_f.tier) == t else "ghost", f1b).custom_minimum_size = Vector2(0, 50)
-	if scc != "":
+	if scc != "" and not Data.is_scout_cc(scc):
 		# yabancı ülke: aranan ligin kadroları ilk kez burada üretilir
 		var tsel := int(search_f.tier)
 		for t in range(1, Game.max_tier(scc) + 1):
@@ -4161,6 +4209,9 @@ func _scr_club(cid: String) -> void:
 			var sq := _card(null, "paper", 14)
 			var xi := Game.best_xi(cid)
 			var ordered: Array = c.squad.duplicate()
+			if Game.is_scout_club(cid):
+				ordered = ordered.filter(func(x): return Game.visible(Game.player(x)))
+				page.add_child(_hand(T.t("scout_country_note"), 22, C_RED))
 			ordered.sort_custom(func(a, b):
 				var pa := Game.player(a)
 				var pb := Game.player(b)

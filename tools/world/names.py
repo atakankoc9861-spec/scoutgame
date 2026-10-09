@@ -86,10 +86,17 @@ P = {
        "Hansson Vatnhamar Bjartalíð Olsen Davidsen Hendriksson Joensen Nielsen Jacobsen Lamhauge Petersen Edmundsson Frederiksberg Johansen Sørensen Mortensen Thomsen Danielsen Poulsen Højgaard"),
 "CA": ("Marc Jordi Pau Àlex Joan Xavier Ricard Gerard Sergi Albert Oriol Aleix Arnau Nil Martí Biel Iker Eric Txus Ludovic",
        "Pujol Vila Soler Puig Ferrer Casals Riera Rovira Martí Sala Torres Garcia Llorente Rebés San_Nicolás Vieira Alavedra Pons Font Serra"),
+"ARB": ("Mohamed Ahmed Mahmoud Omar Karim Youssef Amr Hossam Tarek Mostafa Ali Hamza Ziad Marwan Hamdi Islam Ayman Walid Nabil Sofiane Riyad Ismaël Aïssa Bilal Yacine",
+        "Salah Hassan Hegazi Ashour El-Shenawy Fathi Gaber Abdelghani Trezeguet Marmoush Mahrez Bennacer Slimani Belaïli Bounedjah Atal Feghouli Mandi Msakni Khazri Laïdouni Skhiri Ben_Romdhane Ali Saad Mansour Ibrahim Farouk"),
+"GULF": ("Salem Fahad Abdullah Saud Nawaf Yasser Saleh Turki Faisal Hassan Mohammed Ali Abdulrahman Sultan Khalid Majed Firas Hattan Akram Almoez Ahmed Omar Mubarak Khalfan Rashid",
+         "Al-Dawsari Al-Shahrani Al-Faraj Al-Owais Al-Buraikan Al-Bulaihi Kanno Al-Ghannam Al-Malki Afif Al-Haydos Hassan Boudiaf Al-Rawi Khoukhi Mabkhout Abdulrahman Al-Hammadi Ismail Khalil Juma Salem Saeed Al-Hosani Al-Mansouri"),
+"WAF": ("Seko Ibrahim Yaya Wilfried Franck Sébastien Nicolas Serge Moussa Amadou Cheick Hamari Adama Boubacar Yves Simon Odilon Karim Salif Souleymane Lassana Mamadou",
+        "Koné Traoré Touré Diarra Keïta Coulibaly Bamba Kouassi Zaha Kessié Sangaré Doumbia Haïdara Diaby Konaté Camara Bissouma Fofana Cissé Sissoko Diallo Sidibé Gradel Aurier"),
 "BR": None, "AR": None, "UY": None, "NG": None, "SN": None, "GH": None, "CM": None, "MA": None, "GE_": None,
 }
 # Ülke -> uyruk havuzları (oyuncu uyruğu ülke kodu; isimler buradan)
 POOL_OF = {
+ "EG": ["ARB"], "TN": ["ARB"], "DZ": ["ARB"], "SA": ["GULF"], "QA": ["GULF"], "AE": ["GULF"], "CI": ["WAF"], "ML": ["WAF"],
  "BE": ["NL", "FR"], "CH": ["DE", "FR", "IT"], "AT": ["DE"], "LU": ["LU", "FR", "PT"], "ME": ["RS"], "BY": ["RU"],
  "MD": ["RO"], "CY": ["GR"], "AD": ["CA", "ES"], "SM": ["IT"], "GI": ["EN", "ES"], "NIR": ["EN", "IE"],
 }
