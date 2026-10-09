@@ -2,14 +2,14 @@ extends Node3D
 ## Mocap animasyonlu futbolcu (Quaternius manken + Rohr/UAL hareketleri).
 ## API human.gd ile aynı: build / play / tick / is_busy / pose_state / set_pose_state.
 
-const SKIN := [Color("#f1c9a5"), Color("#e0ac85"), Color("#c68863"), Color("#8d5a3b"), Color("#5a3825")]
-const HAIR := [Color("#1b1410"), Color("#2c1d14"), Color("#4a3020"), Color("#0e0b0a"), Color("#8a5a2b"), Color("#c9a45c")]
-const BONES := ["pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "Head",
+const SKIN := [Color(0.84, 0.66, 0.56), Color(0.76, 0.56, 0.44), Color(0.62, 0.44, 0.32), Color(0.44, 0.3, 0.21), Color(0.3, 0.2, 0.14)]
+const HAIR := [Color("#16110d"), Color("#2a1b12"), Color("#4a3020"), Color("#0b0908"), Color("#7a5230"), Color("#b8945a")]
+const BONES := ["pelvis", "spine_01", "spine_02", "spine_03", "neck_01", "head",
 	"clavicle_l", "upperarm_l", "lowerarm_l", "hand_l", "clavicle_r", "upperarm_r", "lowerarm_r", "hand_r",
 	"thigh_l", "calf_l", "foot_l", "ball_l", "thigh_r", "calf_r", "foot_r", "ball_r"]
 # yürüyüş karışımı: klip, doğal hız (m/s)
 const LOCO := [["idle", 0.0], ["walk", 1.5], ["jog", 3.6], ["sprint", 6.6]]
-# motor eylem adı -> [klip, başlangıç (sn), yumuşak giriş, yumuşak çıkış]
+# motor eylem adı -> [klip, başlangıç (sn)]
 const ACT := {
 	"kick": [["pass", 0.36], ["pass_m", 0.36]],
 	"shot": [["shot", 0.38], ["shot_r2", 0.38], ["shot_m", 0.38]],
@@ -25,14 +25,17 @@ const ACT := {
 	"fall": [["fall", 0.0]],
 	"card": [["card", 0.0]],
 }
+## Saç modelleri (Blender üretimi, MakeHuman CC0); "" = kazınmış (sadece cilt dokusu)
+const HAIRS := ["HairCrop", "HairFade", "HairQuiff", "HairCurly", "HairAfro", ""]
+const MORPHS := ["muscle", "lean", "heavy", "thin", "young", "old", "african", "asian",
+	"nose_wide", "nose_long", "chin", "jaw", "oval", "cheeks", "mouth", "brow"]
 
-const T_BODY := preload("res://assets/man/t_body.png")
-const T_EYE := preload("res://assets/man/t_eye.png")
-const T_HAIR := preload("res://assets/man/t_hair.png")
-const HAIRS := ["hair_buzzed", "hair_simpleparted", "hair_long", "hair_buzzed"]
-static var _hair_mesh := {}
-static var _hair_mats := {}
-static var _eye_mat: StandardMaterial3D
+const T_DET := preload("res://assets/mh/skin_detail.png")
+const T_DET2 := preload("res://assets/mh/skin_detail2.png")
+const SH_SKIN := preload("res://assets/mh/skin.gdshader")
+const SH_EYE := preload("res://assets/mh/eye.gdshader")
+const SH_HAIR := preload("res://assets/mh/hair.gdshader")
+const SH_CLOTH := preload("res://assets/mh/cloth.gdshader")
 
 static var LIB: AnimationLibrary
 static var SCN: PackedScene
@@ -42,8 +45,8 @@ static var _mats := {}
 static func _load() -> void:
 	if LIB != null:
 		return
-	LIB = load("res://assets/man/anims.res")
-	SCN = load("res://assets/man/man.scn")
+	LIB = load("res://assets/mh/anims.res")
+	SCN = load("res://assets/mh/player.glb")
 	for nm in LIB.get_animation_list():
 		var a: Animation = LIB.get_animation(nm)
 		var r := PackedInt32Array()
@@ -60,35 +63,59 @@ static func make_mat(col: Color, rough := 0.65) -> StandardMaterial3D:
 static func kit_mats(shirt: Color, shorts: Color, socks: Color) -> Dictionary:
 	return {"shirt": make_mat(shirt), "shorts": make_mat(shorts), "socks": make_mat(socks), "boot": make_mat(Color(0.06, 0.06, 0.07))}
 
-static func _mat(shirt: Color, shorts: Color, socks: Color, skin: Color, hair: Color, hs := 1, outfit := {}) -> ShaderMaterial:
-	var key := "%s%s%s%s%s%d%s" % [shirt.to_html(), shorts.to_html(), socks.to_html(), skin.to_html(), hair.to_html(), hs, str(outfit)]
+static func _cloth(c1: Color, c2 := Color.WHITE, pattern := 0, rough := 0.82) -> ShaderMaterial:
+	var key := "c%s%s%d%.2f" % [c1.to_html(), c2.to_html(), pattern, rough]
 	if not _mats.has(key):
 		var m := ShaderMaterial.new()
-		m.shader = preload("res://assets/man/kit.gdshader")
-		m.set_shader_parameter("c_shirt", shirt)
-		m.set_shader_parameter("c_shorts", shorts)
-		m.set_shader_parameter("c_socks", socks)
-		m.set_shader_parameter("c_skin", skin)
-		m.set_shader_parameter("c_hair", hair)
-		m.set_shader_parameter("c_boots", Color(0.07, 0.07, 0.08))
-		m.set_shader_parameter("tex_body", T_BODY)
-		if outfit.get("pattern", 0) > 0:
-			m.set_shader_parameter("pattern", int(outfit.pattern))
-			m.set_shader_parameter("c_shirt2", outfit.get("c2", Color.WHITE))
-		if outfit.get("sleeves", false):
-			m.set_shader_parameter("sleeve", 0.70)
-		if outfit.get("pants", false):
-			m.set_shader_parameter("long_pants", true)
-		if outfit.has("shoes"):
-			m.set_shader_parameter("c_boots", outfit.shoes)
+		m.shader = SH_CLOTH
+		m.set_shader_parameter("c1", c1)
+		m.set_shader_parameter("c2", c2)
+		m.set_shader_parameter("pattern", pattern)
+		m.set_shader_parameter("rough", rough)
+		_mats[key] = m
+	return _mats[key]
+
+static func _skin(skin: Color, hair: Color, beard: float, scalp: float) -> ShaderMaterial:
+	var key := "s%s%s%.2f%.2f" % [skin.to_html(), hair.to_html(), beard, scalp]
+	if not _mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = SH_SKIN
+		m.set_shader_parameter("detail", T_DET)
+		m.set_shader_parameter("detail2", T_DET2)
+		m.set_shader_parameter("skin", skin)
+		m.set_shader_parameter("hair_col", hair)
+		m.set_shader_parameter("beard", beard)
+		m.set_shader_parameter("scalp_amt", scalp)
+		_mats[key] = m
+	return _mats[key]
+
+static func _hairmat(hair: Color) -> ShaderMaterial:
+	var key := "h" + hair.to_html()
+	if not _mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = SH_HAIR
+		m.set_shader_parameter("hair_col", hair)
+		m.set_shader_parameter("detail", T_DET)
+		_mats[key] = m
+	return _mats[key]
+
+static func _eyemat(iris: Color) -> ShaderMaterial:
+	var key := "e" + iris.to_html()
+	if not _mats.has(key):
+		var m := ShaderMaterial.new()
+		m.shader = SH_EYE
+		m.set_shader_parameter("iris", iris)
 		_mats[key] = m
 	return _mats[key]
 
 var skel: Skeleton3D
-var mesh_inst: MeshInstance3D
+var mesh_inst: MeshInstance3D      # gövde (eski API uyumu)
+var parts := {}                    # parça adı -> MeshInstance3D
 var number_lbl: Label3D
 var bid := PackedInt32Array()
 var pel_rest := Vector3.ZERO
+var lod := false                   # maçta hafif modeller (kurulumdan önce ayarlanır)
+var look := {}                     # morph ağırlıkları (apply_look ile özelliklerden)
 
 var phase := 0.0          # yürüyüş döngüsü (0..1)
 var idle_t := 0.0
@@ -108,24 +135,111 @@ var _last_overlay := ""
 var nod_t := -1.0          # baş sallama zamanlayıcı
 var head_yaw := 0.0        # başı sağa-sola çevir (rad)
 var _head_yaw_cur := 0.0
+var _inst: Node3D
 const ARM_R := [11, 12, 13]
 const ARM_L := [7, 8, 9]
 
+## Kişiye özel görünüm: tohumdan (yüz) + isteğe bağlı oyuncu verisinden (yaş, güç, hız)
+static func look_for(style: int, skin_i: int, p: Dictionary = {}) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(style * 7919 + 13)
+	var L := {}
+	for f in ["nose_wide", "nose_long", "chin", "jaw", "oval", "cheeks", "mouth", "brow"]:
+		L[f] = clampf(rng.randfn(0.0, 0.45), -0.6, 1.0)
+	var sk := clampi(skin_i, 0, 4)
+	if sk >= 3:
+		L["african"] = rng.randf_range(0.6, 1.0)
+	elif sk == 2:
+		L["african"] = rng.randf_range(0.0, 0.35)
+		L["asian"] = rng.randf_range(0.0, 0.3) if rng.randf() < 0.4 else 0.0
+	L["muscle"] = rng.randf_range(0.0, 0.6)
+	L["thin"] = rng.randf_range(0.0, 0.4)
+	var hs := rng.randf_range(0.96, 1.04)
+	if not p.is_empty():
+		var a: Dictionary = p.get("attrs", {})
+		var stg := float(a.get("strength", 10))
+		var pac := float(a.get("pace", 10))
+		L["muscle"] = clampf((stg - 9.0) / 8.0, 0.0, 1.0)
+		L["lean"] = clampf((9.0 - stg) / 7.0, 0.0, 0.8)
+		L["thin"] = clampf((pac - 11.0) / 8.0, 0.0, 0.7)
+		L["heavy"] = clampf((stg - pac - 3.0) / 10.0, 0.0, 0.6)
+		var age := float(p.get("age", 24))
+		L["young"] = clampf((22.0 - age) / 5.0, 0.0, 1.0)
+		L["old"] = clampf((age - 29.0) / 7.0, 0.0, 1.0)
+		var pos: String = p.get("pos", "CM")
+		if pos in ["GK", "CB"]:
+			hs += 0.035
+		elif pos in ["LW", "RW", "AM"]:
+			hs -= 0.025
+		hs += (stg - 10.0) * 0.004
+	L["_h"] = clampf(hs, 0.9, 1.1)
+	return L
+
 func build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, font: Font = null) -> void:
+	_build(kit, skin_i, hair_i, style, number, font, false, {})
+
+func _build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, font: Font, outfit: bool, ofit: Dictionary) -> void:
 	_load()
 	var shirt: Color = kit.shirt.albedo_color
 	var shorts: Color = kit.shorts.albedo_color
 	var socks: Color = kit.socks.albedo_color
-	var inst: Node3D = SCN.instantiate()
-	add_child(inst)
-	skel = inst.get_node("S")
-	mesh_inst = skel.get_node("M")
-	var ofit := {}
-	if int(kit.get("pattern", 0)) > 0:
-		ofit = {"pattern": int(kit.pattern), "c2": kit.get("c2", Color.WHITE)}
-	mesh_inst.material_override = _mat(shirt, shorts, socks, SKIN[clampi(skin_i, 0, 4)], HAIR[clampi(hair_i, 0, 5)], posmod(style, 3), ofit)
-	mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_dress_head(HAIR[clampi(hair_i, 0, 5)], style)
+	_inst = SCN.instantiate()
+	add_child(_inst)
+	skel = _inst.find_children("*", "Skeleton3D", true, false)[0]
+	var skin: Color = SKIN[clampi(skin_i, 0, 4)]
+	var hair: Color = HAIR[clampi(hair_i, 0, 5)]
+	if look.is_empty():
+		look = look_for(style, skin_i)
+	# saç: koyu tenlilerde kısa/kazınmış/kıvırcık ağırlıklı
+	var hidx := posmod(style * 3 + hair_i, HAIRS.size())
+	if skin_i >= 3 and HAIRS[hidx] in ["HairCrop", "HairQuiff"]:
+		hidx = [1, 3, 4, 5][posmod(style, 4)]
+	var hname: String = HAIRS[hidx]
+	var beard: float = [0.0, 0.0, 0.35, 0.8, 0.15][posmod(style, 5)]
+	if float(look.get("young", 0.0)) > 0.6:
+		beard *= 0.3
+	var want := ["Body", "Eyes", "Boots"]
+	if outfit:
+		want += ["ShirtLong" if ofit.get("sleeves", true) else "Shirt", "Pants"]
+	else:
+		want += ["Shirt", "Shorts", "Socks"]
+	if hname != "":
+		want.append(hname)
+	parts = {}
+	for mi: MeshInstance3D in _inst.find_children("*", "MeshInstance3D", true, false):
+		var nm := String(mi.name)
+		var baseName := nm.trim_suffix("_lod")
+		var is_lod := nm.ends_with("_lod")
+		var has_lod := _inst.find_child(baseName + "_lod", true, false) != null
+		var keep: bool = baseName in want and (not has_lod or is_lod == lod)
+		if not keep:
+			mi.get_parent().remove_child(mi)
+			mi.free()
+			continue
+		parts[baseName] = mi
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# materyaller
+	var pat := int(kit.get("pattern", 0))
+	var c2: Color = kit.get("c2", Color.WHITE)
+	for nm in parts:
+		var mi: MeshInstance3D = parts[nm]
+		match nm:
+			"Body":
+				mi.material_override = _skin(skin, hair, beard, 0.95 if hname == "" else 0.55)
+				mesh_inst = mi
+			"Eyes":
+				mi.material_override = _eyemat([Color(0.3, 0.19, 0.09), Color(0.18, 0.12, 0.07), Color(0.25, 0.35, 0.3), Color(0.2, 0.3, 0.45)][posmod(style * 5 + skin_i, 4) if skin_i < 2 else posmod(style, 2)])
+			"Shirt", "ShirtLong":
+				mi.material_override = _cloth(shirt, c2, pat if not outfit else 0, 0.8 if not outfit else 0.7)
+			"Shorts", "Pants":
+				mi.material_override = _cloth(shorts, Color.WHITE, 0, 0.75)
+			"Socks":
+				mi.material_override = _cloth(socks, Color.WHITE, 0, 0.85)
+			"Boots":
+				mi.material_override = _cloth(ofit.get("shoes", Color(0.06, 0.06, 0.07)), Color.WHITE, 0, 0.35)
+			_:
+				mi.material_override = _hairmat(hair)
+	_apply_morphs()
 	for b in BONES:
 		bid.append(skel.find_bone(b))
 	pel_rest = skel.get_bone_rest(skel.find_bone("pelvis")).origin
@@ -138,66 +252,43 @@ func build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, f
 	number_lbl = Label3D.new()
 	number_lbl.text = str(number)
 	number_lbl.font_size = 96
-	number_lbl.pixel_size = 0.0024
+	number_lbl.pixel_size = 0.0022
 	number_lbl.modulate = Color(1, 1, 1) if shirt.get_luminance() < 0.55 else Color(0.08, 0.08, 0.1)
 	number_lbl.double_sided = false
 	if font:
 		number_lbl.font = font
 	att.add_child(number_lbl)
-	# kemik ekseninden bağımsız: sırt yönüne yerleştir (global)
-	number_lbl.top_level = false
 	_place_number(att)
+	number_lbl.visible = not outfit and number > 0
 	tick(0.0, 0.0)
 
-## göz, kaş ve saç modelleri
-func _dress_head(hair: Color, style: int) -> void:
-	if _eye_mat == null:
-		_eye_mat = StandardMaterial3D.new()
-		_eye_mat.albedo_texture = T_EYE
-		_eye_mat.roughness = 0.2
-	var key := hair.to_html()
-	if not _hair_mats.has(key):
-		var hm := StandardMaterial3D.new()
-		hm.albedo_color = hair
-		hm.albedo_texture = T_HAIR
-		hm.roughness = 0.75
-		hm.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_hair_mats[key] = hm
-	var hmat: StandardMaterial3D = _hair_mats[key]
-	if skel.has_node("Eyes"):
-		var e: MeshInstance3D = skel.get_node("Eyes")
-		e.material_override = _eye_mat
-		e.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	if skel.has_node("Brows"):
-		var br: MeshInstance3D = skel.get_node("Brows")
-		br.material_override = hmat
-		br.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var att := BoneAttachment3D.new()
-	att.bone_name = "Head"
-	skel.add_child(att)
-	var names := [HAIRS[posmod(style, HAIRS.size())]]
-	if posmod(style, 7) == 3:
-		names.append("hair_beard")
-	for hn in names:
-		if not _hair_mesh.has(hn):
-			_hair_mesh[hn] = load("res://assets/man/%s.res" % hn)
-		var mi := MeshInstance3D.new()
-		mi.mesh = _hair_mesh[hn]
-		mi.material_override = hmat
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		att.add_child(mi)
+func _apply_morphs() -> void:
+	for nm in parts:
+		var mi: MeshInstance3D = parts[nm]
+		for k in MORPHS:
+			var w := float(look.get(k, 0.0))
+			if absf(w) < 0.01:
+				continue
+			var bi := mi.find_blend_shape_by_name(k)
+			if bi >= 0:
+				mi.set_blend_shape_value(bi, w)
+	_inst.scale = Vector3.ONE * float(look.get("_h", 1.0))
+
+## Oyuncu verisinden vücut tipi (build'den önce ya da sonra çağrılabilir)
+func apply_look(p: Dictionary) -> void:
+	look = look_for(int(p.get("seed", 0)), int(p.get("skin", 1)), p)
+	if _inst != null:
+		_apply_morphs()
 
 func _place_number(att: BoneAttachment3D) -> void:
 	# spine_03 global rest -> sırt (-Z) tarafına, dışa bakan etiket
 	var g := skel.get_bone_global_rest(skel.find_bone("spine_03"))
-	var want := Transform3D(Basis(Vector3.UP, PI), Vector3(0, g.origin.y - 0.06, g.origin.z - 0.13))
+	var want := Transform3D(Basis(Vector3.UP, PI), Vector3(0, g.origin.y + 0.06, -0.135))
 	number_lbl.transform = g.affine_inverse() * want
 
 ## Sahne kıyafeti: forma yerine günlük/takım elbise
 func build_outfit(top: Color, pants: Color, shoes: Color, skin_i: int, hair_i: int, style: int, sleeves := true) -> void:
-	build(kit_mats(top, pants, pants), skin_i, hair_i, style, 0)
-	mesh_inst.material_override = _mat(top, pants, pants, SKIN[clampi(skin_i, 0, 4)], HAIR[clampi(hair_i, 0, 5)], posmod(style, 3), {"sleeves": sleeves, "pants": true, "shoes": shoes})
-	number_lbl.visible = false
+	_build(kit_mats(top, pants, pants), skin_i, hair_i, style, 0, null, true, {"sleeves": sleeves, "shoes": shoes})
 
 func nod() -> void:
 	nod_t = 0.0
@@ -326,13 +417,12 @@ func _apply(ca: String, cb: String, w: float) -> void:
 	if wx > 0.001 and action == "dive":
 		var f := clampf((action_t - 0.08) / 0.75, 0.0, 1.0)
 		roll = sin(f * PI) * 1.05 * wx * (-1.0 if act_clip == "dive" else 1.0)
-	var inst := skel.get_parent() as Node3D
-	if absf(roll) > 0.001 or inst.transform != Transform3D.IDENTITY:
-		var pv := Vector3(p.x, 0.0, 0.0)
+	var sc := float(look.get("_h", 1.0))
+	if absf(roll) > 0.001 or _inst.transform.basis != Basis().scaled(Vector3.ONE * sc):
 		var rest_root := skel.get_bone_global_rest(0)
-		pv = rest_root * p
+		var pv := rest_root * p
 		pv.y = 0.85
-		inst.transform = Transform3D(Basis(), pv) * Transform3D(Basis(Vector3.BACK, roll), Vector3.ZERO) * Transform3D(Basis(), -pv)
+		_inst.transform = Transform3D(Basis(), pv * sc) * Transform3D(Basis(Vector3.BACK, roll), Vector3.ZERO) * Transform3D(Basis().scaled(Vector3.ONE * sc), -pv * sc)
 
 func pose_state() -> Array:
 	return [phase, speed, action, action_t, action_dur, action_side, act_clip, act_start, idle_t]

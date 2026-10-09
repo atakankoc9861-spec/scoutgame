@@ -729,6 +729,7 @@ func set_pedestal(p: Dictionary, club: Dictionary) -> void:
 		kit = FB.kit_mats(Color("#2ec4b6"), Color("#111111"), Color("#1f8a80"))
 	ped_player = FB.new()
 	ped_root.add_child(ped_player)
+	ped_player.apply_look(p)
 	ped_player.build(kit, int(p.get("skin", 1)), int(p.get("hair", 0)), int(p.get("seed", 0)), (int(p.get("seed", 0)) % 30) + 1, font)
 	ped_player.position = Vector3(0, 0.35, 0)
 	if ped_player.has_method("set_base"):
@@ -755,6 +756,7 @@ func _ensure_stadium() -> void:
 	for i in 12:
 		var f = FB.new()
 		stadium_node.add_child(f)
+		f.lod = true
 		f.build(kit if i < 6 else kit2, i % 5, i % 6, i, i + 2, font)
 		f.position = Vector3(randf_range(-30, 30), 0, randf_range(-20, 20))
 		stadium_men.append({"n": f, "t": Vector3(randf_range(-40, 40), 0, randf_range(-26, 26))})

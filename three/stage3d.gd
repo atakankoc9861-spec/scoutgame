@@ -232,6 +232,7 @@ func add_actor(id: String, info: Dictionary, pos: Vector3, face: float, base := 
 		var cl: Dictionary = info.get("club", {})
 		var c1 := Color(cl.get("c1", "#cccccc"))
 		var c2 := Color(cl.get("c2", "#333333"))
+		m.apply_look(p)
 		if info.get("training", false):
 			# antrenman kıyafeti: forma rengi üst, koyu şort
 			m.build(MM.kit_mats(c1, c2.darkened(0.3), c1), int(p.get("skin", 1)), int(p.get("hair", 0)), int(p.get("seed", 0)), int(p.get("seed", 0)) % 30 + 1)
@@ -255,7 +256,7 @@ func _props(a) -> void:
 	var sk: Skeleton3D = a.skel
 	var hl := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("hand_l"))).origin
 	var hr := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("hand_r"))).origin
-	var head := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Head"))).origin
+	var head := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("head"))).origin
 	if not a.has_meta("prop"):
 		var pr := Node3D.new()
 		world.add_child(pr)
@@ -287,7 +288,7 @@ func head_pos(id: String) -> Vector3:
 		return Vector3.ZERO
 	var m = actors[id]
 	var sk: Skeleton3D = m.skel
-	var hi := sk.find_bone("Head")
+	var hi := sk.find_bone("head")
 	return (sk.global_transform * sk.get_bone_global_pose(hi)).origin + Vector3(0, 0.12, 0)
 
 ## 3D baş konumunun ekran koordinatı (bu Control'e göre)
@@ -554,6 +555,7 @@ func add_mates(club: Dictionary, n := 6) -> void:
 	for i in n:
 		var m = MM.new()
 		world.add_child(m)
+		m.lod = true
 		m.build(MM.kit_mats(c1, c2.darkened(0.3), c1), i % 5, (i * 2) % 6, i + 11, i + 2)
 		var a := -8.0 + i * 3.0
 		m.position = Vector3(a, 0, -8.0 - (i % 3) * 2.0)

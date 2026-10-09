@@ -807,6 +807,7 @@ func _build_refs() -> void:
 	for k in ["ref", "lin1", "lin2"]:
 		var r = FB.new()
 		world.add_child(r)
+		r.lod = true
 		r.build(kit, hash(k) % 4, 0, hash(k) % 7 + 1, 0, font_head)
 		r.number_lbl.visible = false
 		refs[k] = r
@@ -896,6 +897,8 @@ func _make_man(pid: String, side: String, kits: Dictionary, num: int) -> Diction
 	var p: Dictionary = Game.player(pid)
 	var fb = FB.new()
 	world.add_child(fb)
+	fb.lod = true
+	fb.apply_look(p)
 	fb.build(kits.gk if p.pos == "GK" else kits.out, int(p.get("skin", 1)), int(p.get("hair", 0)), int(p.get("seed", 0)), num if p.pos != "GK" else 1, font_head)
 	var sm := _shadow_quad(1.3)
 	sm.position.y = 0.025
@@ -1587,7 +1590,9 @@ func _update_camera(delta: float) -> void:
 		var hgt := clampf(ext * 0.95, 14.0, 46.0)
 		# yayın tarafından, yüksek; içerik ekranın üst kısmında kalsın (alt panel)
 		look = Vector3(c.x, 0.0, c.y + ext * 0.2)
-		pos = Vector3(c.x, hgt, c.y + hgt * 0.95)
+		pos = Vector3(c.x, hgt, minf(c.y + hgt * 0.95, 30.0))
+		if c.y + hgt * 0.95 > 30.0:
+			pos.y = hgt + (c.y + hgt * 0.95 - 30.0) * 0.8
 		fov = 50.0
 		stiff = 4.0
 	elif eng.celebrate_t > 0.0 and scorer != "" and men.has(scorer):
