@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.15.1"
+const VERSION := "v0.15.2"
 
 var bg: ColorRect
 var hub
@@ -1541,30 +1541,53 @@ class RotHolder extends Control:
 func _run_viewer(data: Dictionary, focus: Array):
 	Game.save_game()
 	Watch.bc("mac basliyor youth=" + str(data.youth))
-	var mv = MatchView.new()
-	mv.setup(data, F_HEAD, F_BODY, focus)
-	viewer = mv
-	if hub:
-		hub.set_active(false)
 	Sfx.music_off()
 	# CanvasLayer yerine ana ağaçta en üst kardeş (bazı GPU'larda CanvasLayer içindeki 3D çizilmiyor)
 	var layer := Control.new()
 	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(layer)
 	var blk := ColorRect.new()
 	blk.color = Color.BLACK
 	blk.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	blk.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(blk)
-	root.visible = false
 	# Ekran yönü değiştirilmez (siyah ekran sorunu): içerik 90° döndürülür, telefon yan tutulur
 	var rot := RotHolder.new()
 	layer.add_child(rot)
+	# 1) yükleme ekranı: önce menü 3D'si tamamen kapanır, sonra maç kurulur (iki 3D sahne üst üste binmez)
+	var load_ui := _match_loading(data)
+	rot.add_child(load_ui)
+	for i in 3:
+		await get_tree().process_frame
+	root.visible = false
+	if hub:
+		hub.set_active(false)
+	for i in 3:
+		await get_tree().process_frame
+	Watch.bc("yukleme: menu 3D kapandi " + Watch._mon())
+	var mv = MatchView.new()
+	mv.setup(data, F_HEAD, F_BODY, focus)
+	mv.hold = true
+	viewer = mv
 	rot.add_child(mv)
-	mv.modulate.a = 0.0
+	rot.move_child(load_ui, -1)
+	load_ui.position = Vector2.ZERO
+	load_ui.size = rot.size
+	# 2) maç sahnesi arkada birkaç kare çizilsin (ilk karelerdeki siyahlık görünmesin)
+	var t0 := Time.get_ticks_msec()
+	for i in 45:
+		await get_tree().process_frame
+		var pb: ProgressBar = load_ui.get_meta("bar")
+		pb.value = float(i) / 44.0 * 100.0
+	while Time.get_ticks_msec() - t0 < 1400:
+		await get_tree().process_frame
+	Watch.bc("yukleme bitti " + Watch._mon())
+	mv.hold = false
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tw := create_tween()
-	tw.tween_property(mv, "modulate:a", 1.0, 0.35)
+	tw.tween_property(load_ui, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(load_ui.queue_free)
 	var fe = await mv.finished
 	Watch.bc("mac bitti")
 	var tw2 := create_tween()
@@ -1578,6 +1601,62 @@ func _run_viewer(data: Dictionary, focus: Array):
 		hub.set_active(true)
 	Watch.bc("viewer kapandi")
 	return fe
+
+func _match_loading(data: Dictionary) -> Control:
+	## Maç öncesi yükleme ekranı (yatay): armalar, maç adı, ipucu, ilerleme çubuğu
+	var c := Control.new()
+	c.mouse_filter = Control.MOUSE_FILTER_STOP
+	var vs := get_viewport().get_visible_rect().size
+	c.size = Vector2(maxf(vs.x, vs.y), minf(vs.x, vs.y))
+	var bg := ColorRect.new()
+	bg.color = Color("#0b120e")
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	c.add_child(bg)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 18)
+	c.add_child(v)
+	var m: Dictionary = data.m
+	var hc := Game.club(m.h)
+	var ac := Game.club(m.a)
+	var hh := HBoxContainer.new()
+	hh.alignment = BoxContainer.ALIGNMENT_CENTER
+	hh.add_theme_constant_override("separation", 28)
+	v.add_child(hh)
+	hh.add_child(_crest(hc, 150))
+	var vsl := _lbl("—", 54, Color("#e8c547"), false, F_HEAD)
+	hh.add_child(vsl)
+	hh.add_child(_crest(ac, 150))
+	var nm := _lbl("%s  vs  %s%s" % [hc.get("name", ""), ac.get("name", ""), "  (U19)" if data.youth else ""], 46, Color("#eef3ef"), false, F_HEAD)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(nm)
+	var st := _lbl(T.t("load_going"), 30, Color("#9db0a3"), false, F_BODY)
+	st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(st)
+	var pb := ProgressBar.new()
+	pb.show_percentage = false
+	pb.custom_minimum_size = Vector2(680, 14)
+	pb.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color("#e8c547")
+	fill.set_corner_radius_all(5)
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(1, 1, 1, 0.12)
+	back.set_corner_radius_all(5)
+	pb.add_theme_stylebox_override("fill", fill)
+	pb.add_theme_stylebox_override("background", back)
+	v.add_child(pb)
+	c.set_meta("bar", pb)
+	var tip := _lbl(T.t("load_tip_%d" % (randi() % 6)), 28, Color("#eef3ef", 0.8), true, F_BODY)
+	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tip.custom_minimum_size = Vector2(1100, 0)
+	tip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(tip)
+	var rh := _lbl(T.t("load_rotate"), 24, Color("#9db0a3"), false, F_BODY)
+	rh.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(rh)
+	return c
 
 func _watch_u19(idx: int) -> void:
 	if _busy:

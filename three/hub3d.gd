@@ -54,6 +54,12 @@ func set_active(on: bool) -> void:
 	if on and not active:
 		Watch.check_vp(sv, "hub-geri")
 	active = on
+	if not on:
+		# maç sırasında GPU belleğini boşalt: render hedeflerini küçült
+		stretch = false
+		sv.size = Vector2i(4, 4)
+	else:
+		stretch = true
 	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	set_process(on)
 	visible = on

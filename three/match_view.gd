@@ -1441,7 +1441,11 @@ func _vmem_guard() -> void:
 			for n in stadium.find_children("*", "CPUParticles3D", true, false):
 				n.queue_free()
 
+var hold := false   # yükleme ekranı açıkken oyun akışı bekler (çizim sürer)
+
 func _process(delta: float) -> void:
+	if hold:
+		return
 	_spark_tick(minf(delta, 0.05))
 	if mode == "live" and not skipping and not paused:
 		_refs_tick(minf(delta, 0.05) * speed)
