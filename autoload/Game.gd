@@ -1162,6 +1162,7 @@ func _decide_report(r: Dictionary) -> void:
 		return
 	r.fee = fee
 	a.status = "done"
+	r["ceremony"] = true
 	if in_window():
 		_transfer(r.pid, me.id, fee)
 		r.status = "signed"

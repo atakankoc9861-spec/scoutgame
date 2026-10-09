@@ -110,7 +110,7 @@ out = Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8), "RGBA")
 out.save("/home/claude/mh/out/skin_detail.png")
 # ikinci doku: R göz kapağı gölgesi, G kulak, B tırnak, A gözenek/lekeler
 lid = np.asarray(Image.open("/tmp/claude-0/mpfb2/src/mpfb/data/textures/mpfb_eyelids.jpg").convert("L").resize((N, N)), dtype=np.float32) / 255.0
-ear = np.asarray(Image.open("/tmp/claude-0/mpfb2/src/mpfb/data/textures/mpfb_ears.jpg").convert("L").resize((N, N)), dtype=np.float32) / 255.0
+ear = np.asarray(Image.open("/tmp/claude-0/mpfb2/src/mpfb/data/textures/mpfb_inside-mouth.jpg").convert("L").resize((N, N)), dtype=np.float32) / 255.0
 nail = np.maximum(np.asarray(Image.open("/tmp/claude-0/mpfb2/src/mpfb/data/textures/mpfb_fingernails.jpg").convert("L").resize((N, N)), dtype=np.float32), np.asarray(Image.open("/tmp/claude-0/mpfb2/src/mpfb/data/textures/mpfb_toenails.jpg").convert("L").resize((N, N)), dtype=np.float32)) / 255.0
 pores = np.clip(0.5 + (noise(2, 9) - 0.5) * 0.35 + (noise(24, 10) - 0.5) * 0.5, 0, 1)
 img2 = np.stack([lid, ear, nail, pores], -1)

@@ -47,6 +47,23 @@ VARS = cfg.get("variants", {
     "mouth": {"t": {"mouth/mouth-scale-horiz-incr": 1.0, "mouth/mouth-lowerlip-volume-incr": 0.7}},
     "brow": {"t": {"eyebrows/eyebrows-trans-down": 1.0, "eyebrows/eyebrows-angle-down": 0.5}},
 })
+# yüz ifadeleri (MakeHuman ifade birimleri): konuşma, göz kırpma, duygular
+EX = "expression/units/caucasian/"
+EXPR = {
+    "x_blink": {"t": {EX + "eye-left-closure": 1.0, EX + "eye-right-closure": 1.0}},
+    "x_wide_eyes": {"t": {EX + "eye-left-opened-up": 1.0, EX + "eye-right-opened-up": 1.0}},
+    "x_squint": {"t": {EX + "eye-left-slit": 1.0, EX + "eye-right-slit": 1.0}},
+    "x_brow_up": {"t": {EX + "eyebrows-left-up": 1.0, EX + "eyebrows-right-up": 1.0}},
+    "x_brow_worry": {"t": {EX + "eyebrows-left-inner-up": 1.0, EX + "eyebrows-right-inner-up": 1.0}},
+    "x_brow_down": {"t": {EX + "eyebrows-left-down": 1.0, EX + "eyebrows-right-down": 1.0}},
+    "x_jaw": {"t": {EX + "mouth-open": 1.0}},
+    "x_smile": {"t": {EX + "mouth-corner-puller": 1.0, EX + "mouth-elevation": 0.3}},
+    "x_wide": {"t": {EX + "mouth-retraction": 1.0}},
+    "x_round": {"t": {EX + "mouth-protusion": 0.7, EX + "mouth-pursing": 0.5}},
+    "x_sad": {"t": {EX + "mouth-depression": 1.0}},
+}
+if cfg.get("expr", True):
+    VARS.update(EXPR)
 FACE_ONLY = {"nose_wide", "nose_long", "chin", "jaw", "oval", "cheeks", "mouth", "brow"}
 DELTA = {}
 for vname, spec in VARS.items():
@@ -496,6 +513,8 @@ def add_shapes(o, face=True, keep_face=()):
     near = [KD.find(c)[1] for c in co]
     for vname, D in DELTA.items():
         if vname in FACE_ONLY and not face and vname not in keep_face:
+            continue
+        if vname.startswith("x_") and o is not body and not o.name.startswith("Body"):
             continue
         kb = o.shape_key_add(name=vname, from_mix=False)
         for i, c in enumerate(co):

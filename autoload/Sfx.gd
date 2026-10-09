@@ -16,6 +16,8 @@ const FILES := {
 	"blip": preload("res://audio/blip.wav"),
 	"spark": preload("res://audio/spark.wav"),
 	"catch": preload("res://audio/catch.wav"),
+	"cafe": preload("res://audio/cafe.wav"),
+	"field": preload("res://audio/field.wav"),
 }
 
 const MUSIC := preload("res://audio/menu.ogg")
@@ -64,6 +66,24 @@ func play(name: String, vol_db := 0.0, _pitch := 1.0) -> void:
 			p.volume_db = vol_db
 			p.play()
 			return
+
+## Sahne ortam sesi (kafe uğultusu, saha rüzgarı); döngü
+var amb: AudioStreamPlayer
+func amb_on(name: String, vol := -16.0) -> void:
+	if not _on() or not FILES.has(name):
+		return
+	if amb == null:
+		amb = AudioStreamPlayer.new()
+		add_child(amb)
+		amb.finished.connect(func(): if amb.stream: amb.play())
+	amb.stream = FILES[name]
+	amb.volume_db = vol
+	amb.play()
+
+func amb_off() -> void:
+	if amb:
+		amb.stream = null
+		amb.stop()
 
 func crowd_on(level := 0.35) -> void:
 	if not _on():

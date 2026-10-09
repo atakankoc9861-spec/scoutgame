@@ -23,6 +23,7 @@ var map_dyn: Node3D
 var ped_root: Node3D
 var ped_player: Node3D
 var ped_turn := 0.0
+var ped_ball: MeshInstance3D
 var pennant_mat: StandardMaterial3D
 var pennant_mat2: StandardMaterial3D
 var trophy_root: Node3D
@@ -30,6 +31,18 @@ var stadium_built := false
 var stadium_node: Node3D
 var stadium_men := []
 var laptop_mat: ShaderMaterial
+# --- yaşayan ofis
+const MM = preload("res://three/mocap_man.gd")
+var city_mat: ShaderMaterial
+var me_man: Node3D
+var phone_node: Node3D
+var ring_t := -1.0
+var tv_lines: Array = []
+var tv_ticker: Label3D
+var tv_t := 0.0
+var tv_i := 0
+var news_seen := -1
+var clock_t := 0.0
 
 const OFFICE := Vector3(0, 0, 0)
 const MAP := Vector3(40, 0, 0)
@@ -37,7 +50,7 @@ const PED := Vector3(80, 0, 0)
 const STAD := Vector3(400, 0, 0)
 
 const STATIONS := {
-	"office": [Vector3(1.0, 1.75, 0.6), Vector3(-0.2, 1.05, -2.5)],
+	"office": [Vector3(1.25, 1.85, 1.3), Vector3(-0.15, 1.1, -2.6)],
 	"desk": [Vector3(2.9, 1.75, -0.3), Vector3(1.6, 1.55, -3.6)],
 	"board": [Vector3(0.4, 1.85, -1.2), Vector3(-4.9, 1.8, -1.2)],
 	"map": [Vector3(40, 12.5, 3.4), Vector3(40, 0.9, 0.5)],
@@ -98,24 +111,40 @@ void fragment() {
 const CITY_SHADER := """
 shader_type spatial;
 render_mode unshaded;
+uniform float day = 0.0;      // 0 gece, 1 gündüz
+uniform float dusk = 0.0;     // akşam/şafak kızıllığı
+uniform float rain = 0.0;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
 	vec2 uv = UV;
-	vec3 sky = mix(vec3(0.05, 0.06, 0.14), vec3(0.01, 0.01, 0.04), uv.y * -1.0 + 1.0);
-	sky = mix(vec3(0.12, 0.08, 0.16), vec3(0.01, 0.015, 0.05), 1.0 - uv.y);
-	float star = step(0.996, hash(floor(uv * vec2(220.0, 140.0)))) * step(0.45, 1.0 - uv.y);
+	vec3 night = mix(vec3(0.12, 0.08, 0.16), vec3(0.01, 0.015, 0.05), 1.0 - uv.y);
+	vec3 dayc = mix(vec3(0.75, 0.85, 0.95), vec3(0.35, 0.55, 0.85), 1.0 - uv.y);
+	vec3 duskc = mix(vec3(0.95, 0.55, 0.3), vec3(0.3, 0.2, 0.45), 1.0 - uv.y);
+	vec3 sky = mix(night, dayc, day);
+	sky = mix(sky, duskc, dusk);
+	float star = step(0.996, hash(floor(uv * vec2(220.0, 140.0)))) * step(0.45, 1.0 - uv.y) * (1.0 - day) * (1.0 - rain);
 	vec3 col = sky + vec3(star);
 	float bx = floor(uv.x * 26.0);
 	float bh = 0.25 + hash(vec2(bx, 3.0)) * 0.45;
 	if (1.0 - uv.y < bh) {
 		vec2 w = fract(uv * vec2(26.0 * 5.0, 60.0));
-		float lit = step(0.55, hash(floor(uv * vec2(26.0 * 5.0, 60.0)) + floor(TIME * 0.05)));
+		float lit = step(0.55 + day * 0.35, hash(floor(uv * vec2(26.0 * 5.0, 60.0)) + floor(TIME * 0.05)));
 		float win = step(0.25, w.x) * step(w.x, 0.75) * step(0.3, w.y) * step(w.y, 0.8);
-		col = vec3(0.02, 0.025, 0.04) + vec3(1.0, 0.8, 0.45) * win * lit * 0.8;
+		vec3 bld = mix(vec3(0.02, 0.025, 0.04), vec3(0.42, 0.45, 0.5) * (0.7 + 0.3 * hash(vec2(bx, 7.0))), day);
+		col = bld + vec3(1.0, 0.8, 0.45) * win * lit * 0.8 * (1.0 - day * 0.8);
 	}
-	// uzakta stadyum ışıkları
 	float glow = exp(-pow(length((uv - vec2(0.7, 0.62)) * vec2(1.0, 2.5)), 2.0) * 20.0);
-	col += vec3(0.9, 0.95, 1.0) * glow * 0.6;
+	col += vec3(0.9, 0.95, 1.0) * glow * 0.6 * (1.0 - day);
+	// yağmur: camda süzülen damlalar + gri perde
+	if (rain > 0.0) {
+		col = mix(col, vec3(0.35, 0.38, 0.42) * (0.4 + day * 0.6), rain * 0.45);
+		vec2 r = uv * vec2(70.0, 9.0);
+		float cx = floor(r.x);
+		float sp = 0.6 + hash(vec2(cx, 1.0));
+		float yy = fract(r.y - TIME * sp + hash(vec2(cx, 2.0)) * 10.0);
+		float streak = step(0.85, hash(vec2(cx, 3.0))) * smoothstep(0.0, 0.08, yy) * (1.0 - smoothstep(0.08, 0.5, yy)) * step(abs(fract(r.x) - 0.5), 0.08);
+		col += vec3(0.6, 0.65, 0.7) * streak * rain;
+	}
 	ALBEDO = col;
 }
 """
@@ -324,7 +353,8 @@ func _build_office() -> void:
 	var q := QuadMesh.new()
 	q.size = Vector2(2.6, 1.6)
 	win.mesh = q
-	win.material_override = _shader(CITY_SHADER)
+	city_mat = _shader(CITY_SHADER)
+	win.material_override = city_mat
 	win.position = Vector3(2.4, 2.2, -3.88)
 	o.add_child(win)
 	var frame := _mat(Color(0.1, 0.1, 0.11), 0.4, 0.5)
@@ -347,10 +377,10 @@ func _build_office() -> void:
 	_box(o, Vector3(2.4, 0.5, 0.04), Vector3(0, 0.5, -2.85), desk_m)
 	# laptop
 	var metal := _mat(Color(0.55, 0.57, 0.6), 0.3, 0.8)
-	_box(o, Vector3(0.62, 0.025, 0.42), Vector3(-0.15, 0.825, -2.15), metal)
+	_box(o, Vector3(0.62, 0.025, 0.42), Vector3(-0.15, 0.825, -2.5), metal)
 	var screen := Node3D.new()
-	screen.position = Vector3(-0.15, 0.84, -2.36)
-	screen.rotation_degrees = Vector3(-14, 0, 0)
+	screen.position = Vector3(-0.15, 0.84, -2.29)
+	screen.rotation_degrees = Vector3(-14, 180, 0)
 	o.add_child(screen)
 	_box(screen, Vector3(0.62, 0.4, 0.018), Vector3(0, 0.2, 0), metal)
 	laptop_mat = _shader(LAPTOP_SHADER)
@@ -362,7 +392,7 @@ func _build_office() -> void:
 	sc.position = Vector3(0, 0.205, 0.011)
 	screen.add_child(sc)
 	var glow := OmniLight3D.new()
-	glow.position = Vector3(-0.15, 1.05, -2.0)
+	glow.position = Vector3(-0.15, 1.05, -2.7)
 	glow.light_color = Color(0.5, 0.9, 0.7)
 	glow.light_energy = 0.35
 	glow.omni_range = 1.4
@@ -468,6 +498,97 @@ func _build_office() -> void:
 	o.add_child(bl)
 	# halı
 	_box(o, Vector3(3.2, 0.01, 2.2), Vector3(0, 0.005, -1.2), _mat(Color(0.12, 0.05, 0.05), 1.0))
+	_office_life(o, desk_m, frame)
+
+## Masada çalışan scout, duvarda TV, masada telefon; pencerede gerçek saate göre gün ışığı
+func _office_life(o: Node3D, desk_m: Material, frame: Material) -> void:
+	# sandalye (masanın arkasında, kameraya bakar)
+	var ch := _mat(Color(0.08, 0.08, 0.09), 0.5)
+	_box(o, Vector3(0.5, 0.06, 0.5), Vector3(0.0, 0.46, -3.2), ch)
+	_box(o, Vector3(0.5, 0.7, 0.06), Vector3(0.0, 0.85, -3.47), ch)
+	_cyl(o, 0.03, 0.03, 0.42, Vector3(0.0, 0.22, -3.2), ch)
+	me_man = MM.new()
+	o.add_child(me_man)
+	me_man.build_outfit(Color("#2a3550"), Color("#3a3d44"), Color("#2a1a10"), 1, 0, 4, true)
+	me_man.position = Vector3(0.0, 0.0, -3.2 + 0.33)
+	me_man.rotation.y = 0.0
+	me_man.set_base("sit")
+	me_man.overlay = "type"
+	# telefon
+	phone_node = Node3D.new()
+	phone_node.position = Vector3(0.35, 0.82, -2.0)
+	o.add_child(phone_node)
+	_box(phone_node, Vector3(0.075, 0.01, 0.15), Vector3.ZERO, _mat(Color(0.05, 0.05, 0.06), 0.25, 0.3))
+	_box(phone_node, Vector3(0.068, 0.002, 0.14), Vector3(0, 0.006, 0), _mat(Color(0.1, 0.2, 0.3), 0.2, 0.0, 0.6))
+	# TV (arka duvar, solda)
+	var tv := Node3D.new()
+	tv.position = Vector3(-1.45, 2.45, -3.86)
+	o.add_child(tv)
+	_box(tv, Vector3(1.3, 0.76, 0.05), Vector3.ZERO, _mat(Color(0.03, 0.03, 0.035), 0.3, 0.5))
+	_box(tv, Vector3(1.22, 0.68, 0.01), Vector3(0, 0, 0.026), _mat(Color(0.03, 0.06, 0.09), 0.2, 0.0, 0.5))
+	var hdr := _label(tv, "CANLI • SKORLAR", Vector3(-0.58, 0.27, 0.035), 0.0011, Color("#e8c547"))
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	hdr.font_size = 48
+	for i in 3:
+		var l := _label(tv, "", Vector3(-0.58, 0.12 - i * 0.13, 0.035), 0.0011, Color(0.92, 0.95, 0.97))
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		l.font_size = 52
+		tv_lines.append(l)
+	_box(tv, Vector3(1.22, 0.1, 0.012), Vector3(0, -0.29, 0.03), _mat(Color(0.7, 0.1, 0.1), 0.4, 0.0, 0.4))
+	tv_ticker = _label(tv, "", Vector3(-0.58, -0.29, 0.04), 0.0009, Color.WHITE)
+	tv_ticker.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	tv_ticker.font_size = 44
+	var tvl := OmniLight3D.new()
+	tvl.position = Vector3(-1.45, 2.4, -3.4)
+	tvl.light_color = Color(0.5, 0.7, 1.0)
+	tvl.light_energy = 0.25
+	tvl.omni_range = 2.0
+	o.add_child(tvl)
+	_update_sky()
+	_update_tv()
+
+func _update_sky() -> void:
+	if city_mat == null:
+		return
+	var h := float(Time.get_datetime_dict_from_system().hour) + float(Time.get_datetime_dict_from_system().minute) / 60.0
+	var day := clampf(smoothstep(6.0, 8.5, h) - smoothstep(17.5, 19.5, h), 0.0, 1.0)
+	var dusk := maxf(exp(-pow((h - 18.6) / 1.1, 2.0)), exp(-pow((h - 6.8) / 0.9, 2.0))) * 0.8
+	var rain := 0.0
+	if not Game.s.is_empty():
+		var hs := hash(int(Game.s.get("season", 0)) * 53 + int(Game.s.get("week", 0)))
+		rain = 1.0 if hs % 4 == 0 else 0.0
+	city_mat.set_shader_parameter("day", day)
+	city_mat.set_shader_parameter("dusk", dusk)
+	city_mat.set_shader_parameter("rain", rain)
+
+func _update_tv() -> void:
+	if tv_lines.is_empty() or Game.s.is_empty() or Game.s.scout.club_id == "":
+		return
+	var lg: String = Game.my_club().league
+	var rows := []
+	var rd := Game.round_for_week(lg, Game.s.week - 1)
+	if Game.s.fixtures.has(lg) and rd >= 0:
+		for m in Game.s.fixtures[lg][rd]:
+			if int(m.gh) >= 0:
+				rows.append("%s  %d - %d  %s" % [Game.club(m.h).short, int(m.gh), int(m.ga), Game.club(m.a).short])
+	if rows.is_empty():
+		rows = ["—"]
+	for i in tv_lines.size():
+		(tv_lines[i] as Label3D).text = rows[(tv_i * 3 + i) % rows.size()] if i < rows.size() else ""
+	if not Game.s.news.is_empty():
+		var n: Dictionary = Game.s.news[tv_i % mini(5, Game.s.news.size())]
+		var txt := T.t(n.key, n.get("args", []))
+		tv_ticker.text = txt.substr(0, 46) + ("…" if txt.length() > 46 else "")
+
+## Yeni önemli haber: telefon titrer, scout açar
+func notify_news() -> void:
+	if Game.s.is_empty():
+		return
+	var n: int = Game.s.news.size()
+	if news_seen >= 0 and n > news_seen:
+		ring_t = 0.0
+		Sfx.play("ring", -12.0)
+	news_seen = n
 
 func set_club(c1: Color, c2: Color) -> void:
 	pennant_mat.albedo_color = c1
@@ -732,7 +853,17 @@ func set_pedestal(p: Dictionary, club: Dictionary) -> void:
 	ped_player.apply_look(p)
 	ped_player.build(kit, int(p.get("skin", 1)), int(p.get("hair", 0)), int(p.get("seed", 0)), (int(p.get("seed", 0)) % 30) + 1, font)
 	ped_player.position = Vector3(0, 0.35, 0)
-	if ped_player.has_method("set_base"):
+	# mevkiye göre duruş: hücumcu top sektirir, savunmacı/kaleci kollarını kavuşturur
+	var pos: String = p.get("pos", "CM")
+	if ped_ball == null:
+		ped_ball = _sphere(ped_root, 0.11, Vector3(0, 0.5, 0), _mat(Color(0.96, 0.96, 0.96), 0.4))
+	ped_ball.visible = pos in ["ST", "LW", "RW", "AM"]
+	if ped_ball.visible:
+		ped_player.set_base("juggle")
+	elif pos in ["CB", "GK", "DM"]:
+		ped_player.set_base("idle")
+		ped_player.overlay = "arms_crossed"
+	else:
 		ped_player.set_base("talk")
 	ped_player.rotation.y = 0.5
 	ped_turn = 0.0
@@ -804,10 +935,42 @@ func _process(delta: float) -> void:
 		pd = 9.0
 	if pd != 0.0:
 		cam.rotate_object_local(Vector3.RIGHT, -deg_to_rad(pd))
+	if me_man and station in ["office", "desk", "board"]:
+		me_man.tick(delta, 0.0)
+		tv_t += delta
+		if tv_t > 4.0:
+			tv_t = 0.0
+			tv_i += 1
+			_update_tv()
+		clock_t += delta
+		if clock_t > 60.0:
+			clock_t = 0.0
+			_update_sky()
+		if ring_t >= 0.0:
+			ring_t += delta
+			if ring_t < 1.6:
+				phone_node.rotation.y = sin(ring_t * 60.0) * 0.06
+				phone_node.position.y = 0.82 + absf(sin(ring_t * 60.0)) * 0.004
+			elif ring_t < 1.7:
+				me_man.overlay = "phone"
+				phone_node.visible = false
+			elif ring_t > 5.0:
+				me_man.overlay = "type"
+				phone_node.visible = true
+				phone_node.rotation.y = 0.0
+				ring_t = -1.0
 	if station == "pedestal" and ped_player:
 		ped_turn += delta * 0.4
 		ped_player.rotation.y = 0.5 + sin(ped_turn) * 0.7
 		ped_player.tick(delta, 0.0)
+		if ped_ball and ped_ball.visible:
+			var sk: Skeleton3D = ped_player.skel
+			var fl := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("ball_l"))).origin
+			var fr := (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("ball_r"))).origin
+			var foot := fl if fl.y > fr.y else fr
+			var hgt := 0.3 + absf(sin(ped_turn * 8.5)) * 0.6
+			var tgt := ped_root.to_local(foot) + Vector3(0, hgt, 0)
+			ped_ball.position = ped_ball.position.lerp(tgt, minf(1.0, delta * 12.0))
 	if stadium_built and (station == "stadium" or orbit):
 		for mm in stadium_men:
 			var n = mm.n

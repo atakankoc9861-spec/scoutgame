@@ -15,7 +15,7 @@ void fragment() {
 	vec3 col = skin;
 	col *= 0.93 + 0.14 * d2.a;
 	col *= 1.0 - 0.22 * d2.r;
-	col = mix(col, col * vec3(1.06, 0.88, 0.86), d2.g * 0.45);
+	col = mix(col, vec3(0.16, 0.05, 0.05), d2.g * 0.9);
 	float lipk = d.r * 0.7;
 	col = mix(col, col * vec3(0.86, 0.66, 0.64), lipk);
 	col = mix(col, mix(col, vec3(0.92, 0.78, 0.74), 0.5), d2.b * 0.7);

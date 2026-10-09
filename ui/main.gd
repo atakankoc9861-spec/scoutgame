@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.16"
+const VERSION := "v0.17"
 
 var bg: ColorRect
 var hub
@@ -635,6 +635,7 @@ func _hub_for(screen: String, arg) -> void:
 				hub.set_club(Color(c.c1), Color(c.c2))
 				hub.set_trophies(int(Game.s.scout.stats.signed) + int(Game.s.scout.stats.finds))
 			hub.goto("office")
+			hub.notify_news()
 		"news":
 			hub.goto("desk")
 		"week":
@@ -1132,7 +1133,7 @@ func _board_meeting() -> void:
 		await _line("me", me_name, T.t("ask_" + pick), "pres")
 	var res := Game.board_request(topic, arg)
 	stage.listener_react("pres", res.ok)
-	await _line("pres", b.name, T.t(res.key, res.args), "me")
+	await _line("pres", b.name, T.t(res.key, res.args), "me", 0, "smirk" if res.ok else "annoyed")
 	await _line("pres", b.name, T.t("pres_bye_" + ("ok" if res.ok else "no")), "me")
 	_busy = false
 	_scene_close()
@@ -1495,6 +1496,11 @@ func _play_weekend() -> void:
 	Watch.bc("finish_week")
 	pending_result = Game.finish_week()
 	Watch.bc("finish_week tamam")
+	for r in Game.s.scout.reports:
+		if r.get("ceremony", false):
+			r.erase("ceremony")
+			await _signing_scene(r)
+			break
 	_busy = false
 	_show("result", null, false)
 
@@ -1602,6 +1608,45 @@ func _run_viewer(data: Dictionary, focus: Array):
 	Watch.bc("viewer kapandi")
 	return fe
 
+## İmza töreni: başkan ve oyuncu el sıkışır, atkıyla basın fotoğrafı
+func _signing_scene(r: Dictionary) -> void:
+	var p := Game.player(r.pid)
+	if p.is_empty():
+		return
+	var me := Game.my_club()
+	_scene_open("office", T.t("sc_place_sign", [me.get("name", "")]))
+	var pf := _pres_face()
+	var pres = stage.add_actor("pres", {"top": Color("#1f2a44"), "pants": Color("#1f2a44"), "shoes": Color("#111111"), "skin": int(pf.skin), "hair": int(pf.hair), "seed": 7}, Vector3(-0.15, 0, 1.1), PI / 2.0, "idle")
+	var pl = stage.add_actor("p", {"kind": "player", "p": p, "club": me}, Vector3(0.75, 0, 1.1), -PI / 2.0, "idle")
+	var sc = stage.add_actor("me", SCOUT_LOOK, Vector3(2.2, 0, 1.7), -2.2, "idle")
+	for a in [pres, pl, sc]:
+		a.set_meta("talker", false)
+	stage.shot(0, Vector3(0.35, 1.55, 3.3), Vector3(0.3, 1.25, 1.1), 3.0, true)
+	await _caption(T.t("sign_intro", [Game.pname(p), me.get("name", ""), Game.money_str(int(r.get("fee", 0)))]))
+	pres.overlay = "shake"
+	pl.overlay = "shake"
+	pres.emote("happy")
+	pl.emote("happy")
+	stage.shot(0, Vector3(0.3, 1.5, 2.2), Vector3(0.3, 1.3, 1.1), 4.0)
+	for i in 3:
+		await get_tree().create_timer(0.45).timeout
+		stage.flash()
+	await get_tree().create_timer(0.6).timeout
+	pres.overlay = ""
+	pl.overlay = "scarf"
+	pl.rotation.y = 0.0
+	stage.attach_scarf("p", Color(me.get("c1", "#b5121b")), Color(me.get("c2", "#ffffff")))
+	stage.shot(0, Vector3(0.75, 1.65, 2.6), Vector3(0.75, 1.55, 1.1), 3.0, true)
+	for i in 2:
+		await get_tree().create_timer(0.5).timeout
+		stage.flash()
+	await _line("p", Game.pname(p), T.t("sign_quote_%d" % (randi() % 3), [me.get("name", "")]), "")
+	pl.overlay = ""
+	await _line("pres", Game.board().name, T.t("sign_pres", [Game.s.scout.name]), "me", 0, "smirk")
+	sc.nod()
+	await _note(T.t("sign_note", [Game.pname(p)]), C_RED)
+	_scene_close()
+
 func _match_loading(data: Dictionary) -> Control:
 	## Maç öncesi yükleme ekranı (yatay): armalar, maç adı, ipucu, ilerleme çubuğu
 	var c := Control.new()
@@ -1631,6 +1676,29 @@ func _match_loading(data: Dictionary) -> Control:
 	var nm := _lbl("%s  vs  %s%s" % [hc.get("name", ""), ac.get("name", ""), "  (U19)" if data.youth else ""], 46, Color("#eef3ef"), false, F_HEAD)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(nm)
+	var from_c: String = Game.my_club().get("city", "")
+	var to_c: String = hc.get("city", "")
+	if to_c != "" and from_c != "" and to_c != from_c:
+		var tr := HBoxContainer.new()
+		tr.alignment = BoxContainer.ALIGNMENT_CENTER
+		tr.add_theme_constant_override("separation", 14)
+		v.add_child(tr)
+		tr.add_child(_lbl(from_c, 30, Color("#eef3ef"), false, F_HEAD))
+		var bar := Control.new()
+		bar.custom_minimum_size = Vector2(260, 40)
+		tr.add_child(bar)
+		var line := ColorRect.new()
+		line.color = Color(1, 1, 1, 0.25)
+		line.position = Vector2(0, 19)
+		line.size = Vector2(260, 2)
+		bar.add_child(line)
+		var far := Data.city_country(to_c) != Data.city_country(from_c) or true
+		var ic = Icon.new().setup("plane" if far else "bus", Color("#e8c547"), 36)
+		bar.add_child(ic)
+		ic.position = Vector2(0, 2)
+		var tw := c.create_tween().set_loops()
+		tw.tween_property(ic, "position:x", 224.0, 1.4).from(0.0)
+		tr.add_child(_lbl(to_c, 30, Color("#e8c547"), false, F_HEAD))
 	var st := _lbl(T.t("load_going"), 30, Color("#9db0a3"), false, F_BODY)
 	st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(st)
@@ -2925,7 +2993,7 @@ func _wait_tap() -> void:
 	dlg_hint.visible = false
 
 ## Karakter konuşur: kamera ona keser, balon başının üstünde
-func _line(id: String, name: String, text: String, listener := "", vp := 0) -> void:
+func _line(id: String, name: String, text: String, listener := "", vp := 0, emo := "") -> void:
 	caption_box.visible = false
 	choice_box.visible = false
 	if stage:
@@ -2933,6 +3001,7 @@ func _line(id: String, name: String, text: String, listener := "", vp := 0) -> v
 			stage.focus_speaker(id, "", vp)
 		else:
 			stage.focus_speaker(id, listener, vp)
+		stage.say(id, text, emo)
 	bubble_owner = id
 	bubble_vp = vp
 	bubble_name.text = name.to_upper()
@@ -3002,6 +3071,7 @@ func _choose(opts: Array, prompt := "") -> String:
 
 func _scene_close() -> void:
 	Watch.bc("sahne kapandi")
+	Sfx.amb_off()
 	if dlg_layer:
 		dlg_layer.queue_free()
 		dlg_layer = null
@@ -3078,7 +3148,7 @@ func _spark_pop(caught: bool) -> void:
 	(spark_ui.get_node("Count") as Label).text = "✦ %d" % stage.sparks_caught
 
 ## Gözlem aşaması: oyuncu çalışır, kıvılcımlar belirir; yakalanan sayısını döndürür
-func _observe_phase(dur: float, n: int, vcr := false) -> int:
+func _observe_phase(dur: float, n: int, vcr := false, focus := "all") -> int:
 	_spark_ui_build(vcr)
 	stage.spark_shown.connect(func(_i):
 		Sfx.play("spark", -6.0)
@@ -3087,7 +3157,7 @@ func _observe_phase(dur: float, n: int, vcr := false) -> int:
 		lbl.add_theme_color_override("font_color", C_HL)
 		lbl.visible = true)
 	stage.spark_missed.connect(func(_i): _spark_pop(false))
-	stage.start_drills("p", dur, n)
+	stage.start_drills("p", dur, n, focus)
 	var t0 := Time.get_ticks_msec()
 	while stage and stage.drill_on:
 		await get_tree().process_frame
@@ -3149,7 +3219,7 @@ func _do_action(pid: String, kind: String) -> void:
 				await _caption(T.t("sc_train_intro", [Game.pname(p), cl.get("city", "")]))
 			var f := await _choose([["phy", T.t("foc_phy")], ["men", T.t("foc_men")], ["tec", T.t("foc_tec")]] if not is_vid else [["tec", T.t("foc_tec")], ["men", T.t("foc_men2")], ["phy", T.t("foc_phy2")]], T.t("sc_focus_q"))
 			await _caption(T.t("sc_spark_hint"))
-			var caught := await _observe_phase(10.0 if is_vid else 14.0, 2 if is_vid else 3, is_vid)
+			var caught := await _observe_phase(16.0 if is_vid else 25.0, 2 if is_vid else 3, is_vid, f)
 			var res := Game.do_video(pid, f, caught) if is_vid else Game.do_training(pid, f, caught)
 			if not is_vid:
 				stage.shot(0, Vector3(-2.35, 1.62, 8.15), Vector3(-3.0, 1.35, 9.5), 3.0)
@@ -3174,11 +3244,24 @@ func _do_action(pid: String, kind: String) -> void:
 				_busy = false
 				_toast(T.t("need_lang"))
 				return
-			_scene_open("lobby", T.t("sc_place_meet", [cl.get("city", "")]))
+			var home := int(p.age) <= 18
+			_scene_open("home" if home else "lobby", T.t("sc_place_home", [cl.get("city", "")]) if home else T.t("sc_place_meet", [cl.get("city", "")]))
 			_seat("me", SCOUT_LOOK, -1.0, PI / 2.0)
-			_seat("p", {"kind": "player", "p": p, "club": cl, "casual": true, "top": Color(cl.get("c1", "#334455")).darkened(0.25)}, 1.0, -PI / 2.0)
+			var pinfo := {"kind": "player", "p": p, "club": cl, "casual": true, "top": Color(cl.get("c1", "#334455")).darkened(0.25)}
+			var par_name := ""
+			if home:
+				var pa = stage.add_actor("p", pinfo, Vector3(1.17, 0, -0.45), -PI / 2.0, "sit")
+				pa.set_meta("seated", true)
+				var pr = stage.add_actor("parent", {"top": Color("#6a5a4a"), "pants": Color("#2e2a26"), "skin": int(p.get("skin", 1)), "hair": 2, "seed": int(p.get("seed", 0)) + 101}, Vector3(1.17, 0, 0.5), -PI / 2.0, "sit")
+				pr.set_meta("seated", true)
+				par_name = T.t("parent_title", [String(p.get("last", ""))])
+			else:
+				_seat("p", pinfo, 1.0, -PI / 2.0)
 			stage.wide()
-			await _caption(T.t("sc_meet_intro", [p.first]))
+			await _caption(T.t("sc_home_intro", [p.first]) if home else T.t("sc_meet_intro", [p.first]))
+			if home:
+				var plvl: int = Game.hid_level(int(p.hid.get("professionalism", 10)))
+				await _line("parent", par_name, T.t("parent_%d" % plvl, [p.first]), "me", 0, ["worried", "thinking", "happy"][clampi(plvl, 0, 2)])
 			var pool := ["professionalism", "adaptability", "big_match", "injury_prone", "consistency"]
 			var picked := []
 			for k in 2:
@@ -3192,7 +3275,7 @@ func _do_action(pid: String, kind: String) -> void:
 				for i in res3.answers.size():
 					var an: Array = res3.answers[i]
 					await _line("me", me_name, T.t("q_" + str(an[0])), "p")
-					await _line("p", Game.pname(p), T.t("a_%s_%d" % [an[0], int(an[1])]), "me")
+					await _line("p", Game.pname(p), T.t("a_%s_%d" % [an[0], int(an[1])]), "me", 0, ["worried", "thinking", "happy"][clampi(int(an[1]), 0, 2)])
 					stage.listener_react("me", int(an[1]) >= 1)
 				stage.wide()
 				await _note(T.t("sc_meet_end"))
@@ -3244,7 +3327,7 @@ func _do_action(pid: String, kind: String) -> void:
 			if not res4.ok:
 				await _line("npc", nm, T.t(res4.msg), "me", vp2)
 			elif res4.msg == "src_ok":
-				await _line("npc", nm, T.t("s_%s_%d" % [res4["trait"], int(res4.lvl)], [p.first]), "me", vp2)
+				await _line("npc", nm, T.t("s_%s_%d" % [res4["trait"], int(res4.lvl)], [p.first]), "me", vp2, ["worried", "thinking", "happy"][clampi(int(res4.lvl), 0, 2)])
 				await _note(T.t("sc_noted_trait", [T.t("q_" + str(res4["trait"]))]))
 				if kind == "agent":
 					await _note(T.t("sc_agent_warn"), C_RED)

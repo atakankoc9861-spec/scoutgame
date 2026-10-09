@@ -136,6 +136,31 @@ var nod_t := -1.0          # baş sallama zamanlayıcı
 var head_yaw := 0.0        # başı sağa-sola çevir (rad)
 var _head_yaw_cur := 0.0
 var _inst: Node3D
+# --- yüz animasyonu (sahne/menü; maçta kapalı)
+const EXPR := ["x_blink", "x_wide_eyes", "x_squint", "x_brow_up", "x_brow_worry", "x_brow_down", "x_jaw", "x_smile", "x_wide", "x_round", "x_sad"]
+const EMO := {
+	"neutral": {},
+	"happy": {"x_smile": 0.75, "x_squint": 0.25, "x_brow_up": 0.15},
+	"smirk": {"x_smile": 0.4, "x_squint": 0.15},
+	"sad": {"x_sad": 0.6, "x_brow_worry": 0.7},
+	"worried": {"x_brow_worry": 0.65, "x_sad": 0.25},
+	"angry": {"x_brow_down": 0.85, "x_squint": 0.35, "x_sad": 0.2},
+	"annoyed": {"x_brow_down": 0.45, "x_sad": 0.3, "x_squint": 0.2},
+	"surprised": {"x_wide_eyes": 0.8, "x_brow_up": 0.8, "x_jaw": 0.18},
+	"thinking": {"x_brow_down": 0.25, "x_squint": 0.3, "x_round": 0.15},
+}
+var face_on := false
+var _fx := {}             # morph adı -> index (gövde)
+var _fw := {}             # şu anki ağırlıklar
+var _emo := "neutral"
+var _emo_t := -1.0
+var _talk_left := 0.0
+var _talk_ph := 0.0
+var _blink_t := 2.0
+var _blink := 0.0
+var _eye_mat: ShaderMaterial
+var look_target := Vector3.INF
+var _eye_off := Vector2.ZERO
 const ARM_R := [11, 12, 13]
 const ARM_L := [7, 8, 9]
 
@@ -240,6 +265,7 @@ func _build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, 
 			_:
 				mi.material_override = _hairmat(hair)
 	_apply_morphs()
+	_face_init(style)
 	for b in BONES:
 		bid.append(skel.find_bone(b))
 	pel_rest = skel.get_bone_rest(skel.find_bone("pelvis")).origin
@@ -347,6 +373,8 @@ func tick(delta: float, spd: float, anim_speed := 1.0) -> void:
 			nod_t = -1.0
 	_head_yaw_cur = lerpf(_head_yaw_cur, head_yaw, minf(1.0, delta * 5.0))
 	_apply(lo[0], hi[0], w)
+	if face_on and delta > 0.0:
+		_face(delta)
 
 func _sample_loop(c: Dictionary, t: float, k: int) -> Quaternion:
 	var a: Animation = c.a
@@ -423,6 +451,90 @@ func _apply(ca: String, cb: String, w: float) -> void:
 		var pv := rest_root * p
 		pv.y = 0.85
 		_inst.transform = Transform3D(Basis(), pv * sc) * Transform3D(Basis(Vector3.BACK, roll), Vector3.ZERO) * Transform3D(Basis().scaled(Vector3.ONE * sc), -pv * sc)
+
+## ---------------------------------------------------------------- yüz
+func _face_init(style: int) -> void:
+	face_on = not lod and parts.has("Body")
+	if not face_on:
+		return
+	var b: MeshInstance3D = parts["Body"]
+	for k in EXPR:
+		var i := b.find_blend_shape_by_name(k)
+		if i >= 0:
+			_fx[k] = i
+			_fw[k] = 0.0
+	if _fx.is_empty():
+		face_on = false
+		return
+	_blink_t = 1.0 + float(style % 23) * 0.13
+	if parts.has("Eyes"):
+		var em: ShaderMaterial = (parts["Eyes"] as MeshInstance3D).material_override
+		_eye_mat = em.duplicate()
+		parts["Eyes"].material_override = _eye_mat
+
+## Konuşma: süre boyunca ağız hece hecesi oynar
+func talk(seconds: float) -> void:
+	_talk_left = maxf(_talk_left, seconds)
+
+func stop_talk() -> void:
+	_talk_left = 0.0
+
+## Duygu: ad (EMO) ve süre (-1 = kalıcı)
+func emote(name: String, dur := -1.0) -> void:
+	_emo = name if EMO.has(name) else "neutral"
+	_emo_t = dur
+
+func _face(delta: float) -> void:
+	var want := {}
+	for k in _fw:
+		want[k] = 0.0
+	var e: Dictionary = EMO.get(_emo, {})
+	for k in e:
+		want[k] = e[k]
+	if _emo_t > 0.0:
+		_emo_t -= delta
+		if _emo_t <= 0.0:
+			_emo = "neutral"
+			_emo_t = -1.0
+	# konuşma: hece ritmi (~7 Hz), sesli harf şekli heceye göre değişir
+	if _talk_left > 0.0:
+		_talk_left -= delta
+		_talk_ph += delta * 7.0
+		var syl := absf(sin(_talk_ph * PI))
+		var h := hash(int(_talk_ph)) % 3
+		var env := clampf(_talk_left * 3.0, 0.0, 1.0)
+		want["x_jaw"] = float(want.get("x_jaw", 0.0)) + (0.12 + 0.38 * syl) * env
+		if h == 1:
+			want["x_wide"] = 0.35 * syl * env
+		elif h == 2:
+			want["x_round"] = 0.45 * syl * env
+	# göz kırpma
+	_blink_t -= delta
+	if _blink_t <= 0.0:
+		_blink = 0.16
+		_blink_t = randf_range(2.2, 5.5)
+	if _blink > 0.0:
+		_blink -= delta
+		want["x_blink"] = sin(clampf(1.0 - _blink / 0.16, 0.0, 1.0) * PI)
+	var b: MeshInstance3D = parts["Body"]
+	for k in _fw:
+		var spd := 30.0 if k in ["x_jaw", "x_blink", "x_wide", "x_round"] else 5.0
+		var nv := lerpf(float(_fw[k]), float(want[k]), minf(1.0, delta * spd))
+		if absf(nv - float(_fw[k])) > 0.002 or (nv == 0.0 and float(_fw[k]) != 0.0):
+			_fw[k] = nv
+			b.set_blend_shape_value(_fx[k], nv)
+	# gözler hedefe bakar (iris UV kaydırma)
+	if _eye_mat and look_target != Vector3.INF and skel:
+		var hi := skel.find_bone("head")
+		var hg := skel.global_transform * skel.get_bone_global_pose(hi)
+		var eye_w := hg * Vector3(0, 0.04, 0.09)
+		var d := (look_target - eye_w)
+		var loc := (global_transform.basis.inverse() * d).normalized()
+		var yaw := clampf(atan2(loc.x, loc.z), -0.6, 0.6)
+		var pitch := clampf(asin(clampf(loc.y, -1.0, 1.0)), -0.35, 0.35)
+		var tgt := Vector2(-yaw, -pitch) * 0.0035
+		_eye_off = _eye_off.lerp(tgt, minf(1.0, delta * 8.0))
+		_eye_mat.set_shader_parameter("look", _eye_off)
 
 func pose_state() -> Array:
 	return [phase, speed, action, action_t, action_dur, action_side, act_clip, act_start, idle_t]
