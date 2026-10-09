@@ -140,7 +140,7 @@ func _ready() -> void:
 	sv = SubViewport.new()
 	sv.own_world_3d = true
 	var q: String = Game.quality()
-	sv.msaa_3d = Viewport.MSAA_2X if q == "high" else Viewport.MSAA_DISABLED
+	sv.msaa_3d = Viewport.MSAA_2X if q == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 	# mantıksal boyut fiziksel ekrandan büyük olabilir (stretch=expand); gerçek piksele göre ölçekle
 	var ratio := 1.0
 	var lg := get_viewport().get_visible_rect().size
@@ -157,6 +157,7 @@ func _ready() -> void:
 	svc.add_child(sv)
 	_build_world()
 	print("[BC] viewer world ok")
+	Watch.check_vp(sv, "mac", func(): stadium.disable_glow())
 	_build_hud()
 	_update_chips()
 	_update_score()
@@ -480,7 +481,39 @@ func _open_list() -> void:
 	list_panel.visible = true
 	_fill_list()
 
+var list_scrolls: Array = []
+var list_dragged := false
+var _list_drag_acc := 0.0
+
+func _list_input(ev: InputEvent) -> void:
+	## döndürülmüş ekranda kendi kaydırmamız (ScrollContainer dokunmatikte çalışmıyor)
+	if not list_panel.visible:
+		return
+	if ev is InputEventScreenTouch and ev.pressed:
+		list_dragged = false
+		_list_drag_acc = 0.0
+	elif ev is InputEventMouseButton and ev.pressed and not DisplayServer.is_touchscreen_available():
+		list_dragged = false
+		_list_drag_acc = 0.0
+	elif ev is InputEventScreenDrag or (ev is InputEventMouseMotion and not DisplayServer.is_touchscreen_available() and (ev.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0):
+		for sc: ScrollContainer in list_scrolls:
+			if not is_instance_valid(sc):
+				continue
+			var inv := sc.get_global_transform_with_canvas().affine_inverse()
+			var lp: Vector2 = inv * ev.position
+			if Rect2(Vector2.ZERO, sc.size).has_point(lp):
+				var rel: Vector2 = inv.basis_xform(ev.relative)
+				sc.scroll_vertical -= int(rel.y)
+				_list_drag_acc += absf(rel.y)
+				if _list_drag_acc > 14.0:
+					list_dragged = true
+
+func _input(ev: InputEvent) -> void:
+	_list_input(ev)
+
 func _fill_list() -> void:
+	list_scrolls.clear()
+	var rts: Dictionary = eng.ratings(true)
 	for c in list_panel.get_children():
 		if c is Glass:
 			continue
@@ -505,13 +538,19 @@ func _fill_list() -> void:
 		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		sc.add_child(v)
 		v.add_child(_lbl(c.name, 24, Color(c.c1).lightened(0.3), true))
+		list_scrolls.append(sc)
 		for pid in side[1]:
 			var p: Dictionary = Game.player(pid)
 			var on: bool = pid in focus
 			var id: String = pid
-			var b := _btn("%s  %s  %s (%d)%s" % ["◉" if on else "○", p.pos, Game.pname(p), int(p.age), "  ★" if pid in Game.s.scout.shortlist else ""], func():
+			var rt: float = float(rts.get(pid, 6.0))
+			var offp: bool = eng.pl.has(pid) and eng.pl[pid].off
+			var b := _btn("%s  %s  %s (%d)%s   %s" % ["◉" if on else "○", p.pos, Game.pname(p), int(p.age), "  ★" if pid in Game.s.scout.shortlist else "", "🟥" if offp else "%.1f" % rt], func():
+				if list_dragged:
+					return
 				_toggle_focus(id)
 				_fill_list(), 21)
+			b.mouse_filter = Control.MOUSE_FILTER_PASS
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.custom_minimum_size = Vector2(0, 56)
 			if on:
@@ -758,6 +797,58 @@ func _build_world() -> void:
 		men[pid] = _make_man(pid, "a", ka, num)
 		num += 1
 	_refresh_rings()
+	_build_refs()
+
+var refs := {}
+
+func _build_refs() -> void:
+	## orta hakem + iki yan hakem
+	var kit := FB.kit_mats(Color("#151515"), Color("#151515"), Color("#151515"))
+	for k in ["ref", "lin1", "lin2"]:
+		var r = FB.new()
+		world.add_child(r)
+		r.build(kit, hash(k) % 4, 0, hash(k) % 7 + 1, 0, font_head)
+		r.number_lbl.visible = false
+		refs[k] = r
+	refs.lin1.position = Vector3(0, 0, 35.2)
+	refs.lin2.position = Vector3(0, 0, -35.2)
+
+func _refs_tick(delta: float) -> void:
+	if refs.is_empty():
+		return
+	var bp := ball.position
+	var r = refs.ref
+	# top ile çapraz, 12-18 m geride
+	var want := Vector3(bp.x - 10.0 * (1.0 if eng.poss == "h" else -1.0), 0, bp.z * 0.55 + 9.0)
+	var d: Vector3 = want - r.position
+	var spd := 0.0
+	if d.length() > 1.5:
+		var v := d.normalized() * minf(d.length() * 1.2, 6.5)
+		r.position += v * delta
+		spd = v.length()
+	var to_ball: Vector3 = bp - r.position
+	r.rotation.y = lerp_angle(r.rotation.y, atan2(to_ball.x, to_ball.z), minf(1.0, delta * 4.0))
+	r.tick(delta, spd)
+	# yan hakemler: kendi yarılarında ofsayt çizgisini takip eder
+	for k in ["lin1", "lin2"]:
+		var ln = refs[k]
+		var half := 1.0 if k == "lin1" else -1.0
+		var line_x := clampf(eng._offside_line("h" if half > 0 else "a"), 0.0, 52.0) * half if (bp.x * half) > -5.0 else 26.0 * half
+		var tx := clampf(line_x, -52.0, 52.0)
+		var dx: float = tx - ln.position.x
+		var sp2 := clampf(dx * 1.5, -6.0, 6.0)
+		ln.position.x += sp2 * delta
+		ln.rotation.y = PI if k == "lin1" else 0.0
+		ln.tick(delta, absf(sp2))
+
+func _ref_signal(kind: String, e: Dictionary) -> void:
+	if refs.is_empty():
+		return
+	if kind == "offside":
+		var ln = refs.lin1 if e.x > 0.0 else refs.lin2
+		ln.play("card", 1.5)
+	else:
+		refs.ref.play("card", 2.0)
 
 func _similar(a: Color, b: Color) -> bool:
 	return absf(a.h - b.h) < 0.08 and absf(a.v - b.v) < 0.35
@@ -919,6 +1010,9 @@ func _sync_men(alpha: float, gdt: float) -> void:
 		var q = eng.pl[pid]
 		var mm: Dictionary = men[pid]
 		var fb = mm.fb
+		if q.off:
+			fb.visible = false
+			continue
 		var p0: Vector2 = prev.get(pid, q.pos)
 		var p: Vector2 = p0.lerp(q.pos, alpha)
 		fb.position = Vector3(p.x, 0, p.y)
@@ -1014,6 +1108,8 @@ func _spark_catch() -> void:
 
 func _process(delta: float) -> void:
 	_spark_tick(minf(delta, 0.05))
+	if mode == "live" and not skipping and not paused:
+		_refs_tick(minf(delta, 0.05) * speed)
 	_frames += 1
 	if _frames == 1 or _frames == 30 or _frames == 300:
 		print("[BC] viewer kare ", _frames, " mod=", mode)
@@ -1133,9 +1229,9 @@ func _update_camera(delta: float) -> void:
 	else:
 		match cam_mode:
 			"wide":
-				pos = Vector3(clampf(tp.x * 0.5, -26.0, 26.0), 28.0, 39.0)
-				look = Vector3(clampf(tp.x * 0.7, -34.0, 34.0), 0.0, -2.0)
-				fov = 44.0
+				pos = Vector3(clampf(tp.x * 0.5, -26.0, 26.0), 30.0, 39.0)
+				look = Vector3(clampf(tp.x * 0.7, -34.0, 34.0), 0.0, clampf(tp.z * 0.8 + 4.0, -14.0, 22.0))
+				fov = 50.0
 				stiff = 1.6
 			"stand":
 				pos = Vector3(clampf(tp.x * 0.7, -36.0, 36.0), 6.5, 39.0)
@@ -1162,8 +1258,9 @@ func _update_camera(delta: float) -> void:
 			_:
 				# klasik yayın: ana tribün çatısı, top yönünü önceden takip eder
 				pos = Vector3(clampf(tp.x * 0.8, -40.0, 40.0), 21.0, 47.0)
-				look = Vector3(clampf(tp.x * 0.93, -46.0, 46.0), 0.0, clampf(tp.z * 0.6, -16.0, 19.0) + 1.0)
-				fov = 24.5 if absf(tp.x) < 36.0 else 27.0
+				# yakın taç çizgisi de kadrajda kalsın: z ekseninde topu tam takip et
+				look = Vector3(clampf(tp.x * 0.93, -46.0, 46.0), 0.0, clampf(tp.z * 0.9, -18.0, 30.0) + 1.0)
+				fov = (24.5 if absf(tp.x) < 36.0 else 27.0) + maxf(0.0, tp.z - 12.0) * 0.25
 	var k := 1.0 - exp(-delta * stiff)
 	cam.position = cam.position.lerp(pos, k)
 	cam_target = cam_target.lerp(look, minf(1.0, k * 1.3))
@@ -1305,6 +1402,29 @@ func _on_event(e: Dictionary) -> void:
 		"header":
 			if e.ok:
 				_push_ticker("%d' %s — %s" % [mins, T.t("mv_header"), nm], C_TEXT)
+		"offside":
+			_push_ticker("%d' 🚩 %s — %s" % [mins, T.t("mv_offside"), nm], C_MUTED)
+			if not skipping:
+				Sfx.play("whistle", -6.0)
+				_ref_signal("offside", e)
+		"yellow":
+			_push_ticker("%d' 🟨 %s — %s" % [mins, T.t("mv_yellow"), nm], Color("#f2d024"))
+			if not skipping:
+				Sfx.play("whistle", -4.0)
+				_ref_signal("card", e)
+				_popup(e.pid, "🟨", Color("#f2d024"))
+		"red":
+			_push_ticker("%d' 🟥 %s — %s%s" % [mins, T.t("mv_red"), nm, (" (" + T.t("mv_2y") + ")") if e.tgt == "2y" else ""], Color("#ff4d4d"))
+			if not skipping:
+				Sfx.play("whistle3", -2.0)
+				_ref_signal("card", e)
+				_show_banner(T.t("mv_red").to_upper(), Game.pname(pa))
+		"penalty":
+			_push_ticker("%d' ⚠ %s! — %s" % [mins, T.t("mv_penalty"), nm], C_ACCENT)
+			if not skipping:
+				Sfx.play("whistle3", -2.0)
+				_ref_signal("pen", e)
+				_show_banner(T.t("mv_penalty").to_upper() + "!", Game.club(m.h if e.side == "h" else m.a).name)
 	if skipping:
 		return
 	if e.pid in focus and e.ty in ["pass", "dribble", "shot", "cross", "header", "press", "sprint", "save", "tackle"]:

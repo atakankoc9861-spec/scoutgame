@@ -57,7 +57,7 @@ func setup(name: String, split := false) -> void:
 		cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.add_child(cont)
 		var sv := SubViewport.new()
-		sv.msaa_3d = Viewport.MSAA_2X if shadows else Viewport.MSAA_DISABLED
+		sv.msaa_3d = Viewport.MSAA_2X if shadows and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 		sv.world_3d = w3
 		cont.add_child(sv)
 		var cam := Camera3D.new()
@@ -65,6 +65,7 @@ func setup(name: String, split := false) -> void:
 		sv.add_child(cam)
 		views.append({"sv": sv, "cam": cam, "cont": cont})
 	views[0].sv.add_child(world)
+	Watch.check_vp(views[0].sv, "sahne " + name)
 	_build(name)
 
 func _process(delta: float) -> void:

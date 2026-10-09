@@ -102,6 +102,23 @@ func in_window() -> bool:
 			return true
 	return false
 
+var _name_idx := {}
+var _name_idx_n := -1
+
+## Haber/metindeki isimden kulüp ya da oyuncu bul (tıklanabilir bağlantılar için)
+func find_entity(name: String) -> Dictionary:
+	if _name_idx_n != s.players.size():
+		_name_idx.clear()
+		for cid in s.clubs:
+			_name_idx[String(s.clubs[cid].name)] = {"club": cid}
+		for pid in s.players:
+			var p: Dictionary = s.players[pid]
+			var nm := pname(p)
+			if not _name_idx.has(nm):
+				_name_idx[nm] = {"player": pid}
+		_name_idx_n = s.players.size()
+	return _name_idx.get(name, {})
+
 func add_news(key: String, args: Array = [], important := false, kind := "") -> void:
 	s.news.push_front({"season": s.season, "week": s.week, "key": key, "args": args, "imp": important, "kind": kind})
 	if s.news.size() > 160:
@@ -1374,7 +1391,7 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	s.scout.stats.watched += 1
 	# her oyuncu için olay istatistikleri
 	var agg := Timeline.aggregate(self, tl, all)
-	var obs := {"key": data.key, "h": m.h, "a": m.a, "gh": m.gh, "ga": m.ga, "youth": youth,
+	var obs := {"key": data.key, "h": m.h, "a": m.a, "gh": m.gh, "ga": m.ga, "youth": youth, "rt": m.get("rt", {}),
 		"notes": {}, "lines": {}, "standouts": [], "rival": "", "new_disc": []}
 	# rakip scout
 	if rf() < 0.35:

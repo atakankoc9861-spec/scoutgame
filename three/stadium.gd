@@ -69,7 +69,7 @@ void fragment() {
 const CROWD_SHADER := """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
-uniform sampler2D atlas : source_color, filter_linear_mipmap;
+uniform sampler2D atlas : source_color, filter_linear;
 uniform vec3 c1 = vec3(0.8, 0.6, 0.1);
 uniform vec3 c2 = vec3(0.1, 0.1, 0.3);
 uniform vec3 c3 = vec3(0.7, 0.1, 0.1);
@@ -103,10 +103,9 @@ void fragment() {
 	float u = 0.5 + (fx - 0.5) * 0.62;
 	float hgt = 0.62 + UV.y * 1.55 - (hype ? 0.0 : 0.05);
 	float v = 1.0 - (hgt - 0.55) / 1.7;
-	vec4 tx = vec4(0.0);
-	if (u > 0.0 && u < 1.0 && v > 0.0 && v < 1.0) {
-		tx = texture(atlas, vec2((variant * 4.0 + frame + u) / 8.0, (pose + v) / 8.0));
-	}
+	float inside = step(0.0, u) * step(u, 1.0) * step(0.0, v) * step(v, 1.0);
+	vec2 auv = vec2((variant * 4.0 + frame + clamp(u, 0.01, 0.99)) / 8.0, (pose + clamp(v, 0.01, 0.99)) / 8.0);
+	vec4 tx = textureLod(atlas, auv, 0.0) * inside;
 	if (tx.a > 0.5 && empty < 0.5) {
 		vec3 c = tx.rgb;
 		float lum = dot(c, vec3(0.3, 0.59, 0.11));
@@ -117,7 +116,7 @@ void fragment() {
 	float flash = step(0.997, hash(cell + floor(TIME * 3.0))) * (1.0 - empty);
 	col += vec3(1.0) * flash * 1.5;
 	float depth_fade = 0.6 + 0.4 * clamp(row / 14.0, 0.0, 1.0);
-	ALBEDO = col * depth_fade * (0.85 + 0.35 * excite);
+	ALBEDO = clamp(col * depth_fade * (0.85 + 0.35 * excite), vec3(0.0), vec3(1.5));
 }
 """
 
@@ -619,6 +618,10 @@ func _effects() -> void:
 		p.mesh = q
 		add_child(p)
 		confetti.append(p)
+
+func disable_glow() -> void:
+	for we in find_children("*", "WorldEnvironment", true, false):
+		(we as WorldEnvironment).environment.glow_enabled = false
 
 func set_fill(v: float) -> void:
 	for k in _crowd_cache:

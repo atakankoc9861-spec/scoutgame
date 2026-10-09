@@ -51,6 +51,8 @@ func set_pitch(deg: float) -> void:
 	pitch_deg = deg
 
 func set_active(on: bool) -> void:
+	if on and not active:
+		Watch.check_vp(sv, "hub-geri")
 	active = on
 	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	set_process(on)
@@ -171,7 +173,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sv = SubViewport.new()
 	sv.own_world_3d = true
-	sv.msaa_3d = Viewport.MSAA_2X if Game.quality() == "high" else Viewport.MSAA_DISABLED
+	sv.msaa_3d = Viewport.MSAA_2X if Game.quality() == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 	sv.scaling_3d_scale = Game.q_scale()
 	sv.audio_listener_enable_3d = false
 	add_child(sv)
@@ -186,12 +188,15 @@ func _ready() -> void:
 	_build_office()
 	_build_map()
 	_build_pedestal()
+	Watch.check_vp(sv, "hub", func():
+		for we in find_children("*", "WorldEnvironment", true, false):
+			(we as WorldEnvironment).environment.glow_enabled = false)
 	cam.position = STATIONS.office[0]
 	cam_look = STATIONS.office[1]
 	cam.look_at(cam_look)
 
 func apply_quality() -> void:
-	sv.msaa_3d = Viewport.MSAA_2X if Game.quality() == "high" else Viewport.MSAA_DISABLED
+	sv.msaa_3d = Viewport.MSAA_2X if Game.quality() == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
 	sv.scaling_3d_scale = Game.q_scale()
 
 func setup_font(f: Font) -> void:

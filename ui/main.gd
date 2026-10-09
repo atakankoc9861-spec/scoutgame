@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.12"
+const VERSION := "v0.13"
 
 var bg: ColorRect
 var hub
@@ -421,6 +421,38 @@ func _stat_pill(parent: Control, icon: String, key: String, val: float, fmt: Str
 		var tw2 := create_tween()
 		tw2.tween_property(pc, "scale", Vector2(1.08, 1.08), 0.12)
 		tw2.tween_property(pc, "scale", Vector2.ONE, 0.25)
+
+signal _confirm_done(v: bool)
+
+## Evet/Hayır onay kutusu
+func _confirm(text: String, yes: String, no: String) -> bool:
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.55)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _paper_style(C_CARD, 26, 8, 8))
+	card.anchor_left = 0.0
+	card.anchor_right = 1.0
+	card.anchor_top = 0.35
+	card.offset_left = 36
+	card.offset_right = -36
+	layer.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	card.add_child(v)
+	v.add_child(_lbl(text, 24, C_INK, true, F_BODY))
+	var was := _busy
+	_busy = false
+	_btn(yes, func(): _confirm_done.emit(true), "primary", v, "check")
+	_btn(no, func(): _confirm_done.emit(false), "ghost", v, "cross")
+	var r: bool = await _confirm_done
+	_busy = was
+	layer.queue_free()
+	return r
 
 func _toast(text: String) -> void:
 	toast_lbl.text = text
@@ -1642,6 +1674,12 @@ func _scr_match_plan(key: String) -> void:
 			if Game.match_abroad(key) and not Game.board_abroad_ok(Game.club_country(m.h)):
 				_toast(T.t("need_board_abroad"))
 				return
+			var cur: String = Game.s.plan.get(day, "")
+			if cur != "" and cur != key:
+				var cm := Game.get_match(cur)
+				var nm := "%s – %s" % [Game.club(cm.h).get("short", "?"), Game.club(cm.a).get("short", "?")]
+				if not await _confirm(T.t("plan_same_day", [T.t(day + "_long"), nm]), T.t("plan_replace"), T.t("plan_keep")):
+					return
 			if not Game.plan_match(day, key):
 				_toast(T.t("need_travel_day"))
 				return
@@ -2498,6 +2536,8 @@ func _scene_open(set_name: String, place: String) -> void:
 	dlg_hint.visible = false
 	dlg_root.add_child(dlg_hint)
 	dlg_root.gui_input.connect(_dlg_input)
+	root.visible = false
+	shade.visible = false
 	dlg_root.modulate.a = 0.0
 	create_tween().tween_property(dlg_root, "modulate:a", 1.0, 0.35)
 	set_process(true)
@@ -3268,6 +3308,45 @@ func _clipping(parent: Control, n: Dictionary, big: bool) -> void:
 		v.add_child(_lbl(T.t(n.key, n.args), 30, C_INK, true, F_HEAD))
 	else:
 		v.add_child(_lbl(T.t(n.key, n.args), 19 if not n.imp else 20, C_INK, true, F_SEMI if n.imp else F_BODY))
+	_entity_links(v, n.args)
+
+## Metindeki kulüp/oyuncu isimleri için tıklanabilir etiketler (FM tarzı)
+func _entity_links(parent: Control, args: Array) -> void:
+	var fl: HFlowContainer = null
+	var seen := {}
+	for a in args:
+		if not (a is String) or seen.has(a):
+			continue
+		seen[a] = true
+		var e := Game.find_entity(a)
+		if e.is_empty():
+			continue
+		if fl == null:
+			fl = HFlowContainer.new()
+			fl.add_theme_constant_override("h_separation", 6)
+			fl.add_theme_constant_override("v_separation", 6)
+			parent.add_child(fl)
+		if e.has("club"):
+			var cid: String = e.club
+			var b := _btn(a, func(): _show("club", cid), "small", fl, "")
+			b.custom_minimum_size = Vector2(0, 42)
+			b.add_theme_font_size_override("font_size", 17)
+			b.add_theme_color_override("font_color", C_BLUE)
+		else:
+			var pid: String = e.player
+			var b2 := _btn(a, func(): _show("player", pid), "small", fl, "")
+			b2.custom_minimum_size = Vector2(0, 42)
+			b2.add_theme_font_size_override("font_size", 17)
+			b2.add_theme_color_override("font_color", C_RED)
+
+## Etiketi tıklanabilir yap
+func _linkify(l: Label, cb: Callable) -> Label:
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	l.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	l.gui_input.connect(func(e):
+		if e is InputEventMouseButton and not e.pressed and e.button_index == MOUSE_BUTTON_LEFT and not _dragged:
+			cb.call())
+	return l
 
 func _scr_news() -> void:
 	_sheet([["news", T.t("wt_news")], ["table", T.t("wt_table")], ["fixtures", T.t("wt_fixtures")]], sub.news, _sub_cb("news"))
@@ -3438,6 +3517,8 @@ func _world_fixtures() -> void:
 		hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		hl.clip_text = true
 		hl.autowrap_mode = TextServer.AUTOWRAP_OFF
+		var hid: String = m.h
+		_linkify(hl, func(): _show("club", hid))
 		h.add_child(hl)
 		var played := int(m.gh) >= 0
 		var sc := _lbl(" %d - %d " % [int(m.gh), int(m.ga)] if played else T.t(m.day).to_upper(), 19, C_CARD if played else C_INK2, false, F_TYPEB)
@@ -3448,6 +3529,8 @@ func _world_fixtures() -> void:
 		var al := _lbl(Game.club(m.a).name, 18, C_INK, true, F_SEMI if mine else F_BODY)
 		al.clip_text = true
 		al.autowrap_mode = TextServer.AUTOWRAP_OFF
+		var aid: String = m.a
+		_linkify(al, func(): _show("club", aid))
 		h.add_child(al)
 
 func _scr_table() -> void:
@@ -3546,7 +3629,10 @@ func _obs_card(obs: Dictionary) -> void:
 		var pv := VBoxContainer.new()
 		pv.add_theme_constant_override("separation", 0)
 		pv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		pv.add_child(_head(Game.pname(p), 22))
+		var nh := _h(pv, 8)
+		nh.add_child(_head(Game.pname(p), 22))
+		if obs.get("rt", {}).has(pid):
+			nh.add_child(_rating_chip(float(obs.rt[pid])))
 		if obs.lines.has(pid):
 			pv.add_child(_typed(T.t(obs.lines[pid][0], obs.lines[pid][1]), 14, C_INK2))
 		ph.add_child(pv)
@@ -3566,6 +3652,45 @@ func _obs_card(obs: Dictionary) -> void:
 		v.add_child(_typed(T.t("standouts").to_upper(), 15, C_INK2))
 		for pid in obs.standouts:
 			_player_row(v, pid, "", true)
+	# tüm oyuncuların maç puanları
+	var rt: Dictionary = obs.get("rt", {})
+	if not rt.is_empty():
+		v.add_child(_typed(T.t("obs_rating").to_upper(), 15, C_INK2))
+		var cols := _h(v, 10)
+		for side in [obs.h, obs.a]:
+			var col := VBoxContainer.new()
+			col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			col.add_theme_constant_override("separation", 2)
+			cols.add_child(col)
+			var lst := []
+			for pid in rt:
+				var pp := Game.player(pid)
+				if not pp.is_empty() and (pp.club == side or (obs.youth and Game.club(pp.club).get("id", "") == side)):
+					lst.append(pid)
+			if lst.is_empty():
+				for pid in rt:
+					var pp2 := Game.player(pid)
+					if not pp2.is_empty() and pp2.get("club", "") == side:
+						lst.append(pid)
+			lst.sort_custom(func(a, b2): return float(rt[a]) > float(rt[b2]))
+			col.add_child(_lbl(Game.club(side).get("short", ""), 18, C_INK2, false, F_TYPEB))
+			for pid in lst:
+				var pp3 := Game.player(pid)
+				var id2: String = pid
+				var rb := _h(col, 6)
+				var nb := _btn("%s %s" % [_pos_short(pp3.pos), Game.short_name(pp3)], func(): _show("player", id2), "ghost", rb)
+				nb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				nb.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				nb.custom_minimum_size = Vector2(0, 44)
+				nb.add_theme_font_size_override("font_size", 17)
+				rb.add_child(_rating_chip(float(rt[pid])))
+
+func _rating_chip(r: float) -> Label:
+	var col := C_GREEN if r >= 7.0 else (C_INK if r >= 6.0 else C_RED)
+	var l := _lbl("%.1f" % r, 18, C_CARD, false, F_TYPEB)
+	l.add_theme_stylebox_override("normal", _sb(col, 5, 0, C_LINE, 6))
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return l
 
 func _scr_obs() -> void:
 	_sheet()
@@ -3600,6 +3725,8 @@ func _scr_result() -> void:
 				hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 				hl.clip_text = true
 				hl.autowrap_mode = TextServer.AUTOWRAP_OFF
+				var hid2: String = m.h
+				_linkify(hl, func(): _show("club", hid2))
 				h.add_child(hl)
 				var sc := _lbl(" %d - %d " % [int(m.gh), int(m.ga)], 20, C_CARD, false, F_TYPEB)
 				sc.add_theme_stylebox_override("normal", _sb(C_RED if mine else C_INK, 4, 0, C_LINE, 6))
@@ -3607,6 +3734,8 @@ func _scr_result() -> void:
 				var al := _lbl(Game.club(m.a).name, 18, C_INK, true, F_SEMI if mine else F_BODY)
 				al.clip_text = true
 				al.autowrap_mode = TextServer.AUTOWRAP_OFF
+				var aid2: String = m.a
+				_linkify(al, func(): _show("club", aid2))
 				h.add_child(al)
 	_section(T.t("tab_news"), null, "news")
 	var shown := 0

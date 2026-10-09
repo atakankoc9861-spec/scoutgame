@@ -670,6 +670,16 @@ const TR := {
 	"sc_board_q": "Başkana ne açacaksın?",
 	"sc_push_q": "Hangi oyuncuyu önereceksin?",
 	"nt_spark": "✦ Kıvılcım: %s özel an yakaladın. %s konusunda artık net bir fikrin var.",
+	"mv_offside": "Ofsayt",
+	"mv_yellow": "Sarı kart",
+	"mv_red": "Kırmızı kart",
+	"mv_2y": "ikinci sarı",
+	"mv_penalty": "Penaltı",
+	"ev_offside": "ofsayt",
+	"plan_same_day": "%s günü zaten %s maçına gidiyorsun. Planı bu maçla değiştirmek ister misin?",
+	"plan_replace": "Evet, değiştir",
+	"plan_keep": "Hayır, kalsın",
+	"obs_rating": "Maç puanı",
 }
 
 const EN := {
@@ -1312,4 +1322,14 @@ const EN := {
 	"sc_board_q": "What will you bring up with the president?",
 	"sc_push_q": "Which player will you recommend?",
 	"nt_spark": "✦ Spark: you caught %s special moments. You now have a clear read on %s.",
+	"mv_offside": "Offside",
+	"mv_yellow": "Yellow card",
+	"mv_red": "Red card",
+	"mv_2y": "second yellow",
+	"mv_penalty": "Penalty",
+	"ev_offside": "offside",
+	"plan_same_day": "You're already going to %s on %s. Swap your plan to this match?",
+	"plan_replace": "Yes, swap",
+	"plan_keep": "No, keep it",
+	"obs_rating": "Match rating",
 }

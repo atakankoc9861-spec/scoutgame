@@ -68,6 +68,40 @@ func _exit_tree() -> void:
 func _mon() -> String:
 	return "vmem=%dMB tex=%dMB nodes=%d obj=%d" % [int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))]
 
+## 3D görüntü kontrolü: birkaç kare sonra SubViewport içeriğini örnekler.
+## Siyah/boşsa kayda yazar ve fallback'i (MSAA kapat, ölçek 1, glow kapat) çağırır.
+func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) -> void:
+	for i in 25:
+		await get_tree().process_frame
+		if not is_instance_valid(sv):
+			return
+	var img := sv.get_texture().get_image()
+	if img == null or img.is_empty():
+		bc("3D %s: goruntu alinamadi" % tag)
+		return
+	var w := img.get_width()
+	var h := img.get_height()
+	var lum := 0.0
+	var alpha := 0.0
+	var n := 0
+	for yi in range(1, 8):
+		for xi in range(1, 8):
+			var c := img.get_pixel(w * xi / 8, h * yi / 8)
+			lum += c.get_luminance()
+			alpha += c.a
+			n += 1
+	lum /= n
+	alpha /= n
+	var bad := lum < 0.012 or alpha < 0.1
+	bc("3D %s: %s lum=%.3f a=%.2f boyut=%dx%d msaa=%d olcek=%.2f" % [tag, "BOS/SIYAH" if bad else "ok", lum, alpha, w, h, sv.msaa_3d, sv.scaling_3d_scale])
+	if bad and tries > 0:
+		sv.msaa_3d = Viewport.MSAA_DISABLED
+		sv.scaling_3d_scale = 1.0
+		if fallback.is_valid():
+			fallback.call()
+		Game.settings["safe3d"] = true
+		check_vp(sv, tag + "+fb", Callable(), tries - 1)
+
 ## Kısa iz bırak (ekran değişimi, sahne, maç vb.)
 func bc(msg: String) -> void:
 	var line := "%d %s" % [Time.get_ticks_msec() / 1000, msg]

@@ -27,7 +27,6 @@ const ACT := {
 }
 
 const T_BODY := preload("res://assets/man/t_body.png")
-const T_NORM := preload("res://assets/man/t_body_n.png")
 const T_EYE := preload("res://assets/man/t_eye.png")
 const T_HAIR := preload("res://assets/man/t_hair.png")
 const HAIRS := ["hair_buzzed", "hair_simpleparted", "hair_long", "hair_buzzed"]
@@ -73,7 +72,6 @@ static func _mat(shirt: Color, shorts: Color, socks: Color, skin: Color, hair: C
 		m.set_shader_parameter("c_hair", hair)
 		m.set_shader_parameter("c_boots", Color(0.07, 0.07, 0.08))
 		m.set_shader_parameter("tex_body", T_BODY)
-		m.set_shader_parameter("tex_norm", T_NORM)
 		if outfit.get("pattern", 0) > 0:
 			m.set_shader_parameter("pattern", int(outfit.pattern))
 			m.set_shader_parameter("c_shirt2", outfit.get("c2", Color.WHITE))

@@ -3,7 +3,6 @@ render_mode cull_back, diffuse_burley, specular_schlick_ggx;
 // UBC gövdesi: ten dokusu seçilen ten rengine boyanır; kıyafet bölgeleri
 // dinlenme (T-poz) konumundan hesaplanır (vertex rengi = dinlenme konumu).
 uniform sampler2D tex_body : source_color, filter_linear_mipmap;
-uniform sampler2D tex_norm : hint_normal, filter_linear_mipmap;
 uniform vec3 c_skin : source_color = vec3(0.8, 0.6, 0.5);
 uniform vec3 c_shirt : source_color = vec3(0.8, 0.1, 0.1);
 uniform vec3 c_shorts : source_color = vec3(1.0);
@@ -49,8 +48,7 @@ void fragment() {
 		c = c_boots; r = 0.35;
 	}
 	if (is_skin) { c = skin; r = 0.55; }
-	ALBEDO = c;
-	ROUGHNESS = r;
-	NORMAL_MAP = texture(tex_norm, UV).rgb;
-	NORMAL_MAP_DEPTH = is_skin ? 0.8 : 0.35;
+	// NaN koruması (bazı mobil GPU'larda NaN, glow ile tüm ekranı karartır)
+	ALBEDO = clamp(c, vec3(0.0), vec3(1.0));
+	ROUGHNESS = clamp(r, 0.05, 1.0);
 }

@@ -41,6 +41,8 @@ class Pl:
 	var run_t := 0.0
 	var seed := 0.0
 	var st := {}
+	var yel := 0
+	var off := false
 
 var g
 var m: Dictionary
@@ -302,7 +304,7 @@ func _update_ball(dt: float) -> void:
 	var best: Pl = null
 	var bd := 1.3
 	for q: Pl in pl.values():
-		if q.stun > 0.0:
+		if q.stun > 0.0 or q.off:
 			continue
 		var dd := q.pos.distance_to(ball)
 		if dd < bd:
@@ -371,7 +373,48 @@ func g_emit_corner(sd: String) -> void:
 
 # ================================================================ karar verme
 
+func _gk_decide(o: Pl) -> void:
+	## Kaleci topla: güvenli kısa pas ya da uzun degaj; asla riskli pas yok
+	var d := o.d
+	o.face = Vector2(d, 0)
+	var near_opp := nearest_opp(o, o.pos)
+	var danger := near_opp != null and near_opp.pos.distance_to(o.pos) < 14.0
+	var best: Pl = null
+	var bv := -1e9
+	if not danger:
+		for mt: Pl in team[o.side]:
+			if mt == o:
+				continue
+			var dist := mt.pos.distance_to(o.pos)
+			if dist < 8.0 or dist > 40.0:
+				continue
+			var speed := clampf(10.0 + dist * 0.35, 12.0, 24.0)
+			var risk := _lane_risk(o, mt.pos, speed)
+			var mp := pressure_on(mt)
+			if risk > 0.2 or mp > 0.5:
+				continue
+			var v := value(mt.pos, d) - risk * 0.3 + rng.randf() * 0.02
+			if v > bv:
+				bv = v
+				best = mt
+	if best != null:
+		var dist2 := best.pos.distance_to(o.pos)
+		_do_pass(o, {"to": best, "tp": best.pos, "p": 0.95, "v": bv, "long": dist2 > 30.0, "speed": clampf(10.0 + dist2 * 0.35, 12.0, 24.0), "risk": 0.05})
+		return
+	# uzun degaj: kanatlara/forvete doğru
+	var to := Vector2(d * rng.randf_range(5.0, 25.0), rng.randf_range(-22.0, 22.0))
+	var fw := _forward(o.side)
+	if fw != null and rng.randf() < 0.6:
+		to = fw.pos + Vector2(d * 3.0, rng.randf_range(-4.0, 4.0))
+	to = Vector2(clampf(to.x, -L + 1, L - 1), clampf(to.y, -W + 1, W - 1))
+	_kick(o, to, 24.0, "loft", minf(o.pos.distance_to(to) * 0.18, 13.0), "")
+	emit("pass", o.side, o.id, "", true, [], [])
+	o.st.p += 1
+
 func _decide(o: Pl) -> void:
+	if o.gk:
+		_gk_decide(o)
+		return
 	var d := o.d
 	var opts := []
 	var press := pressure_on(o)
@@ -381,7 +424,22 @@ func _decide(o: Pl) -> void:
 	# şut
 	if lx > 15.0 and absf(o.pos.y) < 26.0:
 		var q := xg(o.pos, d) * (0.6 + at(o, "finishing") * 0.03) * (1.0 - press * 0.3)
-		opts.append({"k": "shot", "v": q * 1.05})
+		# karşı karşıya: kaleyle arasında savunmacı yoksa şut çok daha cazip
+		var goal_p := Vector2(L * d, 0)
+		var blockers := 0
+		for op: Pl in team[other(o.side)]:
+			if op.gk:
+				continue
+			var seg := goal_p - o.pos
+			var tp2 := clampf((op.pos - o.pos).dot(seg) / maxf(0.01, seg.length_squared()), 0.0, 1.0)
+			if (o.pos + seg * tp2).distance_to(op.pos) < 2.5:
+				blockers += 1
+		var mult := 1.05
+		if blockers == 0 and lx > 30.0:
+			mult = 2.0
+		elif blockers == 0:
+			mult = 1.5
+		opts.append({"k": "shot", "v": q * mult})
 	# paslar
 	var vis := at(o, "vision")
 	var off_line := _offside_line(o.side)
@@ -404,15 +462,19 @@ func _decide(o: Pl) -> void:
 		if fwd > 0.0 and mt.vel.x * d > 3.0 and vis > 11.0:
 			tp += Vector2(d * (vis - 9.0) * 0.5, 0)
 		tp = Vector2(clampf(tp.x, -L + 1, L - 1), clampf(tp.y, -W + 1, W - 1))
+		var offs := false
 		if tp.x * d > off_line and mt.pos.x * d > off_line - 0.5:
-			continue   # ofsayt
+			# çoğunlukla görülür; bazen pasör/koşucu zamanlamayı kaçırır
+			if rng.randf() > 0.06 + (10.0 - minf(at(o, "decisions"), 10.0)) * 0.01:
+				continue
+			offs = mt.pos.x * d > off_line + 0.3
 		var risk := _lane_risk(o, tp, speed)
 		var long := dist > 30.0
 		var acc_q := (at(o, "passing") * (0.65 if long else 1.0) + (at(o, "vision") * 0.35 if long else 0.0) - 10.0) * 0.022
 		var ps := clampf(0.97 - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
 		var mp := pressure_on(mt)
 		var v := ps * (value(tp, d) * (1.0 - mp * 0.3) + 0.004) - (1.0 - ps) * loss
-		opts.append({"k": "pass", "to": mt, "tp": tp, "p": ps, "v": v, "long": long, "speed": speed, "risk": risk})
+		opts.append({"k": "pass", "to": mt, "tp": tp, "p": ps, "v": v, "long": long, "speed": speed, "risk": risk, "offside": offs})
 	# çalım / top sürme
 	var opp := nearest_opp(o, o.pos + Vector2(4.0 * d, 0))
 	var dir := Vector2(d, 0)
@@ -549,6 +611,11 @@ func _do_pass(o: Pl, op: Dictionary) -> void:
 	o.st.p += 1
 	var kind := "loft" if long else "ground"
 	var h := minf(o.pos.distance_to(tp) * 0.16, 11.0) if long else 0.0
+	if ok and op.get("offside", false):
+		emit("offside", o.side, mt.id, o.id, true, [], [])
+		_kick(o, tp, op.speed, kind, h, mt.id)
+		_set_restart("free", other(o.side), mt.pos)
+		return
 	if ok:
 		o.st.po += 1
 		if value(tp, o.d) > 0.35 and value(tp, o.d) - value(o.pos, o.d) > 0.08:
@@ -595,9 +662,8 @@ func _do_dribble(o: Pl, op: Dictionary) -> void:
 		else:
 			df.st.t += 1
 			anim(df, "slide" if rng.randf() < 0.35 else "tackle", 0.7)
-			if rng.randf() < 0.13 - at(df, "tackling") * 0.004:
-				emit("foul", df.side, df.id, o.id, true, [], [])
-				_set_restart("free", o.side, o.pos)
+			if rng.randf() < 0.2 - at(df, "tackling") * 0.005:
+				_foul(df, o)
 				return
 			o.stun = 0.8
 			_gain(df, false)
@@ -607,13 +673,13 @@ func _do_dribble(o: Pl, op: Dictionary) -> void:
 		o.run_t = 1.2
 		o.decide_t = 0.6 + rng.randf() * 0.5
 
-func _do_shot(o: Pl, header: bool) -> void:
+func _do_shot(o: Pl, header: bool, pen := false) -> void:
 	var d := o.d
 	var goal := Vector2(L * d, 0)
 	var dist := o.pos.distance_to(goal)
 	var att := [["finishing", 0.7], ["composure", 0.3]] if not header else [["heading", 0.6], ["finishing", 0.2], ["composure", 0.2]]
-	var press := pressure_on(o)
-	var du := duel(o, att, null, [], 0.72 - dist / 55.0 - press * 0.1, 0.03)
+	var press := pressure_on(o) if not pen else 0.0
+	var du := duel(o, att, null, [], (0.72 - dist / 55.0 - press * 0.1) if not pen else 0.86, 0.03)
 	var on: bool = rng.randf() < du.p
 	o.st.s += 1
 	shots[o.side] += 1
@@ -630,6 +696,7 @@ func _do_shot(o: Pl, header: bool) -> void:
 	flight.on = on
 	flight.header = header
 	flight.dist = dist
+	flight.pen = pen
 	if header:
 		anims.pop_back()
 		anim(o, "header", 0.62)
@@ -650,7 +717,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 			_set_restart("goalkick", k.side, Vector2(L * signf(ball.x) - 5.5 * signf(ball.x), rng.randf_range(-6, 6)))
 		return
 	var sv := duel(k, [["reflexes", 0.65], ["handling", 0.35]], sh, [["finishing", 0.6], ["composure", 0.4]] if not fl.header else [["heading", 1.0]],
-		clampf(0.45 + float(fl.dist) / 90.0, 0.4, 0.85), 0.025)
+		clampf(0.45 + float(fl.dist) / 90.0, 0.4, 0.85) if not fl.get("pen", false) else 0.2, 0.025)
 	var saved: bool = rng.randf() < sv.p
 	if saved:
 		var held: bool = rng.randf() < 0.35 + at(k, "handling") * 0.025
@@ -777,15 +844,59 @@ func _defend_owner(dt: float) -> void:
 				emit("press", q.side, q.id, o.id, true, du.aa, du.ta)
 				q.st.t += 1
 				anim(q, "tackle", 0.5)
-				if rng.randf() < 0.08:
-					emit("foul", q.side, q.id, o.id, true, [], [])
-					_set_restart("free", o.side, o.pos)
+				if rng.randf() < 0.13:
+					_foul(q, o)
 					return
 				o.stun = 0.7
 				_gain(q, false)
 				return
 			elif rng.randf() < 0.15:
 				emit("press", q.side, q.id, o.id, false, du.aa, du.ta)
+
+# ================================================================ hakem: faul, kart, penaltı, ofsayt
+
+func _foul(df: Pl, vic: Pl) -> void:
+	var lx := vic.pos.x * vic.d
+	var in_box := lx > L - 16.5 and absf(vic.pos.y) < 20.16
+	# ceza sahasında hakem çoğu teması "devam" der
+	if in_box and rng.randf() < 0.45:
+		return
+	emit("foul", df.side, df.id, vic.id, true, [], [])
+	# kart: tehlikeli bölge ve son adam faulü daha ağır
+	var pc := 0.14 + (0.12 if lx > 20.0 else 0.0) + (0.1 if in_box else 0.0) - at(df, "composure") * 0.004
+	var pr := 0.006 + (0.03 if in_box and _last_man(df) else 0.0)
+	if not df.gk and rng.randf() < pr:
+		_send_off(df, false)
+	elif rng.randf() < pc:
+		df.yel += 1
+		df.st["yc"] = int(df.st.get("yc", 0)) + 1
+		if df.yel >= 2 and not df.gk:
+			emit("yellow", df.side, df.id, vic.id, true, [], [])
+			_send_off(df, true)
+		else:
+			emit("yellow", df.side, df.id, vic.id, true, [], [])
+	if in_box:
+		emit("penalty", vic.side, vic.id, df.id, true, [], [])
+		_set_restart("penalty", vic.side, Vector2((L - 11.0) * vic.d, 0))
+	else:
+		_set_restart("free", vic.side, vic.pos)
+
+func _last_man(df: Pl) -> bool:
+	var behind := 0
+	for q: Pl in team[df.side]:
+		if q != df and not q.gk and q.pos.x * df.d < df.pos.x * df.d:
+			behind += 1
+	return behind == 0
+
+func _send_off(q: Pl, second: bool) -> void:
+	emit("red", q.side, q.id, "2y" if second else "", true, [], [])
+	q.off = true
+	q.st["rc"] = 1
+	team[q.side].erase(q)
+	q.pos = Vector2(0, (W + 3.0) * (1.0 if q.side == "h" else 1.0))
+	q.vel = Vector2.ZERO
+	if owner == q:
+		owner = null
 
 # ================================================================ duran toplar
 
@@ -814,7 +925,10 @@ func _set_restart(k: String, sd: String, at_p: Vector2) -> void:
 					bd = dd
 					tk = q
 	restart = {"k": k, "side": sd, "pos": at_p, "taker": tk.id}
-	dead_t = {"goalkick": 2.5, "corner": 3.2, "throw": 1.6, "free": 2.6, "goal": 9.0, "kick": 2.0}.get(k, 2.0)
+	if k == "penalty":
+		tk = _best(team[sd], "finishing")
+		restart.taker = tk.id
+	dead_t = {"goalkick": 2.5, "corner": 3.2, "throw": 1.6, "free": 2.6, "goal": 9.0, "kick": 2.0, "penalty": 5.0}.get(k, 2.0)
 
 func _best(arr: Array, attr: String) -> Pl:
 	var best: Pl = null
@@ -859,6 +973,11 @@ func _do_restart() -> void:
 	if k == "throw":
 		anim(tk, "throw", 1.0)
 	match k:
+		"penalty":
+			tk.pos = restart.pos - Vector2(tk.d * 0.8, 0)
+			var kp := keeper(other(tk.side))
+			kp.pos = Vector2(L * tk.d - 0.3 * tk.d, 0)
+			_do_shot(tk, false, true)
 		"corner":
 			_do_cross(tk)
 		"kick", "throw":
@@ -879,6 +998,9 @@ func _move_all(dt: float) -> void:
 	var defside := other(poss)
 	var pressers := _nearest_two(defside, focus)
 	for q: Pl in pl.values():
+		if q.off:
+			q.vel = Vector2.ZERO
+			continue
 		var tw := _target_for(q, focus, line, pressers, dead)
 		var cap: float = tw[1]
 		_steer(q, tw[0], cap, tw[2], dt)
@@ -1111,7 +1233,7 @@ func run_to_end(max_steps := 200000, dt := 0.2) -> void:
 		anims.clear()
 		n += 1
 
-func ratings() -> Dictionary:
+func ratings(live := false) -> Dictionary:
 	var out := {}
 	var gd: int = score[0] - score[1]
 	for q: Pl in pl.values():
@@ -1126,7 +1248,8 @@ func ratings() -> Dictionary:
 		if q.gk:
 			var conc: int = score[1] if q.side == "h" else score[0]
 			r += 0.4 - conc * 0.3
-		out[q.id] = snappedf(clampf(r + rng.randfn(0.0, 0.2), 4.5, 9.8), 0.1)
+		r -= float(s.get("yc", 0)) * 0.3 + float(s.get("rc", 0)) * 1.5
+		out[q.id] = snappedf(clampf(r + (0.0 if live else rng.randfn(0.0, 0.2)), 3.5, 9.8), 0.1)
 	return out
 
 func goal_events() -> Array:
