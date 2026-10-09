@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.13.1"
+const VERSION := "v0.13.3"
 
 var bg: ColorRect
 var hub
@@ -1424,6 +1424,12 @@ func _run_viewer(data: Dictionary, focus: Array):
 	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(layer)
+	var blk := ColorRect.new()
+	blk.color = Color.BLACK
+	blk.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	blk.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(blk)
+	root.visible = false
 	# Ekran yönü değiştirilmez (siyah ekran sorunu): içerik 90° döndürülür, telefon yan tutulur
 	var rot := RotHolder.new()
 	layer.add_child(rot)
@@ -1438,6 +1444,7 @@ func _run_viewer(data: Dictionary, focus: Array):
 	await tw2.finished
 	layer.visible = false
 	layer.queue_free()
+	root.visible = true
 	viewer = null
 	if hub:
 		hub.set_active(true)
@@ -2397,6 +2404,11 @@ func _scene_open(set_name: String, place: String) -> void:
 	dlg_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dlg_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dlg_layer)
+	var blk2 := ColorRect.new()
+	blk2.color = Color.BLACK
+	blk2.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	blk2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dlg_layer.add_child(blk2)
 	stage = Stage3D.new()
 	dlg_layer.add_child(stage)
 	stage.setup(set_name, set_name == "phone")
@@ -3332,12 +3344,14 @@ func _entity_links(parent: Control, args: Array) -> void:
 		if e.has("club"):
 			var cid: String = e.club
 			var b := _btn(a, func(): _show("club", cid), "small", fl, "")
+			b.autowrap_mode = TextServer.AUTOWRAP_OFF
 			b.custom_minimum_size = Vector2(0, 42)
 			b.add_theme_font_size_override("font_size", 17)
 			b.add_theme_color_override("font_color", C_BLUE)
 		else:
 			var pid: String = e.player
 			var b2 := _btn(a, func(): _show("player", pid), "small", fl, "")
+			b2.autowrap_mode = TextServer.AUTOWRAP_OFF
 			b2.custom_minimum_size = Vector2(0, 42)
 			b2.add_theme_font_size_override("font_size", 17)
 			b2.add_theme_color_override("font_color", C_RED)

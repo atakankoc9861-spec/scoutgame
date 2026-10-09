@@ -70,6 +70,16 @@ func _exit_tree() -> void:
 func _mon() -> String:
 	return "vmem=%dMB tex=%dMB nodes=%d obj=%d" % [int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))]
 
+const OPAQUE_SHADER := "shader_type canvas_item;\nvoid fragment() { COLOR = vec4(texture(TEXTURE, UV).rgb, 1.0); }"
+static var _opq_mat: ShaderMaterial
+static func opaque_mat() -> ShaderMaterial:
+	if _opq_mat == null:
+		_opq_mat = ShaderMaterial.new()
+		var sh := Shader.new()
+		sh.code = OPAQUE_SHADER
+		_opq_mat.shader = sh
+	return _opq_mat
+
 ## 3D görüntü kontrolü: birkaç kare sonra SubViewport içeriğini örnekler.
 ## Siyah/boşsa kayda yazar ve fallback'i (MSAA kapat, ölçek 1, glow kapat) çağırır.
 func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) -> void:

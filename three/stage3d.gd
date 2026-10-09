@@ -55,6 +55,7 @@ func setup(name: String, split := false) -> void:
 		cont.stretch = true
 		cont.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cont.material = Watch.opaque_mat()
 		hb.add_child(cont)
 		var sv := SubViewport.new()
 		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS

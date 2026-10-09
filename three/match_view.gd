@@ -136,6 +136,7 @@ func _ready() -> void:
 	svc.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	svc.mouse_filter = Control.MOUSE_FILTER_STOP
 	svc.gui_input.connect(_on_view_input)
+	svc.material = Watch.opaque_mat()
 	add_child(svc)
 	sv = SubViewport.new()
 	sv.own_world_3d = true
@@ -1061,6 +1062,7 @@ func _on_engine_event(e: Dictionary) -> void:
 	_on_event(e)
 
 var _frames := 0
+var _hb_t := 0.0
 var spark_pid := ""
 var spark_t := 0.0
 var spark_n := 0
@@ -1115,6 +1117,10 @@ func _process(delta: float) -> void:
 	_frames += 1
 	if _frames == 1 or _frames == 30 or _frames == 300:
 		print("[BC] viewer kare ", _frames, " mod=", mode)
+	_hb_t += delta
+	if _hb_t > 3.0:
+		_hb_t = 0.0
+		Watch.bc("mac nabiz kare=%d mod=%s fps=%d dk=%d %s" % [_frames, mode, Engine.get_frames_per_second(), int(eng.clock / 60.0), Watch._mon()])
 	delta = minf(delta, 0.05)
 	match mode:
 		"intro":
