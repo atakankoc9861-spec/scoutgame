@@ -1,0 +1,51 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Gözcü: Scout Kariyeri"
+config/description="Futbol scout kariyer oyunu"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.5", "GL Compatibility")
+config/icon="res://icon.svg"
+run/flush_stdout_on_print=true
+run/flush_stdout_on_print.debug=true
+
+[autoload]
+
+T="*res://autoload/T.gd"
+Data="*res://autoload/Data.gd"
+Game="*res://autoload/Game.gd"
+Sfx="*res://autoload/Sfx.gd"
+Watch="*res://autoload/Watch.gd"
+
+[debug]
+
+file_logging/enable_file_logging=true
+file_logging/enable_file_logging.pc=true
+file_logging/max_log_files=5
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[gui]
+
+common/drop_mouse_on_gui_input_disabled=true
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[rendering]
+
+rendering_device/fallback_to_opengl3=true
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.055, 0.09, 0.07, 1)
