@@ -82,6 +82,17 @@ var goal_pending_replay := false
 var goal_gt := 0.0
 var poss := "h"
 var orient_set := false
+# oyuncu anları / video
+var moments := false
+var video := false
+var max_moments := 0
+var seeking := false
+var moment_on := false
+var moment_last := 0.0
+var moments_seen := 0
+var max_focus := 3
+var moment_start := 0.0
+var seek_from := -999.0
 
 # HUD
 var hud: Control
@@ -114,6 +125,11 @@ func setup(d: Dictionary, fhead: Font, fbody: Font, initial_focus: Array) -> voi
 	youth = d.youth
 	font_head = fhead
 	font_body = fbody
+	moments = bool(d.get("moments", false))
+	video = bool(d.get("video", false))
+	max_moments = int(d.get("max_moments", 0))
+	max_focus = 6 if moments else 3
+	eye_left = 3 if video else (6 if moments else 4)
 	for pid in initial_focus:
 		if pid in m.xi_h or pid in m.xi_a:
 			focus.append(pid)
@@ -291,6 +307,7 @@ func _build_hud() -> void:
 	ff_badge.add_child(ffp)
 	ff_badge.visible = false
 	sbx.add_child(ff_badge)
+
 	# sağ üst kontrol rayı
 	rail = HBoxContainer.new()
 	rail.add_theme_constant_override("separation", 8)
@@ -355,6 +372,17 @@ func _build_hud() -> void:
 	replay_badge.position = Vector2(safe + 8, 28)
 	replay_badge.visible = false
 	hud.add_child(replay_badge)
+	if video or moments:
+		var vb := PanelContainer.new()
+		vb.add_theme_stylebox_override("panel", _sb(Color(0.6, 0.08, 0.06, 0.85), 4, 10))
+		var vl := _lbl(T.t("vid_badge", [int(data.get("ago", 1))]) if video else T.t("wm_moments").to_upper(), 18, Color.WHITE, true)
+		vb.add_child(vl)
+		vb.anchor_left = 0.5
+		vb.anchor_right = 0.5
+		vb.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		vb.offset_top = 74
+		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hud.add_child(vb)
 	# gol bandı
 	banner = Control.new()
 	banner.anchor_left = 0.0
@@ -563,7 +591,7 @@ func _toggle_focus(pid: String) -> void:
 	if pid in focus:
 		focus.erase(pid)
 	else:
-		if focus.size() >= 3:
+		if focus.size() >= max_focus:
 			focus.pop_front()
 		focus.append(pid)
 		if not focus_events.has(pid):
@@ -995,6 +1023,8 @@ func _end_intro() -> void:
 	_refresh_rings()
 	Sfx.play("whistle", -2.0)
 	Sfx.crowd_level(0.45)
+	if moments:
+		seeking = true
 
 func _place_kickoff() -> void:
 	_sync_men(1.0, 0.0)
@@ -1111,8 +1141,10 @@ func _spark_catch() -> void:
 	spark_ring.visible = false
 
 # ================================================================ Analist Gözü
+## v0.20: tutarlı tetik (odak oyuncu topu her aldığında, oyuncu başına sınırlı), en fazla 4 net seçenek
+## (en iyi + güvenli + iddialı + bir alternatif), karışık sıralı, her biri ekranda numaralı ve düğmeli.
 
-var eye_left := 3
+var eye_left := 4
 var eye_state := ""          # "" | choose | wait | verdict
 var eye_owner := ""
 var eye_prev_owner := ""
@@ -1126,9 +1158,13 @@ var eye_panel: PanelContainer
 var eye_title: Label
 var eye_sub: Label
 var eye_bar: ColorRect
-var eye_btns: HBoxContainer
+var eye_btns: GridContainer
 var eye_log := {}
 var eye_hits := {}
+var eye_per := {}             # oyuncu -> bu maçta kaç kez soruldu
+var eye_last := {}            # oyuncu -> son sorulduğu maç saati
+var eye_intro_done := false
+const EYE_TIME := 12.0
 
 func _eye_tick(delta: float) -> void:
 	match eye_state:
@@ -1136,13 +1172,13 @@ func _eye_tick(delta: float) -> void:
 			var oid: String = eng.owner.id if eng.owner != null else ""
 			if oid != eye_prev_owner:
 				eye_prev_owner = oid
-				if oid != "" and oid in focus and _eye_can(eng.owner) and randf() < 0.55:
+				if oid != "" and oid in focus and _eye_can(eng.owner):
 					_eye_start(eng.owner)
 		"choose":
 			eye_t += delta
-			eye_bar.scale.x = clampf(1.0 - eye_t / 9.0, 0.0, 1.0)
+			eye_bar.scale.x = clampf(1.0 - eye_t / EYE_TIME, 0.0, 1.0)
 			_eye_pulse()
-			if eye_t > 9.0:
+			if eye_t > EYE_TIME:
 				_eye_choose(-1)
 		"wait":
 			eye_t += delta
@@ -1153,64 +1189,100 @@ func _eye_tick(delta: float) -> void:
 				_eye_verdict()
 		"verdict":
 			eye_t += delta
-			if eye_t > 3.6:
+			if eye_t > 5.5:
 				_eye_clear()
 
 func _eye_can(o) -> bool:
-	if eye_left <= 0 or skipping or highlights or done or mode != "live":
+	if eye_left <= 0 or skipping or done or mode != "live":
 		return false
-	if o.gk or eng.phase != "play" or eng.clock - eye_cd < 780.0 or o.decide_t < 0.2:
+	if highlights and not moments:
 		return false
-	var good := 0
-	for op in eng.eye_preview(o):
-		if op.k == "pass" and float(op.v) > -0.5:
-			good += 1
-	return good >= 3
+	if o.gk or eng.phase != "play" or o.decide_t < 0.15:
+		return false
+	# aynı oyuncuya sık sık sorma; her odak oyuncuya adil pay
+	var per_cap := 3 if moments else 2
+	if int(eye_per.get(o.id, 0)) >= per_cap:
+		return false
+	if eng.clock - float(eye_last.get(o.id, -9999.0)) < (240.0 if moments else 420.0):
+		return false
+	if eng.clock - eye_cd < 90.0:
+		return false
+	# kendi ceza sahasında karar anı sorma
+	if o.pos.x * o.d < -36.0:
+		return false
+	return _eye_pick(eng.eye_preview(o), o).size() >= 3
+
+func _eye_pick(all: Array, o) -> Array:
+	## En iyi + en güvenli + en iddialı + bir alternatif (en fazla 4, tekrarsız)
+	var ok := []
+	for op in all:
+		if op.get("offside", false) or float(op.v) <= -0.5:
+			continue
+		ok.append(op)
+	if ok.size() < 2:
+		return []
+	ok.sort_custom(func(a, b): return float(a.v) > float(b.v))
+	var out := [ok[0]]
+	var safe = null
+	var bold = null
+	var special = null
+	for op in ok:
+		if op in out:
+			continue
+		if op.k == "pass" and (safe == null or float(op.risk) < float(safe.risk)):
+			safe = op
+		if op.k == "pass" and (bold == null or float(op.tp.x) * o.d > float(bold.tp.x) * o.d):
+			bold = op
+		if op.k != "pass" and special == null:
+			special = op
+	for c in [special, safe, bold]:
+		if c != null and not (c in out) and out.size() < 4:
+			out.append(c)
+	for op in ok:
+		if out.size() >= 4:
+			break
+		if not (op in out):
+			out.append(op)
+	return out
 
 func _eye_start(o) -> void:
 	eye_state = "choose"
 	eye_owner = o.id
 	eye_t = 0.0
 	eye_guess = -1
+	eye_per[o.id] = int(eye_per.get(o.id, 0)) + 1
+	eye_last[o.id] = eng.clock
 	eng.eye_pid = o.id
 	eng.eye_res = {}
-	var all: Array = eng.eye_preview(o)
-	all.sort_custom(func(a, b): return float(a.v) > float(b.v))
-	eye_opts = []
-	var passes := 0
-	for op in all:
-		if op.k == "pass":
-			if op.get("offside", false) or passes >= 5:
-				continue
-			passes += 1
-		eye_opts.append(op)
-	eye_best = 0
-	var lab := 0
+	var picked := _eye_pick(eng.eye_preview(o), o)
+	var best_op: Dictionary = picked[0]
+	picked.shuffle()
+	eye_opts = picked
+	eye_best = eye_opts.find(best_op)
 	for i in eye_opts.size():
 		var op: Dictionary = eye_opts[i]
-		if op.k != "pass":
-			_eye_lane(o.pos, op.tp, -1.0, i)
-			continue
-		lab += 1
-		op.lab = lab
-		_eye_lane(o.pos, op.tp, op.risk, i)
-		if men.has(op.to):
-			var l := Label3D.new()
-			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			l.no_depth_test = true
-			l.fixed_size = true
-			l.pixel_size = 0.0006
-			l.font_size = 64
-			l.outline_size = 18
-			l.text = str(lab)
-			l.font = font_head
-			l.modulate = Color(1, 1, 1)
-			world.add_child(l)
-			l.position = men[op.to].fb.position + Vector3(0, 2.7, 0)
-			l.set_meta("opt", i)
-			eye_nodes.append(l)
+		op.lab = i + 1
+		_eye_lane(o.pos, op.tp, float(op.risk) if op.k == "pass" else -1.0, i)
+		var at3: Vector3 = Vector3(op.tp.x, 0.0, op.tp.y)
+		if op.k == "pass" and men.has(op.to):
+			at3 = men[op.to].fb.position
+		var l := Label3D.new()
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.no_depth_test = true
+		l.fixed_size = true
+		l.pixel_size = 0.0007
+		l.font_size = 64
+		l.outline_size = 18
+		l.text = str(i + 1)
+		l.font = font_head
+		l.modulate = Color(1, 1, 1)
+		world.add_child(l)
+		l.position = at3 + Vector3(0, 2.7, 0)
+		l.set_meta("opt", i)
+		eye_nodes.append(l)
 	_eye_ui()
 	Sfx.play("spark", -6.0)
+	Input.vibrate_handheld(40)
 	_push_ticker(T.t("eye_title") + " — " + Game.short_name(Game.player(o.id)), C_ACCENT)
 
 func _eye_lane(from: Vector2, to: Vector2, risk: float, i: int) -> void:
@@ -1264,15 +1336,15 @@ func _eye_pulse() -> void:
 
 func _eye_ui() -> void:
 	if eye_panel == null:
-		eye_panel = _glass_panel(20.0, Color(0.02, 0.05, 0.04, 0.82))
+		eye_panel = _glass_panel(20.0, Color(0.02, 0.05, 0.04, 0.86))
 		eye_panel.anchor_left = 0.5
 		eye_panel.anchor_right = 0.5
 		eye_panel.anchor_top = 1.0
 		eye_panel.anchor_bottom = 1.0
-		eye_panel.offset_left = -430
-		eye_panel.offset_right = 430
-		eye_panel.offset_bottom = -16
-		eye_panel.offset_top = -16 - 190
+		eye_panel.offset_left = -470
+		eye_panel.offset_right = 470
+		eye_panel.offset_bottom = -12
+		eye_panel.offset_top = -12 - 200
 		eye_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 		hud.add_child(eye_panel)
 		var v := VBoxContainer.new()
@@ -1283,15 +1355,16 @@ func _eye_ui() -> void:
 		th.add_theme_constant_override("separation", 10)
 		v.add_child(th)
 		th.add_child(Icon.new().setup("eye", C_ACCENT, 30))
-		eye_title = _lbl("", 30, C_ACCENT, true)
+		eye_title = _lbl("", 28, C_ACCENT, true)
 		th.add_child(eye_title)
-		eye_sub = _lbl("", 21, C_TEXT)
+		eye_sub = _lbl("", 20, C_TEXT)
 		eye_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		eye_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(eye_sub)
-		eye_btns = HBoxContainer.new()
-		eye_btns.alignment = BoxContainer.ALIGNMENT_CENTER
-		eye_btns.add_theme_constant_override("separation", 10)
+		eye_btns = GridContainer.new()
+		eye_btns.columns = 2
+		eye_btns.add_theme_constant_override("h_separation", 8)
+		eye_btns.add_theme_constant_override("v_separation", 8)
 		v.add_child(eye_btns)
 		var bar_bg := ColorRect.new()
 		bar_bg.color = Color(1, 1, 1, 0.12)
@@ -1304,24 +1377,36 @@ func _eye_ui() -> void:
 	eye_panel.visible = true
 	bottom_left.visible = false
 	minimap.visible = false
-	eye_title.text = T.t("eye_title")
-	eye_sub.text = T.t("eye_ask", [Game.short_name(Game.player(eye_owner))])
+	eye_title.text = T.t("eye_title") + "  (%d)" % eye_left
+	var nm := Game.short_name(Game.player(eye_owner))
+	eye_sub.text = T.t("eye_ask2", [nm]) + ("" if eye_intro_done else "\n" + T.t("eye_howto"))
+	eye_intro_done = true
 	for c in eye_btns.get_children():
 		c.queue_free()
 	for i in eye_opts.size():
 		var op: Dictionary = eye_opts[i]
-		if op.k == "pass":
-			continue
 		var idx := i
-		var b := _btn(T.t("eye_" + op.k), func(): _eye_choose(idx), 22)
-		b.custom_minimum_size = Vector2(170, 58)
+		var b := _btn("%d  %s" % [i + 1, _eye_opt_name(op)], func(): _eye_choose(idx), 21)
+		b.custom_minimum_size = Vector2(440, 56)
+		b.clip_text = true
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		# risk şeridi (sol kenar)
+		var stripe := ColorRect.new()
+		stripe.color = _eye_risk_col(op)
+		stripe.position = Vector2(0, 6)
+		stripe.size = Vector2(7, 44)
+		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(stripe)
 		eye_btns.add_child(b)
-	var sk := _btn(T.t("eye_skip"), func(): _eye_choose(-1), 20)
-	sk.custom_minimum_size = Vector2(130, 58)
-	eye_btns.add_child(sk)
 	eye_btns.visible = true
 	eye_bar.get_parent().visible = true
 	eye_bar.scale.x = 1.0
+
+func _eye_risk_col(op: Dictionary) -> Color:
+	if op.k != "pass":
+		return Color("#6ad7ff")
+	var r := float(op.risk)
+	return Color("#4be37a") if r < 0.3 else (Color("#f2d024") if r < 0.6 else Color("#ff5a4a"))
 
 func _eye_tap(p: Vector2) -> void:
 	var scale_f := Vector2(sv.size) / svc.size
@@ -1351,12 +1436,14 @@ func _eye_choose(i: int) -> void:
 	eye_t = 0.0
 	eye_btns.visible = false
 	eye_bar.get_parent().visible = false
-	eye_sub.text = T.t("eye_watch") if i >= 0 else T.t("eye_watch_skip")
+	eye_sub.text = (T.t("eye_your", [_eye_opt_name(eye_opts[i])]) + "\n" + T.t("eye_watch")) if i >= 0 else T.t("eye_watch_skip")
 	Sfx.play("blip", -8.0)
 
 func _eye_opt_name(op: Dictionary) -> String:
 	if op.k == "pass":
-		return T.t("eye_pass_to", [Game.short_name(Game.player(op.to))])
+		var r := float(op.get("risk", 0.0))
+		var tag := T.t("eye_r_safe") if r < 0.3 else (T.t("eye_r_mid") if r < 0.6 else T.t("eye_r_high"))
+		return T.t("eye_pass_to", [Game.short_name(Game.player(op.to))]) + "  (" + tag + ")"
 	return T.t("eye_" + str(op.k))
 
 func _eye_verdict() -> void:
@@ -1369,34 +1456,45 @@ func _eye_verdict() -> void:
 	eye_left -= 1
 	var best: Dictionary = eye_opts[eye_best]
 	var best_v := float(best.v)
-	var lines := [T.t("eye_best", [_eye_opt_name(best)])]
-	if res.is_empty():
-		lines.append(T.t("eye_lost"))
-	else:
-		var pick := {"k": res.k, "to": res.to}
-		var pick_txt := _eye_opt_name(pick)
-		var verdict: String
-		if res.k == best.k and res.to == best.to:
-			verdict = "✓ " + T.t("eye_p_best")
-		elif res.good:
-			verdict = "✓ " + T.t("eye_p_good")
-		else:
-			verdict = "✗ " + T.t("eye_p_bad")
-		lines.append(T.t("eye_player", [Game.short_name(Game.player(eye_owner)), pick_txt]) + "  " + verdict)
-		if not eye_log.has(eye_owner):
-			eye_log[eye_owner] = []
-		eye_log[eye_owner].append([res.good, res.p10, res.sl])
+	var nm := Game.short_name(Game.player(eye_owner))
+	var lines := []
+	# 1) senin okuman
 	var hit := false
 	if eye_guess >= 0:
 		var g: Dictionary = eye_opts[eye_guess]
+		var ranked := eye_opts.duplicate()
+		ranked.sort_custom(func(a, b): return float(a.v) > float(b.v))
+		var rank := ranked.find(g)
 		hit = eye_guess == eye_best or float(g.v) >= best_v - LiveEngine.EYE_GOOD
 		if hit:
 			eye_hits[eye_owner] = int(eye_hits.get(eye_owner, 0)) + 1
 			Sfx.play("catch", -4.0)
-		lines.append(T.t("eye_you_ok") if hit else T.t("eye_you_bad"))
+			lines.append("✓ " + T.t("eye_you_best"))
+		elif rank == 1:
+			lines.append("~ " + T.t("eye_you_close", [_eye_opt_name(best)]))
+		else:
+			lines.append("✗ " + T.t("eye_you_miss", [_eye_opt_name(best)]))
+	else:
+		lines.append(T.t("eye_best", [_eye_opt_name(best)]))
+	# 2) oyuncunun kararı -> karar/vizyon bilgisi
+	if res.is_empty():
+		lines.append(T.t("eye_lost"))
+	else:
+		var pick_txt := _eye_opt_name({"k": res.k, "to": res.to, "risk": 0.0}) if res.k != "pass" else T.t("eye_pass_to", [Game.short_name(Game.player(res.to))])
+		var verdict: String
+		if res.k == best.k and res.to == best.to:
+			verdict = T.t("eye_p_best")
+		elif res.good:
+			verdict = T.t("eye_p_good")
+		else:
+			verdict = T.t("eye_p_bad")
+		lines.append(T.t("eye_player2", [nm, pick_txt, verdict]))
+		if not eye_log.has(eye_owner):
+			eye_log[eye_owner] = []
+		eye_log[eye_owner].append([res.good, res.p10, res.sl])
+	lines.append(T.t("eye_gain"))
 	eye_title.text = T.t("eye_title_ok") if hit else T.t("eye_title")
 	eye_sub.text = "\n".join(lines)
-	# en iyi seçeneği vurgula
 	eye_guess = eye_best
 	for n in eye_nodes:
 		if is_instance_valid(n) and n is MeshInstance3D:
@@ -1469,6 +1567,8 @@ func _process(delta: float) -> void:
 		"live":
 			if skipping:
 				_tick_skip()
+			elif seeking:
+				_tick_seek()
 			else:
 				_tick_live(delta)
 		"replay":
@@ -1491,6 +1591,8 @@ func _tick_intro(delta: float) -> void:
 		_end_intro()
 
 func _current_rate() -> float:
+	if moments:
+		return 1.0
 	if eng.intense() or eng.celebrate_t > 0.0:
 		return 1.0
 	for pid in focus:
@@ -1522,6 +1624,7 @@ func _tick_live(delta: float) -> void:
 			_finish()
 			break
 	_eye_tick(delta)
+	_moment_track()
 	ff_badge.visible = rate > 1.01 and not done
 	var alpha := clampf(acc / LiveEngine.DT, 0.0, 1.0)
 	var target_ball := Vector3(eng.ball.x, BALL_R + eng.ball_h, eng.ball.y)
@@ -1538,6 +1641,76 @@ func _tick_live(delta: float) -> void:
 	lbl_clock.text = "%02d:%02d" % [int(eng.clock / 60.0), int(eng.clock) % 60]
 	_record_frame()
 	stadium.set_excite(clampf(eng.celebrate_t / 4.0, 0.0, 1.0))
+
+func _focus_involved() -> bool:
+	if eng.phase != "play":
+		return false
+	if eng.owner != null and eng.owner.id in focus:
+		return true
+	if not eng.flight.is_empty() and str(eng.flight.get("recv", "")) in focus:
+		return true
+	for pid in focus:
+		if eng.pl.has(pid) and (eng.pl[pid].pos as Vector2).distance_to(eng.ball) < 6.0:
+			return true
+	return false
+
+func _tick_seek() -> void:
+	## Oyuncu anları: odak oyuncu topa yaklaşana kadar maçı görüntüsüz hızla koştur
+	var t0 := Time.get_ticks_msec()
+	var found := false
+	skipping = true
+	while not eng.finished and Time.get_ticks_msec() - t0 < 20:
+		eng.step(0.1)
+		_consume()
+		# anlar arası en az ~50 sn oyun zamanı (aynı pozisyon tekrar tekrar açılmasın)
+		if eng.t - seek_from > 50.0 and _focus_involved():
+			found = true
+			break
+	skipping = false
+	fader.color.a = 0.55
+	intro_lbl.text = T.t("mv_seeking", [int(eng.clock / 60.0)])
+	lbl_clock.text = "%02d:%02d" % [int(eng.clock / 60.0), int(eng.clock) % 60]
+	if eng.finished:
+		seeking = false
+		intro_lbl.text = ""
+		fader.color.a = 0.0
+		_snapshot()
+		_sync_men(1.0, 0.0)
+		_update_chips()
+		_update_score()
+		_finish()
+		return
+	if found:
+		seeking = false
+		moment_on = true
+		moment_last = eng.t
+		moment_start = eng.t
+		moments_seen += 1
+		intro_lbl.text = ""
+		_snapshot()
+		_sync_men(1.0, 0.0)
+		_update_chips()
+		_update_score()
+		replay_buf.clear()
+		_snap_camera()
+		var tw := create_tween()
+		tw.tween_property(fader, "color:a", 0.0, 0.35)
+		_push_ticker(T.t("mv_moment", [moments_seen]) + " — %d'" % (int(eng.clock / 60.0) + 1), C_ACCENT)
+		Sfx.play("blip", -10.0)
+
+func _moment_track() -> void:
+	## Oyuncu anları modunda an bitince tekrar sarmaya dön
+	if not moments or not moment_on or eye_state != "" or mode != "live":
+		return
+	if _focus_involved():
+		moment_last = eng.t
+	elif eng.t - moment_last > 6.0 and eng.t - moment_start > 12.0:
+		moment_on = false
+		seek_from = eng.t
+		if video and max_moments > 0 and moments_seen >= max_moments:
+			_finish()
+		else:
+			seeking = true
 
 func _tick_skip() -> void:
 	## Sona atla: motoru kare başına parça parça koştur
@@ -1752,9 +1925,11 @@ func _after_replay() -> void:
 # ================================================================ olay kaydı ve canlı istatistik
 
 func _on_event(e: Dictionary) -> void:
-	for pid in focus:
-		if e.pid == pid or e.tgt == pid:
-			focus_events[pid].append(ev_seen - 1)
+	# oyuncu anları: yalnızca gerçekten izlenen anlardaki olaylar bilgiye dönüşür
+	if not (moments and (seeking or not moment_on)):
+		for pid in focus:
+			if e.pid == pid or e.tgt == pid:
+				focus_events[pid].append(ev_seen - 1)
 	_live_stats(e)
 	var mins := int(e.t / 60.0) + 1
 	var pa: Dictionary = Game.player(e.pid) if e.pid != "" else {}
@@ -1881,6 +2056,9 @@ func _on_view_input(ev: InputEvent) -> void:
 	if eye_state == "choose":
 		_eye_tap(ev.position)
 		return
+	if eye_state == "verdict" and eye_t > 0.8:
+		_eye_clear()
+		return
 	if spark_pid != "":
 		_spark_catch()
 		return
@@ -1931,7 +2109,9 @@ func _finish() -> void:
 	Sfx.crowd_level(0.25)
 	var hc: Dictionary = Game.club(m.h)
 	var ac: Dictionary = Game.club(m.a)
-	_show_overlay(T.t("mv_fulltime"), "%s  %d - %d  %s" % [hc.short, score[0], score[1], ac.short], T.t("mv_to_report"), func():
+	var ttl := T.t("vid_end") if video else T.t("mv_fulltime")
+	var btn_t := T.t("vid_to_notes") if video else T.t("mv_to_report")
+	_show_overlay(ttl, "%s  %d - %d  %s" % [hc.short, score[0], score[1], ac.short], btn_t, func():
 		Sfx.crowd_off()
 		focus_events["_sparks"] = spark_caught
 		focus_events["_eye"] = eye_log

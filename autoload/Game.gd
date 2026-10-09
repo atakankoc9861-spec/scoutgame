@@ -777,11 +777,25 @@ func plan_match(day: String, key: String) -> bool:
 	changed.emit()
 	return true
 
+func watch_mode(day: String) -> String:
+	return str(s.plan.get("mode_" + day, s.scout.get("watch_pref", "full")))
+
+func set_watch_mode(day: String, wm: String) -> void:
+	s.plan["mode_" + day] = wm
+	s.scout["watch_pref"] = wm
+	var f: Array = s.plan["focus_" + day]
+	while f.size() > focus_cap(day):
+		f.pop_back()
+	changed.emit()
+
+func focus_cap(day: String) -> int:
+	return 6 if watch_mode(day) == "moments" else 3
+
 func toggle_focus(day: String, pid: String) -> void:
 	var f: Array = s.plan["focus_" + day]
 	if pid in f:
 		f.erase(pid)
-	elif f.size() < 3:
+	elif f.size() < focus_cap(day):
 		f.append(pid)
 	changed.emit()
 
@@ -935,6 +949,81 @@ func do_video(pid: String, focus := "tec", sparks := 0) -> Dictionary:
 	_gain_xp("eye", 1)
 	changed.emit()
 	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sparks, 2)), "sparks": sparks}
+
+func video_match_data(pid: String) -> Dictionary:
+	## Video analizi: oyuncunun önceki bir maçı (kurgu maç) yalnızca onun anlarıyla oynatılır
+	var p := player(pid)
+	var cid: String = p.club
+	ensure_squad(cid)
+	var opps := []
+	for oc in league_clubs(club(cid).get("league", "")):
+		if oc != cid:
+			opps.append(oc)
+	if opps.is_empty():
+		for oc in s.clubs:
+			if oc != cid and club_country(oc) == club_country(cid):
+				opps.append(oc)
+	var opp: String = pick(opps) if not opps.is_empty() else cid
+	ensure_squad(opp)
+	var home := rf() < 0.5
+	var m := {"h": cid if home else opp, "a": opp if home else cid, "day": "", "gh": -1, "ga": -1, "ev": []}
+	m.xi_h = best_xi(m.h, true)
+	m.xi_a = best_xi(m.a, true)
+	var side := "xi_h" if home else "xi_a"
+	var xi: Array = m[side]
+	if not (pid in xi):
+		# oyuncu ilk 11'de değilse aynı bölgedeki bir oyuncunun yerine koy
+		var rep_i := -1
+		for i in xi.size():
+			if Data.POS_GROUP[player(xi[i]).pos] == Data.POS_GROUP[p.pos]:
+				rep_i = i
+		if rep_i < 0:
+			rep_i = xi.size() - 1
+		xi[rep_i] = pid
+	var eng = LiveEngine.new()
+	eng.setup(self, m, false)
+	var weeks_ago := ri(1, 6)
+	return {"key": "video:" + pid, "m": m, "tl": eng.events, "youth": false, "eng": eng, "lg": "",
+		"video": true, "moments": true, "max_moments": 5, "vs": opp, "ago": weeks_ago, "vpid": pid}
+
+func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec") -> Dictionary:
+	var p := player(pid)
+	if p.is_empty():
+		return {"ok": false, "msg": "no_footage"}
+	_take_day("video", pid)
+	var kn := know(pid)
+	kn.vid += 1
+	# yalnızca gerçekten izlenen anların olayları
+	var seen_tl := []
+	for i in fe.get(pid, []):
+		if int(i) >= 0 and int(i) < data.tl.size():
+			seen_tl.append(data.tl[int(i)])
+	var agg := Timeline.aggregate(self, seen_tl, [pid])
+	var decay := 1.0 / (1.0 + float(kn.vid - 1) * 0.25)
+	_learn_from_agg(pid, agg[pid], clampf(0.25 + seen_tl.size() * 0.03, 0.25, 0.75) * decay)
+	var groups: Array = FOCUS_GROUPS.get(focus, ["tec", "gk"])
+	var sp: int = int(fe.get("_sparks", {}).get(pid, 0))
+	observe(pid, (0.08 + 0.06 * mini(sp, 3)) * decay, groups, 1.2)
+	var eyes: Array = fe.get("_eye", {}).get(pid, [])
+	if not eyes.is_empty():
+		var ag2 := {"attr": {}}
+		for e in eyes:
+			if float(e[2]) > 0.004:
+				Timeline._credit(ag2, [["decisions", float(e[1]), float(e[2])], ["vision", float(e[1]), float(e[2]) * 0.5]], bool(e[0]))
+		if not ag2.attr.is_empty():
+			_learn_from_agg(pid, ag2, 1.4)
+	var hits: int = int(fe.get("_eye_hits", {}).get(pid, 0))
+	if hits > 0:
+		_gain_xp("eye", 2 * hits)
+	var m: Dictionary = data.m
+	var notes := Timeline.notes_for(self, pid, agg[pid], m)
+	kn.notes.push_front({"season": s.season, "week": s.week, "vs": data.get("vs", ""), "r": 0.0, "n": notes,
+		"line": Timeline.stat_line(agg[pid]), "youth": false, "video": true})
+	if kn.notes.size() > 8:
+		kn.notes.resize(8)
+	_gain_xp("eye", 1)
+	changed.emit()
+	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sp, 2)), "sparks": sp, "notes": notes}
 
 const FOCUS_GROUPS := {"phy": ["phy"], "men": ["men"], "tec": ["tec", "gk"], "all": ["phy", "men", "tec", "gk"]}
 
@@ -1151,7 +1240,7 @@ func rest_day() -> bool:
 	if free_days() <= 0:
 		return false
 	_take_day("rest", "")
-	s.scout.fatigue = max(0, s.scout.fatigue - 18)
+	s.scout.fatigue = max(0, s.scout.fatigue - 30)
 	changed.emit()
 	return true
 
@@ -1804,7 +1893,7 @@ func finish_week() -> Dictionary:
 		if r.status == "pending" and not (r.season == s.season and r.week == s.week):
 			_decide_report(r)
 	s.scout.money += s.scout.salary
-	s.scout.fatigue = max(0, s.scout.fatigue - 12)
+	s.scout.fatigue = max(0, s.scout.fatigue - 22)
 	s.cal = {}
 	s.plan = {"sat": "", "sun": "", "focus_sat": [], "focus_sun": [], "travel_sat": "", "travel_sun": ""}
 	_staff_week()

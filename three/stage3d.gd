@@ -756,9 +756,10 @@ func _mate_tick(m: Dictionary, delta: float) -> void:
 
 ## Gerçek idmanlar: odak seçimine göre rondo, kaleci karşısında şut, sprint testi, 1'e 1.
 ## İzlenen oyuncu her idmanda rol alır; sonuçlar özelliklerine göre belirlenir.
-const DRILL_SETS := {"tec": ["rondo", "shoot", "rondo", "shoot"], "phy": ["sprint", "duel", "sprint", "duel"],
-	"men": ["rondo", "duel", "rondo", "shoot"], "all": ["rondo", "shoot", "sprint", "duel"]}
-const DRILL_LEN := {"rondo": 8.0, "shoot": 8.5, "sprint": 6.0, "duel": 7.0}
+const DRILL_SETS := {"tec": ["rondo", "slalom", "shoot", "longpass", "cross"], "phy": ["sprint", "duel", "slalom", "sprint", "duel"],
+	"men": ["rondo", "longpass", "duel", "rondo", "cross"], "all": ["rondo", "shoot", "slalom", "cross", "sprint", "longpass", "duel"]}
+const DRILL_LEN := {"rondo": 8.0, "shoot": 8.5, "sprint": 6.0, "duel": 7.0, "slalom": 7.5, "cross": 8.0, "longpass": 7.0, "keeper": 9.0}
+var drill_nodes: Array = []
 
 func start_drills(id: String, duration := 14.0, n_sparks := 3, focus := "all") -> void:
 	drill_on = true
@@ -776,7 +777,11 @@ func start_drills(id: String, duration := 14.0, n_sparks := 3, focus := "all") -
 	for m in crew:
 		m.busy = true
 		(m.n as Node3D).set_meta("move", true)
-	drill = {"list": DRILL_SETS.get(focus, DRILL_SETS.all), "k": -1, "t": 0.0, "total": 0.0, "dur": duration, "st": {}}
+	var dl: Array = DRILL_SETS.get(focus, DRILL_SETS.all).duplicate()
+	dl.shuffle()
+	if str(a.get_meta("p", {}).get("pos", "")) == "GK":
+		dl = ["keeper", "rondo", "keeper", "longpass"]
+	drill = {"list": dl, "k": -1, "t": 0.0, "total": 0.0, "dur": duration, "st": {}}
 	spark_times.clear()
 	var slot := duration / float(n_sparks + 1)
 	for k in n_sparks:
@@ -827,10 +832,18 @@ func _next_drill() -> void:
 	var list: Array = drill.list
 	drill.kind = list[drill.k % list.size()]
 	drill.st = {}
+	for dn in drill_nodes:
+		if is_instance_valid(dn):
+			dn.queue_free()
+	drill_nodes = []
 	ball_free = false
 	Sfx.play("whistle", -14.0)
 	var a = actors[drill_actor]
 	var c: Array = crew.map(func(m): return m.n)
+	# bu idmanda görevi olmayanlar kenarda dinlenir (kalabalık olmasın)
+	for k in c.size():
+		(c[k] as Node3D).position = Vector3(-4.0 - k * 1.3, 0, -15.5)
+		(c[k] as Node3D).rotation.y = 0.0
 	match drill.kind:
 		"rondo":
 			# 5'e 2: çemberde 5 hücumcu (izlenen dahil), ortada 2 savunmacı
@@ -875,6 +888,61 @@ func _next_drill() -> void:
 			drill.st = {"df": df, "ph": "approach", "pt": 0.0, "reps": 0}
 			ball.position = a.position + Vector3(0.6, 0.11, 0)
 			shot(0, Vector3(-10.5, 1.7, 0.2), Vector3(0.0, 0.9, -1.0), 2.0, true)
+		"slalom":
+			# huni slalomu: çalım + çeviklik + ilk dokunuş, süre tutulur
+			var pts := []
+			for k in 6:
+				var cp := Vector3(-11.0 + k * 2.2, 0, -6.0)
+				var cn := _cyl(0.16, 0.42, cp + Vector3(0, 0.21, 0), Color("#ff7a1a"), 0.02)
+				drill_nodes.append(cn)
+				pts.append(cp + Vector3(0, 0, 0.95 if k % 2 == 0 else -0.95))
+			pts.append(Vector3(3.0, 0, -6.0))
+			a.position = Vector3(-14.0, 0, -6.0)
+			a.rotation.y = PI / 2.0
+			var spd := 3.4 + (_attr("dribbling") + _attr("agility") - 20.0) * 0.11
+			drill.st = {"pts": pts, "i": 0, "spd": clampf(spd, 2.2, 5.6), "time": 0.0, "slip": false, "said": false}
+			ball.position = a.position + Vector3(0.6, 0.11, 0)
+			shot(0, Vector3(-5.0, 4.2, 3.5), Vector3(-5.0, 0.6, -6.0), 2.0, true)
+		"cross":
+			# kanattan orta + kafa: kanat oyuncusuysa ortayı o yapar, değilse kafayı o vurur
+			var pos_s := str(a.get_meta("p", {}).get("pos", ""))
+			var wide := pos_s in ["LB", "RB", "LW", "RW"]
+			var gk2 = c[0]
+			gk2.position = big_goal - Vector3(0.6, 0, 0)
+			gk2.rotation.y = -PI / 2.0
+			var winger: Node3D = a if wide else c[1]
+			var target: Node3D = c[2] if wide else a
+			winger.position = big_goal + Vector3(-20.0, 0, 13.0)
+			target.position = big_goal + Vector3(-15.0, 0, -2.0)
+			var df2 = c[3]
+			df2.position = big_goal + Vector3(-7.0, 0, 0.5)
+			drill.st = {"w": winger, "tg": target, "gk": gk2, "df": df2, "ph": "run", "pt": 0.0, "wide": wide}
+			ball.position = winger.position + Vector3(0.6, 0.11, 0)
+			shot(0, big_goal + Vector3(-22.0, 6.0, -10.0), big_goal + Vector3(-8.0, 0.8, 4.0), 2.0, true)
+		"longpass":
+			# uzun top: koşan arkadaşın önüne, isabet pas + vizyondan
+			var rn = c[1]
+			a.position = Vector3(-10.0, 0, 6.0)
+			rn.position = Vector3(2.0, 0, -9.0)
+			rn.rotation.y = PI / 2.0
+			var tgt_z := Vector3(13.0, 0, -9.0)
+			var mk := _cyl(1.6, 0.02, tgt_z + Vector3(0, 0.01, 0), Color("#e8c547"))
+			mk.transparency = 0.6
+			drill_nodes.append(mk)
+			drill.st = {"rn": rn, "tgt": tgt_z, "ph": "set", "pt": 0.0, "reps": 0}
+			ball.position = a.position + Vector3(0.6, 0.11, 0)
+			shot(0, Vector3(-16.0, 5.5, 12.0), Vector3(3.0, 0.5, -3.0), 2.0, true)
+		"keeper":
+			# kaleci idmanı: arkadaşlar sırayla vurur, refleks + elle kontrol
+			a.position = big_goal - Vector3(0.6, 0, 0)
+			a.rotation.y = -PI / 2.0
+			var sh_list := [c[1], c[2], c[3]]
+			for k in sh_list.size():
+				(sh_list[k] as Node3D).position = big_goal + Vector3(-13.0, 0, -4.0 + k * 4.0)
+				(sh_list[k] as Node3D).rotation.y = PI / 2.0
+			drill.st = {"sh": sh_list, "k": 0, "ph": "aim", "pt": 0.0}
+			ball.position = (sh_list[0] as Node3D).position + Vector3(0.6, 0.11, 0)
+			shot(0, big_goal + Vector3(-19.0, 2.4, 5.5), big_goal + Vector3(0, 1.0, 0), 2.0, true)
 
 func _face_to(n: Node3D, p: Vector3, delta: float, k := 8.0) -> void:
 	var d := p - n.position
@@ -921,6 +989,14 @@ func _drill_tick(delta: float) -> void:
 			_sprint(delta, speeds)
 		"duel":
 			_duel(delta, speeds)
+		"slalom":
+			_slalom(delta, speeds)
+		"cross":
+			_cross(delta, speeds)
+		"longpass":
+			_longpass(delta, speeds)
+		"keeper":
+			_keeper(delta, speeds)
 	a.tick(delta, float(speeds.get(a, 0.0)))
 	for m in crew:
 		var n: Node3D = m.n
@@ -929,6 +1005,10 @@ func _drill_tick(delta: float) -> void:
 		_next_drill()
 	if drill.total >= drill.dur and spark_live < 0.0:
 		drill_on = false
+		for dn in drill_nodes:
+			if is_instance_valid(dn):
+				dn.queue_free()
+		drill_nodes = []
 		for m in crew:
 			m.busy = false
 
@@ -1088,6 +1168,191 @@ func _shoot(delta: float, speeds: Dictionary) -> void:
 			if st.pt > 1.0:
 				st.ph = "serve"
 				st.pt = 0.0
+
+## --- huni slalomu
+func _slalom(delta: float, speeds: Dictionary) -> void:
+	var st: Dictionary = drill.st
+	var a = actors[drill_actor]
+	var pts: Array = st.pts
+	if st.i >= pts.size():
+		if not st.said:
+			st.said = true
+			var tt: float = st.time
+			_pop(a.position, "%.1f sn" % tt, Color("#5ccf7a") if tt < 4.6 else (Color("#e8c547") if tt < 5.6 else Color("#ffb04a")))
+		return
+	st.time += delta
+	var spd: float = st.spd
+	if st.slip:
+		spd *= 0.35
+		st.slip_t -= delta
+		if st.slip_t <= 0.0:
+			st.slip = false
+	speeds[a] = _move(a, pts[st.i], spd, delta)
+	var fwd := Vector3(sin(a.rotation.y), 0, cos(a.rotation.y))
+	ball.position = ball.position.lerp(a.position + fwd * 0.5 + Vector3(0, 0.11, 0), minf(1.0, delta * 9.0))
+	shot(0, a.position + Vector3(-1.5, 3.2, 5.5), a.position + Vector3(1.0, 0.6, 0), 3.0)
+	if a.position.distance_to(pts[st.i]) < 0.25:
+		st.i += 1
+		# zayıf ilk dokunuş: top açılır, yavaşlar
+		if not st.slip and randf() < 0.18 - (_attr("first_touch") - 10.0) * 0.02:
+			st.slip = true
+			st.slip_t = 0.6
+			_pop(a.position, T.t("tr_poor_touch"), Color("#ffb04a"))
+
+## --- orta + kafa
+func _cross(delta: float, speeds: Dictionary) -> void:
+	var st: Dictionary = drill.st
+	var w: Node3D = st.w
+	var tg: Node3D = st.tg
+	var gk: Node3D = st.gk
+	st.pt += delta
+	_face_to(gk, ball.position, delta, 4.0)
+	_face_to(st.df, ball.position, delta, 4.0)
+	if st.ph == "run":
+		shot(0, w.position + Vector3(-6.0, 3.2, 6.0), w.position + Vector3(2.0, 0.8, -2.0), 3.0)
+	match st.ph:
+		"run":
+			speeds[w] = _move(w, big_goal + Vector3(-7.0, 0, 12.0), 6.0, delta)
+			speeds[tg] = _move(tg, big_goal + Vector3(-11.0, 0, 1.0), 3.5, delta)
+			ball.position = ball.position.lerp(w.position + Vector3(0.7, 0.11, -0.2), minf(1.0, delta * 9.0))
+			if w.position.distance_to(big_goal + Vector3(-7.0, 0, 12.0)) < 0.4:
+				w.rotation.y = atan2(tg.position.x - w.position.x, tg.position.z - w.position.z)
+				w.play("kick")
+				var cq := _attr("crossing") if st.wide else 12.0
+				var err := clampf((16.0 - cq) * 0.35, 0.3, 4.0) * randf()
+				st.land = big_goal + Vector3(-7.0, 0, 0.5) + Vector3(randf_range(-err, err), 0, randf_range(-err, err))
+				st.good_cross = err < 1.6
+				st.from = ball.position
+				st.ph = "fly"
+				st.pt = 0.0
+		"fly":
+			var f := clampf(st.pt / 1.1, 0.0, 1.0)
+			var pos: Vector3 = (st.from as Vector3).lerp(st.land + Vector3(0, 0.0, 0), f)
+			pos.y = 0.11 + sin(f * PI) * 4.2 + f * 1.6
+			ball.position = pos
+			speeds[tg] = _move(tg, st.land, 6.5, delta)
+			speeds[st.df] = _move(st.df, (st.land as Vector3) + Vector3(0.8, 0, 0.4), 5.0, delta)
+			shot(0, big_goal + Vector3(-17.0, 5.0, 9.0), (st.land as Vector3) + Vector3(0, 1.4, 0), 3.0)
+			if f >= 1.0:
+				var hq := _attr("heading") if not st.wide else 12.0
+				var won: bool = st.good_cross and randf() < 0.45 + (hq - 10.0) * 0.05
+				if won:
+					tg.play("header")
+				if won:
+					st.goal = randf() < 0.5 + (hq - 10.0) * 0.03
+					st.aim = big_goal + Vector3(0, randf_range(0.3, 2.0), randf_range(-3.0, 3.0))
+					if not st.goal:
+						gk.play("dive", 0.8, signf((st.aim as Vector3).z - gk.position.z))
+				st.won = won
+				st.from = ball.position
+				st.ph = "end"
+				st.pt = 0.0
+				var who: Node3D = w if st.wide else tg
+				if not st.good_cross:
+					_pop(who.position, T.t("tr_bad_cross") if st.wide else T.t("tr_no_ball"), Color("#ff6a5a"))
+				elif not won:
+					_pop(tg.position, T.t("tr_lost_air"), Color("#ffb04a"))
+		"end":
+			if st.get("won", false):
+				var f2 := clampf(st.pt / 0.5, 0.0, 1.0)
+				ball.position = (st.from as Vector3).lerp(st.aim, f2)
+				if f2 >= 1.0 and not st.has("said"):
+					st.said = true
+					if st.goal:
+						_pop(tg.position, T.t("tr_goal"), Color("#e8c547"))
+						Sfx.play("net", -10.0)
+					else:
+						_pop(tg.position, T.t("tr_saved"), Color("#ffb04a"))
+			else:
+				ball.position = ball.position.lerp(st.df.position + Vector3(0.5, 0.11, 0), minf(1.0, delta * 5.0))
+
+## --- uzun pas
+func _longpass(delta: float, speeds: Dictionary) -> void:
+	var st: Dictionary = drill.st
+	var a = actors[drill_actor]
+	var rn: Node3D = st.rn
+	st.pt += delta
+	match st.ph:
+		"set":
+			_face_to(a, st.tgt, delta)
+			if st.pt > 0.7:
+				speeds[rn] = 0.0
+				a.play("kick")
+				st.ph = "fly"
+				st.pt = 0.0
+				var q := (_attr("passing") * 0.6 + _attr("vision") * 0.4)
+				var err := clampf((17.0 - q) * 0.45, 0.2, 6.0) * randf()
+				st.land = (st.tgt as Vector3) + Vector3(randf_range(-err, err), 0, randf_range(-err, err))
+				st.good = (st.land as Vector3).distance_to(st.tgt) < 2.0
+				st.from = ball.position
+		"fly":
+			var f := clampf(st.pt / 1.5, 0.0, 1.0)
+			var pos: Vector3 = (st.from as Vector3).lerp(st.land, f)
+			pos.y = 0.11 + sin(f * PI) * 7.0
+			ball.position = pos
+			speeds[rn] = _move(rn, st.land, 6.8, delta)
+			shot(0, Vector3(pos.x - 8.0, 6.0, pos.z + 12.0), pos, 3.0)
+			if f >= 1.0:
+				var ok: bool = st.good and rn.position.distance_to(st.land) < 1.6
+				_pop(rn.position, T.t("tr_long_ok") if ok else T.t("tr_long_bad"), Color("#5ccf7a") if ok else Color("#ff6a5a"))
+				st.ph = "after"
+				st.pt = 0.0
+		"after":
+			ball.position = ball.position.lerp(rn.position + Vector3(0.5, 0.11, 0), minf(1.0, delta * 6.0))
+			if st.pt > 1.4 and st.reps < 1:
+				st.reps += 1
+				rn.position = Vector3(2.0, 0, -9.0)
+				ball.position = a.position + Vector3(0.6, 0.11, 0)
+				st.ph = "set"
+				st.pt = 0.0
+
+## --- kaleci
+func _keeper(delta: float, speeds: Dictionary) -> void:
+	var st: Dictionary = drill.st
+	var a = actors[drill_actor]
+	var shooters: Array = st.sh
+	var sh: Node3D = shooters[st.k % shooters.size()]
+	st.pt += delta
+	_face_to(a, ball.position, delta, 6.0)
+	shot(0, big_goal + Vector3(-12.0, 2.2, 8.5), big_goal + Vector3(-1.0, 1.1, -0.5), 3.0)
+	match st.ph:
+		"aim":
+			ball.position = ball.position.lerp(sh.position + Vector3(0.6, 0.11, 0), minf(1.0, delta * 6.0))
+			if st.pt > 0.9:
+				sh.play("shot")
+				st.aim = big_goal + Vector3(0, randf_range(0.2, 2.1), randf_range(-3.2, 3.2))
+				st.from = ball.position
+				var refl := _attr("reflexes") * 0.6 + _attr("handling") * 0.4
+				st.save = randf() < 0.45 + (refl - 10.0) * 0.05
+				st.held = st.save and randf() < 0.5 + (_attr("handling") - 10.0) * 0.05
+				var dd: float = (st.aim as Vector3).z - a.position.z
+				if absf(dd) > 0.9:
+					a.play("dive", 0.8, signf(dd))
+				else:
+					a.play("save_low")
+				st.ph = "fly"
+				st.pt = 0.0
+		"fly":
+			var f := clampf(st.pt / 0.5, 0.0, 1.0)
+			var pos := (st.from as Vector3).lerp(st.aim, f)
+			if st.save and f > 0.85:
+				pos = (st.from as Vector3).lerp(st.aim, 0.85) + Vector3(-(f - 0.85) * (2.0 if st.held else 10.0), 0, 0)
+			ball.position = pos
+			if f >= 1.0:
+				if st.save:
+					_pop(a.position, T.t("tr_held") if st.held else T.t("tr_parried"), Color("#5ccf7a") if st.held else Color("#e8c547"))
+				else:
+					_pop(a.position, T.t("tr_conceded"), Color("#ff6a5a"))
+					Sfx.play("net", -12.0)
+				st.ph = "reset"
+				st.pt = 0.0
+		"reset":
+			if st.pt > 1.2:
+				st.k += 1
+				st.ph = "aim"
+				st.pt = 0.0
+				a.position = big_goal - Vector3(0.6, 0, 0)
+				ball.position = (shooters[st.k % shooters.size()] as Node3D).position + Vector3(0.6, 0.11, 0)
 
 ## --- sprint testi
 func _sprint(delta: float, speeds: Dictionary) -> void:

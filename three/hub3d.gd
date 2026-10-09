@@ -107,15 +107,9 @@ func set_active(on: bool) -> void:
 	if on and not active:
 		Watch.check_vp(sv, "hub-geri")
 	active = on
-	if not on:
-		# maç sırasında GPU belleğini boşalt: render hedeflerini küçült
-		stretch = false
-		sv.size = Vector2i(4, 4)
-	else:
-		# boyutu açıkça geri yükle (stretch tek başına bazen eski 4x4/yanlış oranı bırakıyordu)
-		sv.size = Vector2i(maxi(int(size.x), 8), maxi(int(size.y), 8))
-		stretch = true
-		queue_sort()
+	# v0.20: render hedefini artık küçültüp büyütmüyoruz (Adreno'da yeniden ayırma donmaya yol açabiliyordu);
+	# hub zaten yalnızca üstteki şeridi çiziyor, kapalıyken sadece güncelleme durur.
+	if on:
 		_apply_proj.call_deferred()
 	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	set_process(on)

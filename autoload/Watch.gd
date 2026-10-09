@@ -82,7 +82,12 @@ static func opaque_mat() -> ShaderMaterial:
 
 ## 3D görüntü kontrolü: birkaç kare sonra SubViewport içeriğini örnekler.
 ## Siyah/boşsa kayda yazar ve fallback'i (MSAA kapat, ölçek 1, glow kapat) çağırır.
+var _vp_checks := 0
 func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) -> void:
+	# GPU'dan geri okuma pahalı: oturum başına sınırlı sayıda kontrol
+	_vp_checks += 1
+	if _vp_checks > 10 and not tag.ends_with("+fb"):
+		return
 	for i in 25:
 		await get_tree().process_frame
 		if not is_instance_valid(sv):
@@ -118,7 +123,11 @@ func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) 
 		check_vp(sv, tag + "+fb", Callable(), tries - 1)
 
 ## Ekranda gerçekten ne görünüyor: ana pencerenin görüntüsünü örnekle
+var _scr_checks := 0
 func check_screen(tag: String) -> void:
+	_scr_checks += 1
+	if _scr_checks > 12:
+		return
 	await RenderingServer.frame_post_draw
 	var img := get_viewport().get_texture().get_image()
 	if img == null or img.is_empty():

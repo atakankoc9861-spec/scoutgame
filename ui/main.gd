@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.19"
+const VERSION := "v0.20"
 
 var bg: ColorRect
 var hub
@@ -411,7 +411,16 @@ func _stat_pill(parent: Control, icon: String, key: String, val: float, fmt: Str
 	h.add_child(Icon.new().setup(icon, col, 22))
 	var l := _lbl("", 22, col, false, F_HEAD)
 	h.add_child(l)
+	if key == "fat":
+		var sub := _lbl(T.t("fat_short"), 13, Color(col, 0.8), false, F_SEMI)
+		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		h.add_child(sub)
 	parent.add_child(pc)
+	# dokununca ne işe yaradığını anlat
+	pc.mouse_filter = Control.MOUSE_FILTER_STOP
+	pc.gui_input.connect(func(e):
+		if e is InputEventMouseButton and not e.pressed and e.button_index == MOUSE_BUTTON_LEFT and not _dragged:
+			_stat_info(key))
 	var prev: float = shown_vals.get(key, val)
 	shown_vals[key] = val
 	var setter := func(v: float):
@@ -427,6 +436,21 @@ func _stat_pill(parent: Control, icon: String, key: String, val: float, fmt: Str
 		var tw2 := create_tween()
 		tw2.tween_property(pc, "scale", Vector2(1.08, 1.08), 0.12)
 		tw2.tween_property(pc, "scale", Vector2.ONE, 0.25)
+
+func _stat_info(key: String) -> void:
+	var sc: Dictionary = Game.s.scout
+	var txt := ""
+	match key:
+		"rep":
+			txt = T.t("info_rep", [int(sc.rep)])
+		"money":
+			txt = T.t("info_money", [Game.money_str(sc.money), Game.money_str(sc.salary), Game.money_str(maxi(0, int(sc.budget) - int(sc.spent)))])
+		"days":
+			txt = T.t("info_days", [Game.free_days()])
+		"fat":
+			var loss := int(round((1.0 - Game.fatigue_factor()) * 100.0))
+			txt = T.t("info_fat", [int(sc.fatigue), loss])
+	await _confirm(txt, T.t("ok_got_it"), T.t("close"))
 
 signal _confirm_done(v: bool)
 
@@ -1627,6 +1651,7 @@ func _play_weekend() -> void:
 			if key != "":
 				_landscape(true)
 				var data := Game.watch_match_data(key)
+				data["moments"] = Game.watch_mode(day) == "moments"
 				var fe = await _run_viewer(data, Game.s.plan["focus_" + day])
 				Game.finish_live(data)
 				Game.apply_watch(data, fe)
@@ -1817,6 +1842,8 @@ func _match_loading(data: Dictionary) -> Control:
 	v.add_child(nm)
 	var from_c: String = Game.my_club().get("city", "")
 	var to_c: String = hc.get("city", "")
+	if data.get("video", false):
+		to_c = from_c
 	if to_c != "" and from_c != "" and to_c != from_c:
 		var tr := HBoxContainer.new()
 		tr.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1838,7 +1865,7 @@ func _match_loading(data: Dictionary) -> Control:
 		var tw := c.create_tween().set_loops()
 		tw.tween_property(ic, "position:x", 224.0, 1.4).from(0.0)
 		tr.add_child(_lbl(to_c, 30, Color("#e8c547"), false, F_HEAD))
-	var st := _lbl(T.t("load_going"), 30, Color("#9db0a3"), false, F_BODY)
+	var st := _lbl(T.t("load_tape") if data.get("video", false) else T.t("load_going"), 30, Color("#9db0a3"), false, F_BODY)
 	st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(st)
 	var pb := ProgressBar.new()
@@ -2162,8 +2189,19 @@ func _scr_match_plan(key: String) -> void:
 		_btn(T.t("cancel_plan"), func():
 			Game.plan_match(day, "")
 			_refresh(), "ghost", hero, "cross")
+		# izleme şekli
+		var wc := _card(null, "paper", 16)
+		_section(T.t("watch_mode"), wc, "play")
+		var wmode: String = Game.watch_mode(day)
+		var wh := _h(wc, 8)
+		for wm in ["full", "moments"]:
+			var w2: String = wm
+			_expand(_btn(T.t("wm_" + wm), func():
+				Game.set_watch_mode(day, w2)
+				_refresh(), "toggle_on" if wmode == wm else "ghost", wh))
+		wc.add_child(_typed(T.t("wm_" + wmode + "_d"), 16, C_INK2))
 		var fc := _card(null, "memo", 20)
-		_section(T.t("focus_title") + "  %d/3" % Game.s.plan["focus_" + day].size(), fc, "eye")
+		_section(T.t("focus_title") + "  %d/%d" % [Game.s.plan["focus_" + day].size(), Game.focus_cap(day)], fc, "eye")
 		fc.add_child(_hand(T.t("focus_hint"), 25, C_BLUE))
 	if sub.match != "h" and sub.match != "a":
 		sub.match = "h"
@@ -3276,7 +3314,7 @@ func _choose(opts: Array, prompt := "") -> String:
 		c.queue_free()
 	return str(val)
 
-func _scene_close() -> void:
+func _scene_close(back_to_menu := true) -> void:
 	Watch.bc("sahne kapandi")
 	Sfx.amb_off()
 	if dlg_layer:
@@ -3284,6 +3322,8 @@ func _scene_close() -> void:
 		dlg_layer = null
 	stage = null
 	bubble = null
+	if not back_to_menu:
+		return
 	if hub:
 		hub.set_active(true)
 	root.visible = true
@@ -3406,12 +3446,34 @@ func _do_action(pid: String, kind: String) -> void:
 	var me_name: String = Game.s.scout.name
 	_busy = true
 	match kind:
-		"train", "video":
-			if kind == "video" and p.youth:
+		"video":
+			if p.youth:
 				_busy = false
 				_toast(T.t("no_footage"))
 				return
-			var is_vid := kind == "video"
+			var vdata := Game.video_match_data(pid)
+			var vs_c := Game.club(vdata.vs)
+			_scene_open("video", T.t("sc_place_video"))
+			stage.wide()
+			await _caption(T.t("sc_video_intro2", [Game.pname(p), vs_c.get("name", "?"), int(vdata.ago)]))
+			var vf := await _choose([["tec", T.t("foc_tec")], ["men", T.t("foc_men2")], ["phy", T.t("foc_phy2")]], T.t("sc_focus_q"))
+			await _caption(T.t("sc_video_hint2"))
+			_scene_close(false)
+			_landscape(true)
+			var vfe = await _run_viewer(vdata, [pid])
+			_landscape(false)
+			var vres := Game.finish_video(pid, vdata, vfe, vf)
+			_scene_open("video", T.t("sc_place_video"))
+			stage.wide()
+			if vres.ok:
+				if int(vres.sparks) > 0:
+					await _note(T.t("sc_spark_note", [vres.sparks]), C_RED)
+				for ln in vres.notes.slice(0, 3):
+					await _note(T.t(ln[0], ln[1]))
+				for ln in vres.lines:
+					await _note(T.t(ln[0], ln[1]))
+		"train":
+			var is_vid := false
 			_scene_open("video" if is_vid else "training", T.t("sc_place_video") if is_vid else T.t("sc_place_train", [cl.get("name", "")]))
 			stage.add_actor("p", {"kind": "player", "p": p, "club": cl, "training": not is_vid}, Vector3(-10, 0, 4), PI / 2.0, "idle")
 			if not is_vid:
@@ -3426,7 +3488,7 @@ func _do_action(pid: String, kind: String) -> void:
 				await _caption(T.t("sc_train_intro", [Game.pname(p), cl.get("city", "")]))
 			var f := await _choose([["phy", T.t("foc_phy")], ["men", T.t("foc_men")], ["tec", T.t("foc_tec")]] if not is_vid else [["tec", T.t("foc_tec")], ["men", T.t("foc_men2")], ["phy", T.t("foc_phy2")]], T.t("sc_focus_q"))
 			await _caption(T.t("sc_spark_hint"))
-			var caught := await _observe_phase(16.0 if is_vid else 25.0, 2 if is_vid else 3, is_vid, f)
+			var caught := await _observe_phase(34.0, 4, false, f)
 			var res := Game.do_video(pid, f, caught) if is_vid else Game.do_training(pid, f, caught)
 			if not is_vid:
 				stage.shot(0, Vector3(-2.35, 1.62, 8.15), Vector3(-3.0, 1.35, 9.5), 3.0)
