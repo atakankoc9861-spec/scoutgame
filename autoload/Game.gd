@@ -768,7 +768,7 @@ func hid_level(v: int) -> int:
 
 # ================================================================ hafta içi aksiyonlar
 
-func do_video(pid: String, focus := "tec") -> Dictionary:
+func do_video(pid: String, focus := "tec", sparks := 0) -> Dictionary:
 	var p := player(pid)
 	if p.get("youth", false):
 		return {"ok": false, "msg": "no_footage"}
@@ -779,14 +779,15 @@ func do_video(pid: String, focus := "tec") -> Dictionary:
 	kn.vid += 1
 	var strength := 0.2 if p.st.apps > 0 else 0.08
 	var groups: Array = FOCUS_GROUPS.get(focus, ["tec", "gk"])
-	observe(pid, strength / (1.0 + kn.vid * 0.25), groups, 1.3)
+	observe(pid, strength / (1.0 + kn.vid * 0.25) + 0.08 * sparks, groups, 1.3)
 	_gain_xp("eye", 1)
 	changed.emit()
-	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3)}
+	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sparks, 2)), "sparks": sparks}
 
 const FOCUS_GROUPS := {"phy": ["phy"], "men": ["men"], "tec": ["tec", "gk"], "all": ["phy", "men", "tec", "gk"]}
 
-func do_training(pid: String, focus := "all") -> Dictionary:
+func do_training(pid: String, focus := "all", sparks := 0) -> Dictionary:
+	## sparks: gözlem sırasında yakalanan kıvılcım anları (0-3)
 	if free_days() <= 0:
 		return {"ok": false, "msg": "no_wp"}
 	var p := player(pid)
@@ -794,15 +795,20 @@ func do_training(pid: String, focus := "all") -> Dictionary:
 	_take_day("train", pid)
 	_spend_travel(c.city)
 	var groups: Array = FOCUS_GROUPS.get(focus, ["phy", "men"])
-	observe(pid, 0.3 if focus != "all" else 0.18, groups, 0.9)
+	observe(pid, (0.3 if focus != "all" else 0.18) + 0.1 * sparks, groups, 0.9)
 	var kn := know(pid)
-	var res := {"ok": true, "msg": "train_done", "focus": focus, "lines": _obs_lines(pid, groups, 3)}
-	if rf() < 0.5:
+	var res := {"ok": true, "msg": "train_done", "focus": focus, "lines": _obs_lines(pid, groups, 3 + mini(sparks, 2)), "sparks": sparks}
+	if rf() < 0.5 or sparks > 0:
 		var lvl := hid_level(int(p.hid.professionalism))
-		if rf() > 0.75:
+		if rf() > 0.75 and sparks == 0:
 			lvl = clampi(lvl + (1 if rf() < 0.5 else -1), 0, 2)
 		kn.hid["professionalism"] = {"lvl": lvl, "src": "training"}
 		res.trait = ["professionalism", lvl]
+	if sparks >= 2:
+		var t2: String = ["big_match", "consistency", "adaptability"][randi() % 3]
+		var lv2 := hid_level(int(p.hid.get(t2, 10)))
+		kn.hid[t2] = {"lvl": lv2, "src": "training"}
+		res.trait2 = [t2, lv2]
 	_gain_xp("eye", 1)
 	changed.emit()
 	return res
@@ -1408,6 +1414,12 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 				"r": m.rt.get(pid, 0.0), "n": notes, "line": line, "youth": youth})
 			if kn.notes.size() > 8:
 				kn.notes.resize(8)
+			var sp: int = int(focus_events.get("_sparks", {}).get(pid, 0))
+			if sp > 0:
+				_learn_from_agg(pid, agg[pid], 0.2 * mini(sp, 3))
+				var ht: String = ["big_match", "consistency"][sp % 2]
+				kn.hid[ht] = {"lvl": hid_level(int(p.hid.get(ht, 10))), "src": "match"}
+				notes.push_front(["nt_spark", [str(sp), T.t("q_" + ht)]])
 			obs.notes[pid] = notes
 			obs.lines[pid] = line
 			_gain_xp("eye", 2)

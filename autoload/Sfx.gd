@@ -11,6 +11,11 @@ const FILES := {
 	"whistle3": preload("res://audio/whistle3.wav"),
 	"kick": preload("res://audio/kick.wav"),
 	"net": preload("res://audio/net.wav"),
+	"ring": preload("res://audio/ring.wav"),
+	"pen": preload("res://audio/pen.wav"),
+	"blip": preload("res://audio/blip.wav"),
+	"spark": preload("res://audio/spark.wav"),
+	"catch": preload("res://audio/catch.wav"),
 }
 
 const MUSIC := preload("res://audio/menu.ogg")
@@ -49,7 +54,7 @@ func play(name: String, vol_db := 0.0, _pitch := 1.0) -> void:
 	if not _on() or not FILES.has(name):
 		return
 	var now := Time.get_ticks_msec()
-	var gap := 140 if name == "kick" else 250
+	var gap := 140 if name == "kick" else (45 if name == "blip" else 250)
 	if now - int(_last.get(name, 0)) < gap:
 		return
 	_last[name] = now

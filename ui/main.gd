@@ -5,7 +5,8 @@ extends "res://ui/kit.gd"
 const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
-const VERSION := "v0.11"
+const Stage3D = preload("res://three/stage3d.gd")
+const VERSION := "v0.12"
 
 var bg: ColorRect
 var hub
@@ -118,6 +119,7 @@ var _safe_t := 0.0
 
 func _process(delta: float) -> void:
 	# güvenlik ağı: sahne hatayla yarıda kalırsa arayüz görünmez/kilitli kalmasın
+	_scene_tick()
 	_safe_t += delta
 	if _safe_t > 1.0:
 		_safe_t = 0.0
@@ -771,7 +773,18 @@ func _last_log(current := false) -> String:
 	info += RenderingServer.get_video_adapter_name() + " / " + RenderingServer.get_video_adapter_api_version() + "\n---\n"
 	var prev: String = Watch.prev_report
 	if prev != "":
-		info += prev.right(3000) + "\n=== LOG ===\n"
+		info += prev.right(3000) + "\n"
+	# önceki oturumun log dosyasından hatalar
+	if current and not files.is_empty():
+		var pf := FileAccess.open("user://logs/" + files[-1], FileAccess.READ)
+		if pf:
+			var errs := []
+			for ln in pf.get_as_text().split("\n"):
+				if ln.contains("ERROR") or ln.contains("SCRIPT") or ln.contains("at: ") or ln.contains("[BC]"):
+					errs.append(ln)
+			pf.close()
+			info += "=== ONCEKI LOG (" + files[-1] + ") ===\n" + "\n".join(errs.slice(maxi(0, errs.size() - 60))) + "\n"
+	info += "=== LOG ===\n"
 	return info + txt.right(5000)
 
 func _scr_crash() -> void:
@@ -1048,8 +1061,14 @@ func _board_meeting() -> void:
 		return
 	_busy = true
 	var b := Game.board()
-	_scene_open("office", {"name": b.name, "role": T.t("president") + " • " + Game.my_club().name, "face": _pres_face()}, T.t("sc_place_board"))
-	await _say(T.t("pres_hello_" + Game.board_mood_key().replace("mood_", ""), [Game.s.scout.name]))
+	var me_name: String = Game.s.scout.name
+	_scene_open("office", T.t("sc_place_board"))
+	var pf := _pres_face()
+	_seat("pres", {"top": Color("#1f2a44"), "pants": Color("#1f2a44"), "shoes": Color("#111111"), "skin": int(pf.skin), "hair": int(pf.hair), "seed": 7}, 1.75, -PI / 2.0)
+	_seat("me", SCOUT_LOOK, -0.85, PI / 2.0)
+	stage.wide()
+	await get_tree().create_timer(0.6).timeout
+	await _line("pres", b.name, T.t("pres_hello_" + Game.board_mood_key().replace("mood_", ""), [me_name]), "me")
 	var opts := []
 	for cc in ["EN", "IT", "BR"]:
 		if not Game.board_abroad_ok(cc):
@@ -1060,26 +1079,27 @@ func _board_meeting() -> void:
 		opts.append(["push", T.t("pt_push")])
 	opts.append(["raise", T.t("pt_raise")])
 	opts.append(["report", T.t("pt_report")])
-	var pick := await _choose(opts)
+	var pick := await _choose(opts, T.t("sc_board_q"))
 	var topic := pick
 	var arg := ""
 	if pick.begins_with("abroad:"):
 		topic = "abroad"
 		arg = pick.split(":")[1]
-		await _say(T.t("ask_abroad", [T.t("country_" + arg)]), true)
+		await _line("me", me_name, T.t("ask_abroad", [T.t("country_" + arg)]), "pres")
 	elif pick == "push":
 		var po := []
 		for pid in Game.s.scout.shortlist.slice(0, 6):
 			var pp := Game.player(pid)
 			if not pp.is_empty():
 				po.append([pid, "%s • %s • %s" % [Game.pname(pp), _pos_short(pp.pos), Game.club(pp.club).get("short", "")]])
-		arg = await _choose(po)
-		await _say(T.t("ask_push", [Game.pname(Game.player(arg))]), true)
+		arg = await _choose(po, T.t("sc_push_q"))
+		await _line("me", me_name, T.t("ask_push", [Game.pname(Game.player(arg))]), "pres")
 	else:
-		await _say(T.t("ask_" + pick), true)
+		await _line("me", me_name, T.t("ask_" + pick), "pres")
 	var res := Game.board_request(topic, arg)
-	await _say(T.t(res.key, res.args))
-	await _say(T.t("pres_bye_" + ("ok" if res.ok else "no")))
+	stage.listener_react("pres", res.ok)
+	await _line("pres", b.name, T.t(res.key, res.args), "me")
+	await _line("pres", b.name, T.t("pres_bye_" + ("ok" if res.ok else "no")), "me")
 	_busy = false
 	_scene_close()
 
@@ -2304,150 +2324,322 @@ func _player_career(pid: String, p: Dictionary) -> void:
 
 signal dlg_next(val)
 var dlg_layer: CanvasLayer = null
-var dlg_text: Label = null
+var stage = null
+var dlg_root: Control = null
+var bubble: PanelContainer = null
+var bubble_tail: Control = null
+var bubble_name: Label = null
+var bubble_text: Label = null
+var bubble_owner := ""
+var bubble_vp := 0
+var caption_box: PanelContainer = null
+var caption_text: Label = null
+var note_box: PanelContainer = null
+var note_list: VBoxContainer = null
+var choice_box: PanelContainer = null
 var dlg_choices: VBoxContainer = null
+var choice_prompt: Label = null
 var dlg_hint: Label = null
-var dlg_name: Label = null
-var dlg_role: Label = null
-var dlg_face: Control = null
+var spark_ui: Control = null
+var vcr_ui: Control = null
 var _dlg_waiting := false
+var _typing: Label = null
+var _type_tw: Tween = null
 
-func _scene_open(station: String, who: Dictionary, place: String) -> void:
-	## Görsel roman tarzı sahne: arkada 3D mekân, altta konuşma kartı
-	Watch.bc("sahne " + station + " / " + place)
+const SCOUT_LOOK := {"top": Color("#2a3550"), "pants": Color("#3a3d44"), "shoes": Color("#2a1a10"), "skin": 1, "hair": 0, "seed": 4}
+
+func _scene_open(set_name: String, place: String) -> void:
+	## 3D sahne + çizgi roman tarzı arayüz (konuşma balonu, anlatım kutusu, not defteri, seçenekler)
+	Watch.bc("sahne " + set_name + " / " + place)
 	if hub:
-		if station == "pedestal" and who.has("pid"):
-			var pp := Game.player(who.pid)
-			hub.set_pedestal(pp, Game.club(pp.club))
-		hub.goto(station)
-		hub.set_pitch(6.0)
+		hub.set_active(false)
 	dlg_layer = CanvasLayer.new()
 	dlg_layer.layer = 8
 	add_child(dlg_layer)
-	var root_c := Control.new()
-	root_c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	root_c.mouse_filter = Control.MOUSE_FILTER_STOP
-	dlg_layer.add_child(root_c)
+	stage = Stage3D.new()
+	dlg_layer.add_child(stage)
+	stage.setup(set_name, set_name == "phone")
+	dlg_root = Control.new()
+	dlg_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dlg_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	dlg_layer.add_child(dlg_root)
+	# alt kararma (okunabilirlik)
 	var shade2 := TextureRect.new()
 	var g := Gradient.new()
 	g.set_color(0, Color(0, 0, 0, 0.0))
-	g.set_color(1, Color(0.04, 0.03, 0.02, 0.92))
+	g.set_color(1, Color(0.03, 0.02, 0.02, 0.7))
 	var gt := GradientTexture2D.new()
 	gt.gradient = g
-	gt.fill_from = Vector2(0, 0.3)
-	gt.fill_to = Vector2(0, 0.85)
+	gt.fill_from = Vector2(0, 0.55)
+	gt.fill_to = Vector2(0, 1.0)
 	shade2.texture = gt
 	shade2.stretch_mode = TextureRect.STRETCH_SCALE
 	shade2.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	shade2.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root_c.add_child(shade2)
+	dlg_root.add_child(shade2)
+	# sinematik siyah bantlar
+	for top in [true, false]:
+		var bar := ColorRect.new()
+		bar.color = Color(0, 0, 0, 0.85)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.anchor_right = 1.0
+		if top:
+			bar.offset_bottom = 54
+		else:
+			bar.anchor_top = 1.0
+			bar.anchor_bottom = 1.0
+			bar.offset_top = -30
+		dlg_root.add_child(bar)
 	# mekân etiketi
 	var tag := PanelContainer.new()
 	tag.add_theme_stylebox_override("panel", _paper_style(C_MANILA, 14, 4, 5))
 	tag.add_child(_lbl(place.to_upper(), 20, C_INK, false, F_HEAD))
 	var tagw := _tilt(tag, -3.0)
-	tagw.position = Vector2(24, 70)
-	root_c.add_child(tagw)
-	# konuşma kartı
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _paper_style(C_CARD, 22, 6, 8))
-	card.anchor_left = 0.0
-	card.anchor_right = 1.0
-	card.anchor_top = 0.48
-	card.anchor_bottom = 1.0
-	card.offset_left = 16
-	card.offset_right = -16
-	card.offset_top = 0
-	card.offset_bottom = -40
-	root_c.add_child(card)
-	root.visible = false
-	shade.visible = false
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
-	card.add_child(v)
-	var hh := HBoxContainer.new()
-	hh.add_theme_constant_override("separation", 14)
-	v.add_child(hh)
-	dlg_face = _avatar(who.get("face", {}), 96)
-	hh.add_child(dlg_face)
+	tagw.position = Vector2(20, 66)
+	dlg_root.add_child(tagw)
+	# anlatım kutusu (üst)
+	caption_box = PanelContainer.new()
+	caption_box.add_theme_stylebox_override("panel", _paper_style(C_HL.lightened(0.35), 18, 4, 6))
+	caption_box.anchor_right = 1.0
+	caption_box.offset_left = 24
+	caption_box.offset_right = -24
+	caption_box.offset_top = 128
+	caption_box.visible = false
+	caption_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	caption_text = _lbl("", 23, C_INK, true, F_BODY)
+	caption_box.add_child(caption_text)
+	dlg_root.add_child(caption_box)
+	# konuşma balonu
+	bubble = PanelContainer.new()
+	var bs := StyleBoxFlat.new()
+	bs.bg_color = Color("#fffdf6")
+	bs.set_corner_radius_all(26)
+	bs.set_border_width_all(3)
+	bs.border_color = C_INK
+	bs.content_margin_left = 22
+	bs.content_margin_right = 22
+	bs.content_margin_top = 14
+	bs.content_margin_bottom = 16
+	bs.shadow_color = Color(0, 0, 0, 0.35)
+	bs.shadow_size = 8
+	bs.shadow_offset = Vector2(0, 4)
+	bubble.add_theme_stylebox_override("panel", bs)
+	bubble.custom_minimum_size = Vector2(300, 0)
+	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bv := VBoxContainer.new()
+	bv.add_theme_constant_override("separation", 2)
+	bubble.add_child(bv)
+	bubble_name = _lbl("", 17, C_RED, false, F_TYPEB)
+	bv.add_child(bubble_name)
+	bubble_text = _lbl("", 25, C_INK, true, F_BODY)
+	bubble_text.custom_minimum_size = Vector2(250, 0)
+	bv.add_child(bubble_text)
+	bubble.visible = false
+	dlg_root.add_child(bubble)
+	bubble_tail = Control.new()
+	bubble_tail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bubble_tail.draw.connect(_draw_tail)
+	bubble_tail.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dlg_root.add_child(bubble_tail)
+	dlg_root.move_child(bubble_tail, bubble.get_index())
+	# not defteri (alt)
+	note_box = PanelContainer.new()
+	note_box.add_theme_stylebox_override("panel", _paper_style(C_CARD, 20, 5, 7))
+	note_box.anchor_top = 1.0
+	note_box.anchor_bottom = 1.0
+	note_box.anchor_right = 1.0
+	note_box.offset_left = 22
+	note_box.offset_right = -22
+	note_box.offset_bottom = -64
+	note_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	note_box.visible = false
+	note_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var nv := VBoxContainer.new()
-	nv.add_theme_constant_override("separation", -4)
-	nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nv.alignment = BoxContainer.ALIGNMENT_CENTER
-	dlg_name = _head(who.get("name", ""), 28)
-	nv.add_child(dlg_name)
-	dlg_role = _typed(who.get("role", ""), 16, C_INK2)
-	nv.add_child(dlg_role)
-	hh.add_child(nv)
-	v.add_child(_dash_rule())
-	dlg_text = _lbl("", 24, C_INK, true, F_BODY)
-	dlg_text.custom_minimum_size = Vector2(600, 120)
-	v.add_child(dlg_text)
+	nv.add_theme_constant_override("separation", 0)
+	note_box.add_child(nv)
+	var nh := _h(nv, 10)
+	nh.add_child(Icon.new().setup("report", C_RED, 26))
+	nh.add_child(_lbl(T.t("sc_notebook").to_upper(), 17, C_RED, false, F_TYPEB))
+	note_list = VBoxContainer.new()
+	note_list.add_theme_constant_override("separation", -4)
+	nv.add_child(note_list)
+	dlg_root.add_child(note_box)
+	# seçenekler (alt)
+	choice_box = PanelContainer.new()
+	choice_box.add_theme_stylebox_override("panel", _paper_style(C_PAPER, 18, 6, 7))
+	choice_box.anchor_top = 1.0
+	choice_box.anchor_bottom = 1.0
+	choice_box.anchor_right = 1.0
+	choice_box.offset_left = 18
+	choice_box.offset_right = -18
+	choice_box.offset_bottom = -54
+	choice_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	choice_box.visible = false
+	var cv := VBoxContainer.new()
+	cv.add_theme_constant_override("separation", 8)
+	choice_box.add_child(cv)
+	choice_prompt = _hand("", 30, C_BLUE)
+	cv.add_child(choice_prompt)
 	dlg_choices = VBoxContainer.new()
 	dlg_choices.add_theme_constant_override("separation", 8)
-	v.add_child(dlg_choices)
-	var fill := Control.new()
-	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	v.add_child(fill)
-	dlg_hint = _typed(T.t("tap_continue"), 15, C_INK2)
+	cv.add_child(dlg_choices)
+	dlg_root.add_child(choice_box)
+	dlg_hint = _typed(T.t("tap_continue"), 16, C_CREAM)
+	dlg_hint.anchor_left = 1.0
+	dlg_hint.anchor_right = 1.0
+	dlg_hint.anchor_top = 1.0
+	dlg_hint.anchor_bottom = 1.0
+	dlg_hint.offset_left = -260
+	dlg_hint.offset_right = -24
+	dlg_hint.offset_top = -30
+	dlg_hint.offset_bottom = -4
 	dlg_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	v.add_child(dlg_hint)
-	root_c.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed and _dlg_waiting:
-			if dlg_text.visible_ratio < 1.0:
-				dlg_text.visible_ratio = 1.0
-			else:
-				_dlg_waiting = false
-				dlg_next.emit(""))
-	card.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed and _dlg_waiting:
-			if dlg_text.visible_ratio < 1.0:
-				dlg_text.visible_ratio = 1.0
-			else:
-				_dlg_waiting = false
-				dlg_next.emit(""))
-	root_c.modulate.a = 0.0
-	var tw := create_tween().set_parallel(true)
-	tw.tween_property(root_c, "modulate:a", 1.0, 0.25)
+	dlg_hint.visible = false
+	dlg_root.add_child(dlg_hint)
+	dlg_root.gui_input.connect(_dlg_input)
+	dlg_root.modulate.a = 0.0
+	create_tween().tween_property(dlg_root, "modulate:a", 1.0, 0.35)
+	set_process(true)
 
-func _speaker(name: String, role: String, face: Dictionary) -> void:
-	dlg_name.text = name
-	dlg_role.text = role
-	var nf := _avatar(face, 96)
-	dlg_face.replace_by(nf)
-	dlg_face.queue_free()
-	dlg_face = nf
+func _dlg_input(e: InputEvent) -> void:
+	if not (e is InputEventMouseButton and e.pressed):
+		return
+	if stage and stage.drill_on:
+		if stage.try_catch():
+			_spark_pop(true)
+		return
+	if not _dlg_waiting:
+		return
+	if _typing and _typing.visible_ratio < 1.0:
+		if _type_tw:
+			_type_tw.kill()
+		_typing.visible_ratio = 1.0
+		return
+	_dlg_waiting = false
+	dlg_next.emit("")
 
-func _say(text: String, hand := false) -> void:
-	for c in dlg_choices.get_children():
-		c.queue_free()
-	dlg_text.add_theme_font_override("font", F_HAND if hand else F_BODY)
-	dlg_text.add_theme_font_size_override("font_size", 32 if hand else 24)
-	dlg_text.add_theme_color_override("font_color", C_BLUE if hand else C_INK)
-	dlg_text.text = text
-	dlg_text.visible_ratio = 0.0
+func _scene_tick() -> void:
+	## balonu konuşanın başının üstüne yerleştir (main._process çağırır)
+	if bubble == null or not bubble.visible or stage == null:
+		return
+	var vs := dlg_root.size
+	var hp: Vector2 = stage.head_screen(bubble_owner, bubble_vp)
+	var bsz := bubble.size
+	var want := Vector2(vs.x * 0.5 - bsz.x * 0.5, 150)
+	if hp.x >= 0.0:
+		want = Vector2(hp.x - bsz.x * 0.5, hp.y - bsz.y - 70)
+	want.x = clampf(want.x, 18, vs.x - bsz.x - 18)
+	want.y = clampf(want.y, 70, vs.y * 0.62 - bsz.y)
+	bubble.position = bubble.position.lerp(want, 0.35)
+	bubble_tail.set_meta("from", bubble.position + Vector2(bsz.x * 0.5, bsz.y - 4))
+	bubble_tail.set_meta("to", hp if hp.x >= 0.0 else bubble.position + Vector2(bsz.x * 0.5, bsz.y + 40))
+	bubble_tail.queue_redraw()
+
+func _draw_tail() -> void:
+	if bubble == null or not bubble.visible or not bubble_tail.has_meta("from"):
+		return
+	var a: Vector2 = bubble_tail.get_meta("from")
+	var b: Vector2 = bubble_tail.get_meta("to")
+	var d := (b - a)
+	var L := minf(d.length() * 0.75, 90.0)
+	var tip := a + d.normalized() * L
+	var perp := Vector2(-d.y, d.x).normalized() * 16.0
+	var pts := PackedVector2Array([a - perp + Vector2(0, -6), tip, a + perp + Vector2(0, -6)])
+	bubble_tail.draw_colored_polygon(pts, Color("#fffdf6"))
+	bubble_tail.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2]]), C_INK, 3.0, true)
+
+func _type(lbl: Label, text: String, cps := 48.0) -> void:
+	_typing = lbl
+	lbl.text = text
+	lbl.visible_ratio = 0.0
+	if _type_tw:
+		_type_tw.kill()
+	_type_tw = create_tween()
+	_type_tw.tween_property(lbl, "visible_ratio", 1.0, clampf(text.length() / cps, 0.25, 2.6))
+	# yazı sesi: birkaç tık
+	var n := mini(6, text.length() / 12 + 1)
+	for i in n:
+		get_tree().create_timer(i * 0.09).timeout.connect(func(): Sfx.play("blip", -20.0))
+
+func _wait_tap() -> void:
 	dlg_hint.visible = true
-	var tw := create_tween()
-	tw.tween_property(dlg_text, "visible_ratio", 1.0, clampf(text.length() / 55.0, 0.3, 2.2))
 	_dlg_waiting = true
 	await dlg_next
+	dlg_hint.visible = false
 
-func _choose(opts: Array) -> String:
+## Karakter konuşur: kamera ona keser, balon başının üstünde
+func _line(id: String, name: String, text: String, listener := "", vp := 0) -> void:
+	caption_box.visible = false
+	choice_box.visible = false
+	if stage:
+		if stage.views.size() > 1:
+			stage.focus_speaker(id, "", vp)
+		else:
+			stage.focus_speaker(id, listener, vp)
+	bubble_owner = id
+	bubble_vp = vp
+	bubble_name.text = name.to_upper()
+	bubble.visible = true
+	bubble.size = Vector2.ZERO
+	bubble.modulate.a = 0.0
+	bubble.scale = Vector2(0.85, 0.85)
+	bubble.pivot_offset = Vector2(150, 60)
+	var tw := create_tween().set_parallel(true).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(bubble, "modulate:a", 1.0, 0.15)
+	tw.tween_property(bubble, "scale", Vector2.ONE, 0.25)
+	_type(bubble_text, text)
+	await _wait_tap()
+	bubble.visible = false
+	bubble_tail.queue_redraw()
+
+## Anlatım kutusu (üstte)
+func _caption(text: String) -> void:
+	bubble.visible = false
+	choice_box.visible = false
+	caption_box.visible = true
+	caption_box.modulate.a = 0.0
+	create_tween().tween_property(caption_box, "modulate:a", 1.0, 0.2)
+	_type(caption_text, text, 60.0)
+	await _wait_tap()
+	caption_box.visible = false
+
+## Not defterine el yazısıyla not
+func _note(text: String, col := C_BLUE) -> void:
+	bubble.visible = false
+	choice_box.visible = false
+	note_box.visible = true
+	while note_list.get_child_count() > 4:
+		note_list.get_child(0).free()
+	var l := _hand("– " + text, 30, col)
+	note_list.add_child(l)
+	Sfx.play("pen", -10.0)
+	_type(l, "– " + text, 34.0)
+	await _wait_tap()
+
+func _choose(opts: Array, prompt := "") -> String:
 	## opts: [[anahtar, etiket], ...]
+	bubble.visible = false
+	caption_box.visible = false
+	note_box.visible = false
 	for c in dlg_choices.get_children():
 		c.queue_free()
-	dlg_hint.visible = false
+	choice_prompt.text = prompt
+	choice_prompt.visible = prompt != ""
+	choice_box.visible = true
 	_dlg_waiting = false
 	for o in opts:
 		var key: String = o[0]
 		var b := _btn(o[1], func(): dlg_next.emit(key), "small", dlg_choices)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	choice_box.modulate.a = 0.0
+	create_tween().tween_property(choice_box, "modulate:a", 1.0, 0.2)
 	var was := _busy
 	_busy = false
 	var val = await dlg_next
 	_busy = was
+	choice_box.visible = false
 	for c in dlg_choices.get_children():
 		c.queue_free()
 	return str(val)
@@ -2457,14 +2649,118 @@ func _scene_close() -> void:
 	if dlg_layer:
 		dlg_layer.queue_free()
 		dlg_layer = null
+	stage = null
+	bubble = null
+	if hub:
+		hub.set_active(true)
 	root.visible = true
 	_refresh()
+
+# ---------------------------------------------------------------- kıvılcım arayüzü
+
+func _spark_ui_build(vcr := false) -> void:
+	spark_ui = Control.new()
+	spark_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	spark_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dlg_root.add_child(spark_ui)
+	var lbl := _lbl("", 54, C_HL, false, F_HEAD)
+	lbl.name = "Pop"
+	lbl.add_theme_color_override("font_outline_color", C_INK)
+	lbl.add_theme_constant_override("outline_size", 12)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.anchor_right = 1.0
+	lbl.anchor_top = 0.3
+	lbl.anchor_bottom = 0.3
+	lbl.visible = false
+	spark_ui.add_child(lbl)
+	var cnt := _lbl("", 22, C_CREAM, false, F_TYPEB)
+	cnt.name = "Count"
+	cnt.position = Vector2(24, 128)
+	spark_ui.add_child(cnt)
+	if vcr:
+		vcr_ui = Control.new()
+		vcr_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		vcr_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		dlg_root.add_child(vcr_ui)
+		dlg_root.move_child(vcr_ui, 1)
+		var scan := ColorRect.new()
+		scan.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var sm := ShaderMaterial.new()
+		var sh := Shader.new()
+		sh.code = "shader_type canvas_item;\nuniform float t;\nvoid fragment(){ float l = step(0.5, fract(FRAGCOORD.y / 3.0)); float n = fract(sin(dot(FRAGCOORD.xy + t, vec2(12.9898, 78.233))) * 43758.5453); COLOR = vec4(vec3(n * 0.12), l * 0.10 + 0.06); }"
+		sm.shader = sh
+		scan.material = sm
+		vcr_ui.add_child(scan)
+		var rec := _lbl("● REC   ▶ 1×", 24, Color("#ff4d4d"), false, F_TYPEB)
+		rec.position = Vector2(24, 170)
+		vcr_ui.add_child(rec)
+		var tc := _lbl("00:00:00", 24, C_CREAM, false, F_TYPEB)
+		tc.name = "TC"
+		tc.anchor_left = 1.0
+		tc.anchor_right = 1.0
+		tc.offset_left = -170
+		tc.position.y = 170
+		vcr_ui.add_child(tc)
+
+func _spark_pop(caught: bool) -> void:
+	if spark_ui == null:
+		return
+	var lbl: Label = spark_ui.get_node("Pop")
+	lbl.text = T.t("spark_caught") if caught else T.t("spark_missed")
+	lbl.add_theme_color_override("font_color", C_HL if caught else Color("#cfcfcf"))
+	lbl.visible = true
+	lbl.scale = Vector2(0.6, 0.6)
+	lbl.pivot_offset = Vector2(360, 30)
+	var tw := create_tween().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "scale", Vector2.ONE, 0.25)
+	tw.tween_interval(0.6)
+	tw.tween_callback(func(): lbl.visible = false)
+	if caught:
+		Sfx.play("catch", -4.0)
+		Input.vibrate_handheld(60)
+	(spark_ui.get_node("Count") as Label).text = "✦ %d" % stage.sparks_caught
+
+## Gözlem aşaması: oyuncu çalışır, kıvılcımlar belirir; yakalanan sayısını döndürür
+func _observe_phase(dur: float, n: int, vcr := false) -> int:
+	_spark_ui_build(vcr)
+	stage.spark_shown.connect(func(_i):
+		Sfx.play("spark", -6.0)
+		var lbl: Label = spark_ui.get_node("Pop")
+		lbl.text = T.t("spark_now")
+		lbl.add_theme_color_override("font_color", C_HL)
+		lbl.visible = true)
+	stage.spark_missed.connect(func(_i): _spark_pop(false))
+	stage.start_drills("p", dur, n)
+	var t0 := Time.get_ticks_msec()
+	while stage and stage.drill_on:
+		await get_tree().process_frame
+		if vcr_ui:
+			var el := (Time.get_ticks_msec() - t0) / 1000.0
+			(vcr_ui.get_node("TC") as Label).text = "00:%02d:%02d" % [int(el) / 60, int(el) % 60]
+			var sc: ColorRect = vcr_ui.get_child(0)
+			(sc.material as ShaderMaterial).set_shader_parameter("t", el * 37.0)
+	var caught: int = stage.sparks_caught
+	stage.follow = false
+	if spark_ui:
+		spark_ui.queue_free()
+		spark_ui = null
+	if vcr_ui:
+		vcr_ui.queue_free()
+		vcr_ui = null
+	return caught
 
 func _who_player(p: Dictionary) -> Dictionary:
 	return {"name": Game.pname(p), "role": "%s • %s" % [T.t("pos_" + p.pos), Game.club(p.club).get("name", "")], "face": p, "pid": p.id}
 
 func _who_npc(name: String, role: String, seed_v: int) -> Dictionary:
 	return {"name": name, "role": role, "face": {"skin": seed_v % 4, "hair": (seed_v / 3) % 6, "seed": seed_v, "club": ""}}
+
+func _seat(id: String, info: Dictionary, chair_x: float, face: float) -> void:
+	## sandalyeye oturt: oturma klibinde pelvis 0.33 m geride
+	var dir := 1.0 if face > 0.0 else -1.0
+	var a = stage.add_actor(id, info, Vector3(chair_x + 0.33 * dir, 0, 0), face, "sit")
+	a.set_meta("seated", true)
 
 func _do_action(pid: String, kind: String) -> void:
 	if _busy:
@@ -2474,36 +2770,44 @@ func _do_action(pid: String, kind: String) -> void:
 	if Game.free_days() <= 0:
 		_toast(T.t("no_wp"))
 		return
+	var me_name: String = Game.s.scout.name
 	_busy = true
 	match kind:
-		"train":
-			_scene_open("stadium", _who_npc(T.t("sc_you"), T.t(Game.title_key()), 3), T.t("sc_place_train", [cl.get("name", "")]))
-			_speaker(Game.s.scout.name, T.t(Game.title_key()), {"skin": 1, "hair": 0, "seed": 1, "club": ""})
-			await _say(T.t("sc_train_intro", [Game.pname(p), cl.get("city", "")]))
-			var f := await _choose([["phy", T.t("foc_phy")], ["men", T.t("foc_men")], ["tec", T.t("foc_tec")]])
-			var res := Game.do_training(pid, f)
-			if res.ok:
-				for ln in res.lines:
-					await _say(T.t(ln[0], ln[1]), true)
-				if res.has("trait"):
-					await _say(T.t("sc_prof_%d" % int(res.trait[1])), true)
-				if res.lines.is_empty():
-					await _say(T.t("sc_nothing"), true)
-		"video":
-			if p.youth:
+		"train", "video":
+			if kind == "video" and p.youth:
 				_busy = false
 				_toast(T.t("no_footage"))
 				return
-			_scene_open("desk", _who_npc(Game.s.scout.name, T.t("sc_video_room"), 2), T.t("sc_place_video"))
-			_speaker(Game.s.scout.name, T.t("sc_video_room"), {"skin": 1, "hair": 0, "seed": 1, "club": ""})
-			await _say(T.t("sc_video_intro", [Game.pname(p)]))
-			var f2 := await _choose([["tec", T.t("foc_tec")], ["men", T.t("foc_men2")], ["phy", T.t("foc_phy2")]])
-			var res2 := Game.do_video(pid, f2)
-			if res2.ok:
-				for ln in res2.lines:
-					await _say(T.t(ln[0], ln[1]), true)
-				if res2.lines.is_empty():
-					await _say(T.t("sc_nothing"), true)
+			var is_vid := kind == "video"
+			_scene_open("video" if is_vid else "training", T.t("sc_place_video") if is_vid else T.t("sc_place_train", [cl.get("name", "")]))
+			stage.add_actor("p", {"kind": "player", "p": p, "club": cl, "training": not is_vid}, Vector3(-10, 0, 4), PI / 2.0, "idle")
+			if not is_vid:
+				stage.add_mates(cl, 6)
+				var me = stage.add_actor("me", SCOUT_LOOK, Vector3(-3.0, 0, 9.5), PI, "idle")
+				me.overlay = "notebook"
+				me.set_meta("talker", false)
+			stage.wide()
+			if is_vid:
+				await _caption(T.t("sc_video_intro", [Game.pname(p)]))
+			else:
+				await _caption(T.t("sc_train_intro", [Game.pname(p), cl.get("city", "")]))
+			var f := await _choose([["phy", T.t("foc_phy")], ["men", T.t("foc_men")], ["tec", T.t("foc_tec")]] if not is_vid else [["tec", T.t("foc_tec")], ["men", T.t("foc_men2")], ["phy", T.t("foc_phy2")]], T.t("sc_focus_q"))
+			await _caption(T.t("sc_spark_hint"))
+			var caught := await _observe_phase(10.0 if is_vid else 14.0, 2 if is_vid else 3, is_vid)
+			var res := Game.do_video(pid, f, caught) if is_vid else Game.do_training(pid, f, caught)
+			if not is_vid:
+				stage.shot(0, Vector3(-2.35, 1.62, 8.15), Vector3(-3.0, 1.35, 9.5), 3.0)
+			if res.ok:
+				if caught > 0:
+					await _note(T.t("sc_spark_note", [caught]), C_RED)
+				for ln in res.lines:
+					await _note(T.t(ln[0], ln[1]))
+				if res.has("trait"):
+					await _note(T.t("sc_prof_%d" % int(res.trait[1])))
+				if res.has("trait2"):
+					await _note(T.t("sc_trait2", [T.t("q_" + res.trait2[0])]), C_RED)
+				if res.lines.is_empty():
+					await _note(T.t("sc_nothing"))
 		"meet":
 			var kn: Dictionary = Game.s.scout.knowledge.get(pid, {})
 			if kn.get("met", false):
@@ -2514,60 +2818,84 @@ func _do_action(pid: String, kind: String) -> void:
 				_busy = false
 				_toast(T.t("need_lang"))
 				return
-			_scene_open("pedestal", _who_player(p), T.t("sc_place_meet", [cl.get("city", "")]))
-			await _say(T.t("sc_meet_intro", [p.first]))
+			_scene_open("lobby", T.t("sc_place_meet", [cl.get("city", "")]))
+			_seat("me", SCOUT_LOOK, -1.0, PI / 2.0)
+			_seat("p", {"kind": "player", "p": p, "club": cl, "casual": true, "top": Color(cl.get("c1", "#334455")).darkened(0.25)}, 1.0, -PI / 2.0)
+			stage.wide()
+			await _caption(T.t("sc_meet_intro", [p.first]))
 			var pool := ["professionalism", "adaptability", "big_match", "injury_prone", "consistency"]
 			var picked := []
 			for k in 2:
 				var opts := []
-				for t in pool:
-					if not (t in picked):
-						opts.append([t, T.t("q_" + t)])
-				var q := await _choose(opts)
-				picked.append(q)
-				await _say(T.t("sc_you_ask") + " " + T.t("q_" + q))
+				for tr in pool:
+					if not (tr in picked):
+						opts.append([tr, T.t("q_" + tr)])
+				picked.append(await _choose(opts, T.t("sc_ask_q", [k + 1])))
 			var res3 := Game.do_meet(pid, picked)
 			if res3.ok:
-				for an in res3.answers:
-					await _say("„" + T.t("a_%s_%d" % [an[0], int(an[1])]) + "”")
-				await _say(T.t("sc_meet_end"), true)
+				for i in res3.answers.size():
+					var an: Array = res3.answers[i]
+					await _line("me", me_name, T.t("q_" + str(an[0])), "p")
+					await _line("p", Game.pname(p), T.t("a_%s_%d" % [an[0], int(an[1])]), "me")
+					stage.listener_react("me", int(an[1]) >= 1)
+				stage.wide()
+				await _note(T.t("sc_meet_end"))
 		_:
 			var costs := {"coach": 60, "agent": 0, "journalist": 30}
 			if Game.s.scout.money < int(costs[kind]):
 				_busy = false
 				_toast(T.t("not_enough_money"))
 				return
-			var who := {}
-			var place := ""
+			var nm := ""
+			var look := {}
+			var on_phone := kind != "journalist"
 			match kind:
 				"coach":
-					who = _who_npc(cl.get("manager", {}).get("name", "?"), T.t("sc_role_coach", [cl.get("name", "")]), hash(cl.get("name", "")) % 97)
-					place = T.t("sc_place_phone")
+					nm = cl.get("manager", {}).get("name", "?")
+					look = {"top": Color(cl.get("c1", "#334455")).darkened(0.15), "pants": Color("#1d2028"), "shoes": Color("#efefef"), "skin": hash(nm) % 4, "hair": hash(nm) % 6, "seed": 5}
 				"journalist":
-					var jn := "%s %s" % [Data.FIRST["TR"][hash(pid) % Data.FIRST["TR"].size()], Data.LAST["TR"][hash(pid + "j") % Data.LAST["TR"].size()]]
-					who = _who_npc(jn, T.t("sc_role_journalist", [cl.get("city", "")]), hash(jn) % 91)
-					place = T.t("sc_place_cafe", [cl.get("city", "")])
+					nm = "%s %s" % [Data.FIRST["TR"][hash(pid) % Data.FIRST["TR"].size()], Data.LAST["TR"][hash(pid + "j") % Data.LAST["TR"].size()]]
+					look = {"top": Color("#8a3a2a"), "pants": Color("#3b4a6b"), "shoes": Color("#2a1a12"), "skin": hash(nm) % 4, "hair": hash(nm) % 6, "seed": 8}
 				"agent":
-					who = _who_npc(p.agent, T.t("sc_role_agent", [Game.pname(p)]), hash(p.agent) % 89)
-					place = T.t("sc_place_phone")
-			_scene_open("desk", who, place)
-			await _say(T.t("sc_intro_" + kind, [Game.pname(p)]))
+					nm = p.agent
+					look = {"top": Color("#2b2d33"), "pants": Color("#2b2d33"), "shoes": Color("#0e0e0e"), "skin": hash(nm) % 4, "hair": hash(nm) % 6, "seed": 6}
+			if on_phone:
+				_scene_open("phone", T.t("sc_place_phone"))
+				_seat("me", SCOUT_LOOK, 0.0, PI)
+				stage.actors["me"].position = Vector3(0, 0, -0.28)
+				stage.actors["me"].overlay = "phone"
+				var npc = stage.add_actor("npc", look, Vector3(40, 0, 0), 0.0, "idle")
+				npc.overlay = "phone"
+				stage.wide(0)
+				stage.wide(1)
+				Sfx.play("ring", -6.0)
+				await get_tree().create_timer(1.2).timeout
+				await _line("npc", nm, T.t("sc_intro_" + kind, [Game.pname(p)]), "", 1)
+			else:
+				_scene_open("cafe", T.t("sc_place_cafe", [cl.get("city", "")]))
+				_seat("me", SCOUT_LOOK, -0.98, PI / 2.0)
+				_seat("npc", look, 0.98, -PI / 2.0)
+				stage.wide()
+				await _caption(T.t("sc_intro_" + kind, [Game.pname(p)]))
 			var topics := ["professionalism", "injury_prone", "adaptability"] if kind == "coach" else (["professionalism", "big_match", "consistency", "adaptability"])
 			var opts2 := []
-			for t in topics:
-				opts2.append([t, T.t("q3_" + t, [p.first])])
-			var want := await _choose(opts2)
+			for tp in topics:
+				opts2.append([tp, T.t("q3_" + tp, [p.first])])
+			var want := await _choose(opts2, T.t("sc_what_ask"))
+			await _line("me", me_name, T.t("q3_" + want, [p.first]), "npc", 0)
 			var res4 := Game.do_source(pid, kind, want)
+			var vp2 := 1 if on_phone else 0
 			if not res4.ok:
-				await _say(T.t(res4.msg))
+				await _line("npc", nm, T.t(res4.msg), "me", vp2)
 			elif res4.msg == "src_ok":
-				await _say("„" + T.t("s_%s_%d" % [res4["trait"], int(res4.lvl)], [p.first]) + "”")
+				await _line("npc", nm, T.t("s_%s_%d" % [res4["trait"], int(res4.lvl)], [p.first]), "me", vp2)
+				await _note(T.t("sc_noted_trait", [T.t("q_" + str(res4["trait"]))]))
 				if kind == "agent":
-					await _say(T.t("sc_agent_warn"), true)
+					await _note(T.t("sc_agent_warn"), C_RED)
 			elif res4.msg == "src_nothing":
-				await _say(T.t("src_nothing"))
+				await _line("npc", nm, T.t("src_nothing"), "me", vp2)
 			else:
-				await _say(T.t("sc_fail_" + kind))
+				await _line("npc", nm, T.t("sc_fail_" + kind), "me", vp2)
 	_busy = false
 	_scene_close()
 

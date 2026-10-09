@@ -309,7 +309,10 @@ func _btn(text: String, cb: Callable, kind := "small", parent: Control = null, i
 			b.add_theme_stylebox_override(s, c2)
 	b.pressed.connect(func():
 		if _dragged or _busy:
+			if _busy:
+				Watch.bc("dokunus engellendi (mesgul): " + text.left(24))
 			return
+		Watch.bc("buton: " + text.left(24))
 		cb.call())
 	_press_fx(b)
 	if parent:
@@ -650,7 +653,9 @@ func _tabs(parent: Control, items: Array, cur: String, cb: Callable) -> Control:
 				bg.draw_line(Vector2(slope + 6, 6), Vector2(w - slope - 6, 6), Color(C_RED, 0.8), 3.0))
 		b.pressed.connect(func():
 			if _dragged:
+				Watch.bc("sekme suruklemede yok sayildi: " + str(key))
 				return
+			Watch.bc("sekme: " + str(key))
 			cb.call(key))
 		row.add_child(b)
 	parent.add_child(row)

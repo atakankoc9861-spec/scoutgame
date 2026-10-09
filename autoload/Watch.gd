@@ -65,6 +65,9 @@ func _exit_tree() -> void:
 	if th and th.is_started():
 		th.wait_to_finish()
 
+func _mon() -> String:
+	return "vmem=%dMB tex=%dMB nodes=%d obj=%d" % [int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))]
+
 ## Kısa iz bırak (ekran değişimi, sahne, maç vb.)
 func bc(msg: String) -> void:
 	var line := "%d %s" % [Time.get_ticks_msec() / 1000, msg]
@@ -85,7 +88,18 @@ func _loop() -> void:
 		if paused or reported:
 			continue
 		var now := Time.get_ticks_msec()
-		if now - hb > 8000:
+		# çizim durdu ama oyun mantığı çalışıyor (ekran donuk, dokunuşlar işleniyor)
+		if now - hb < 1000 and now - post > 2500 and not reported:
+			reported = true
+			mx.lock()
+			var t2 := "zaman=%ds tur=CIZIM DURDU (process calisiyor)\npost_draw %dms once fps=%d %s\n--- son adimlar ---\n%s" % [now / 1000, now - post, Engine.get_frames_per_second(), _mon(), "\n".join(ring)]
+			mx.unlock()
+			var f2 := FileAccess.open(STALL_FILE, FileAccess.WRITE)
+			if f2:
+				f2.store_string(t2)
+				f2.close()
+			continue
+		if now - hb > 2500:
 			reported = true
 			var kind := "SCRIPT/MANTIK (process durdu, cizim de durdu)"
 			if pre > post + 50:
@@ -93,7 +107,7 @@ func _loop() -> void:
 			elif post >= hb and pre >= hb:
 				kind = "PROCESS (cizim devam etti ama process durdu)"
 			mx.lock()
-			var txt := "zaman=%ds tur=%s\nprocess %dms once, pre_draw %dms once, post_draw %dms once\n--- son adimlar ---\n%s" % [now / 1000, kind, now - hb, now - pre, now - post, "\n".join(ring)]
+			var txt := "zaman=%ds tur=%s\nprocess %dms once, pre_draw %dms once, post_draw %dms once %s\n--- son adimlar ---\n%s" % [now / 1000, kind, now - hb, now - pre, now - post, _mon(), "\n".join(ring)]
 			mx.unlock()
 			var f := FileAccess.open(STALL_FILE, FileAccess.WRITE)
 			if f:

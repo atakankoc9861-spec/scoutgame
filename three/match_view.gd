@@ -710,6 +710,12 @@ func _build_world() -> void:
 	var hc: Dictionary = Game.club(m.h)
 	var ac: Dictionary = Game.club(m.a)
 	stadium.build(Color(hc.c1), Color(hc.c2), Color(ac.c1), true, Game.quality() == "high")
+	# seyirci yoğunluğu: lig seviyesi (BAL ligi neredeyse boş, Süper Lig dolu)
+	var tl := Game.tier(hc.get("league", "SL"))
+	var fill: float = [0.92, 0.92, 0.62, 0.4, 0.24, 0.12][clampi(tl, 0, 5)]
+	if data.get("youth", false):
+		fill = 0.06
+	stadium.set_fill(fill)
 	cam = Camera3D.new()
 	cam.fov = 28
 	cam.keep_aspect = Camera3D.KEEP_HEIGHT
@@ -763,6 +769,11 @@ func _kits(side: String, c: Dictionary, opp: Dictionary) -> Dictionary:
 		shirt = Color("#f2f2f2")
 		shorts = Color(c.c1)
 	var outfield := FB.kit_mats(shirt, shorts, shirt.darkened(0.15))
+	var pat: int = [0, 0, 1, 2, 3, 0, 1][hash(String(c.get("name", ""))) % 7]
+	if shirt == Color("#f2f2f2"):
+		pat = 0
+	outfield["pattern"] = pat
+	outfield["c2"] = shorts if not _similar(shorts, shirt) else Color("#f2f2f2")
 	var gk_col := Color("#2ec4b6") if side == "h" else Color("#c77dff")
 	var gk := FB.kit_mats(gk_col, Color("#111111"), gk_col.darkened(0.3))
 	return {"out": outfield, "gk": gk}
@@ -954,7 +965,55 @@ func _on_engine_event(e: Dictionary) -> void:
 	_on_event(e)
 
 var _frames := 0
+var spark_pid := ""
+var spark_t := 0.0
+var spark_n := 0
+var spark_ring: MeshInstance3D
+var spark_caught := {}
+
+func _spark_start(pid: String) -> void:
+	spark_pid = pid
+	spark_t = 0.0
+	spark_n += 1
+	if spark_ring == null:
+		spark_ring = MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.8
+		tm.outer_radius = 1.0
+		spark_ring.mesh = tm
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.albedo_color = Color(1.0, 0.82, 0.2)
+		sm.no_depth_test = true
+		spark_ring.material_override = sm
+		world.add_child(spark_ring)
+	spark_ring.visible = true
+	_popup(pid, "✦ " + T.t("spark_now"), Color(1.0, 0.85, 0.2))
+	Sfx.play("spark", -8.0)
+
+func _spark_tick(delta: float) -> void:
+	if spark_pid == "":
+		return
+	spark_t += delta
+	if men.has(spark_pid):
+		var pulse := 1.0 + sin(spark_t * 14.0) * 0.15
+		spark_ring.position = men[spark_pid].fb.position + Vector3(0, 0.06, 0)
+		spark_ring.scale = Vector3(pulse, 0.15, pulse)
+	if spark_t > 1.4:
+		_popup(spark_pid, T.t("spark_missed"), Color(0.8, 0.8, 0.8))
+		spark_pid = ""
+		spark_ring.visible = false
+
+func _spark_catch() -> void:
+	spark_caught[spark_pid] = int(spark_caught.get(spark_pid, 0)) + 1
+	_popup(spark_pid, "✦ " + T.t("spark_caught"), Color(1.0, 0.85, 0.2))
+	Sfx.play("catch", -4.0)
+	Input.vibrate_handheld(60)
+	spark_pid = ""
+	spark_ring.visible = false
+
 func _process(delta: float) -> void:
+	_spark_tick(minf(delta, 0.05))
 	_frames += 1
 	if _frames == 1 or _frames == 30 or _frames == 300:
 		print("[BC] viewer kare ", _frames, " mod=", mode)
@@ -1250,6 +1309,9 @@ func _on_event(e: Dictionary) -> void:
 		return
 	if e.pid in focus and e.ty in ["pass", "dribble", "shot", "cross", "header", "press", "sprint", "save", "tackle"]:
 		_popup(e.pid, ("✓ " if e.ok else "✗ ") + T.t("ev_" + e.ty), C_GOOD if e.ok else C_BAD)
+		# kıvılcım anı: odaktaki oyuncunun nadir parlak hareketi
+		if e.ok and spark_pid == "" and spark_n < 4 and e.ty in ["dribble", "shot", "cross", "tackle", "header"] and randf() < 0.22:
+			_spark_start(e.pid)
 	if e.tgt in focus and e.ty in ["dribble", "header", "sprint"] and not e.ok:
 		_popup(e.tgt, "✓ " + T.t("ev_def_" + e.ty), C_GOOD)
 	if e.tgt in focus and e.ty == "pass" and not e.ok:
@@ -1320,6 +1382,9 @@ func _on_view_input(ev: InputEvent) -> void:
 	if mode == "replay":
 		_after_replay()
 		return
+	if spark_pid != "":
+		_spark_catch()
+		return
 	var best := ""
 	var bd := 90.0
 	var scale_f := Vector2(sv.size) / svc.size
@@ -1367,4 +1432,5 @@ func _finish() -> void:
 	var ac: Dictionary = Game.club(m.a)
 	_show_overlay(T.t("mv_fulltime"), "%s  %d - %d  %s" % [hc.short, score[0], score[1], ac.short], T.t("mv_to_report"), func():
 		Sfx.crowd_off()
+		focus_events["_sparks"] = spark_caught
 		finished.emit(focus_events))

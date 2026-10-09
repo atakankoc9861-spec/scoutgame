@@ -69,6 +69,7 @@ void fragment() {
 const CROWD_SHADER := """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
+uniform sampler2D atlas : source_color, filter_linear_mipmap;
 uniform vec3 c1 = vec3(0.8, 0.6, 0.1);
 uniform vec3 c2 = vec3(0.1, 0.1, 0.3);
 uniform vec3 c3 = vec3(0.7, 0.1, 0.1);
@@ -76,6 +77,7 @@ uniform float excite = 0.0;
 uniform float away_share = 0.12;
 uniform float seat_w = 0.55;
 uniform float length_m = 100.0;
+uniform float fill = 0.9;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void fragment() {
 	float cols = length_m / seat_w;
@@ -88,29 +90,34 @@ void fragment() {
 	float h2 = hash(cell + 17.3);
 	float h3 = hash(cell + 41.7);
 	vec3 seat = mix(vec3(0.05, 0.06, 0.08), c2 * 0.5, 0.35);
-	bool away = UV.x * length_m > length_m * (1.0 - away_share) ;
-	vec3 shirt = away ? (h < 0.8 ? c3 : vec3(0.9)) : (h < 0.5 ? c1 : (h < 0.78 ? c2 : vec3(0.15 + h2 * 0.7)));
-	float t = TIME;
-	float jump = excite * max(0.0, sin(t * 10.0 + h * 50.0)) * 0.12 + sin(t * 1.5 + h * 30.0) * 0.01;
-	float y = UV.y - jump;
-	float body = step(abs(fx - 0.5), 0.3) * step(0.08, y) * step(y, 0.62);
-	body *= step(length(vec2((fx - 0.5) * 1.3, max(0.0, y - 0.5) * 2.0)), 0.42);
-	float head = step(length(vec2(fx - 0.5, (y - 0.74) * 1.1)), 0.15);
-	float arms = 0.0;
-	if (excite > 0.2 && h3 > 0.4) {
-		arms = (step(abs(fx - 0.18), 0.05) + step(abs(fx - 0.82), 0.05)) * step(0.6, y) * step(y, 0.98);
-	}
-	vec3 skin = mix(vec3(0.86, 0.66, 0.5), vec3(0.33, 0.21, 0.14), h2 * h2);
 	vec3 col = seat * (0.8 + 0.2 * step(0.2, fract(UV.y * 3.0)));
-	float empty = step(0.9, h3);
-	col = mix(col, shirt * (0.75 + 0.35 * h2), body * (1.0 - empty));
-	col = mix(col, skin, max(head, arms * 0.0) * (1.0 - empty));
-	col = mix(col, shirt, arms * (1.0 - empty));
-	// telefon flaşları
-	float flash = step(0.997, hash(cell + floor(t * 3.0))) * (1.0 - empty);
+	bool away = UV.x * length_m > length_m * (1.0 - away_share);
+	vec3 shirt = away ? (h < 0.8 ? c3 : vec3(0.9)) : (h < 0.5 ? c1 : (h < 0.78 ? c2 : vec3(0.15 + h2 * 0.7)));
+	float empty = step(fill, h3);
+	// poz: sakin -> oturan/alkış, heyecan -> ayağa kalkan/kollar havada
+	bool hype = excite > 0.15 + h2 * 0.6;
+	float pose = floor(h * 4.0) + (hype ? 4.0 : 0.0);
+	float rate = hype ? 3.5 : 1.2 + h3;
+	float frame = floor(mod(TIME * rate + h * 4.0, 4.0));
+	float variant = step(0.5, h2);
+	float u = 0.5 + (fx - 0.5) * 0.62;
+	float hgt = 0.62 + UV.y * 1.55 - (hype ? 0.0 : 0.05);
+	float v = 1.0 - (hgt - 0.55) / 1.7;
+	vec4 tx = vec4(0.0);
+	if (u > 0.0 && u < 1.0 && v > 0.0 && v < 1.0) {
+		tx = texture(atlas, vec2((variant * 4.0 + frame + u) / 8.0, (pose + v) / 8.0));
+	}
+	if (tx.a > 0.5 && empty < 0.5) {
+		vec3 c = tx.rgb;
+		float lum = dot(c, vec3(0.3, 0.59, 0.11));
+		float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+		if (sat < 0.12 && lum > 0.33) { c = shirt * (0.35 + lum * 0.85); }
+		col = c;
+	}
+	float flash = step(0.997, hash(cell + floor(TIME * 3.0))) * (1.0 - empty);
 	col += vec3(1.0) * flash * 1.5;
-	float depth_fade = 0.55 + 0.45 * clamp(row / 14.0, 0.0, 1.0);
-	ALBEDO = col * depth_fade * (0.8 + 0.4 * excite);
+	float depth_fade = 0.6 + 0.4 * clamp(row / 14.0, 0.0, 1.0);
+	ALBEDO = col * depth_fade * (0.85 + 0.35 * excite);
 }
 """
 
@@ -453,6 +460,7 @@ var _crowd_cache := {}
 func _crowd_for(length: float) -> ShaderMaterial:
 	if crowd_mat == null:
 		crowd_mat = _shader_mat(CROWD_SHADER)
+		crowd_mat.set_shader_parameter("atlas", preload("res://assets/crowd/atlas.png"))
 	var key := int(length)
 	if _crowd_cache.has(key):
 		return _crowd_cache[key]
@@ -611,6 +619,10 @@ func _effects() -> void:
 		p.mesh = q
 		add_child(p)
 		confetti.append(p)
+
+func set_fill(v: float) -> void:
+	for k in _crowd_cache:
+		_crowd_cache[k].set_shader_parameter("fill", v)
 
 func set_excite(v: float) -> void:
 	for k in _crowd_cache:

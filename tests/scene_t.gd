@@ -8,14 +8,26 @@ func shot(name: String, frames := 12) -> void:
 	print("shot ", name)
 func drive(prefix: String) -> void:
 	var n := 0
-	while main.dlg_layer != null and n < 14:
-		await shot("%s_%02d" % [prefix, n], 25)
+	while main.dlg_layer != null and n < 16:
+		if main.stage and main.stage.drill_on:
+			var k := 0
+			while main.stage and main.stage.drill_on:
+				await get_tree().process_frame
+				k += 1
+				if main.stage.spark_live > 0.3:
+					if main.stage.try_catch():
+						main._spark_pop(true)
+				if k % 30 == 0 and k <= 150:
+					await shot("%s_drill%d" % [prefix, k], 1)
+			continue
+		await shot("%s_%02d" % [prefix, n], 30)
 		n += 1
-		if main.dlg_choices.get_child_count() > 0:
+		if main.choice_box and main.choice_box.visible and main.dlg_choices.get_child_count() > 0:
 			var b = main.dlg_choices.get_child(0)
 			b.pressed.emit()
 		else:
-			main.dlg_text.visible_ratio = 1.0
+			if main._typing:
+				main._typing.visible_ratio = 1.0
 			main._dlg_waiting = false
 			main.dlg_next.emit("")
 	await shot(prefix + "_end", 20)
@@ -36,6 +48,12 @@ func _ready() -> void:
 	await drive("meet")
 	main._do_action(pid, "journalist")
 	await drive("journ")
+	main._do_action(pid, "coach")
+	await drive("coach")
+	Game.s.scout.money += 500
+	var pid2 = Game.search({"tier": 1})[2]
+	main._do_action(pid2, "video")
+	await drive("video")
 	Game.s.week = 4
 	main.sub.home = "board"
 	main._goto_tab("home")

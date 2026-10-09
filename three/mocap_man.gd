@@ -26,6 +26,15 @@ const ACT := {
 	"card": [["card", 0.0]],
 }
 
+const T_BODY := preload("res://assets/man/t_body.png")
+const T_NORM := preload("res://assets/man/t_body_n.png")
+const T_EYE := preload("res://assets/man/t_eye.png")
+const T_HAIR := preload("res://assets/man/t_hair.png")
+const HAIRS := ["hair_buzzed", "hair_simpleparted", "hair_long", "hair_buzzed"]
+static var _hair_mesh := {}
+static var _hair_mats := {}
+static var _eye_mat: StandardMaterial3D
+
 static var LIB: AnimationLibrary
 static var SCN: PackedScene
 static var CL := {}         # klip adı -> {"a": Animation, "r": PackedInt32Array, "p": int, "len": float}
@@ -52,8 +61,8 @@ static func make_mat(col: Color, rough := 0.65) -> StandardMaterial3D:
 static func kit_mats(shirt: Color, shorts: Color, socks: Color) -> Dictionary:
 	return {"shirt": make_mat(shirt), "shorts": make_mat(shorts), "socks": make_mat(socks), "boot": make_mat(Color(0.06, 0.06, 0.07))}
 
-static func _mat(shirt: Color, shorts: Color, socks: Color, skin: Color, hair: Color, hs := 1) -> ShaderMaterial:
-	var key := "%s%s%s%s%s%d" % [shirt.to_html(), shorts.to_html(), socks.to_html(), skin.to_html(), hair.to_html(), hs]
+static func _mat(shirt: Color, shorts: Color, socks: Color, skin: Color, hair: Color, hs := 1, outfit := {}) -> ShaderMaterial:
+	var key := "%s%s%s%s%s%d%s" % [shirt.to_html(), shorts.to_html(), socks.to_html(), skin.to_html(), hair.to_html(), hs, str(outfit)]
 	if not _mats.has(key):
 		var m := ShaderMaterial.new()
 		m.shader = preload("res://assets/man/kit.gdshader")
@@ -63,9 +72,17 @@ static func _mat(shirt: Color, shorts: Color, socks: Color, skin: Color, hair: C
 		m.set_shader_parameter("c_skin", skin)
 		m.set_shader_parameter("c_hair", hair)
 		m.set_shader_parameter("c_boots", Color(0.07, 0.07, 0.08))
-		# saç stili: 0 kısa, 1 normal, 2 uzun
-		m.set_shader_parameter("hair_top", [1.745, 1.715, 1.705][hs])
-		m.set_shader_parameter("hair_back", [1.64, 1.585, 1.53][hs])
+		m.set_shader_parameter("tex_body", T_BODY)
+		m.set_shader_parameter("tex_norm", T_NORM)
+		if outfit.get("pattern", 0) > 0:
+			m.set_shader_parameter("pattern", int(outfit.pattern))
+			m.set_shader_parameter("c_shirt2", outfit.get("c2", Color.WHITE))
+		if outfit.get("sleeves", false):
+			m.set_shader_parameter("sleeve", 0.70)
+		if outfit.get("pants", false):
+			m.set_shader_parameter("long_pants", true)
+		if outfit.has("shoes"):
+			m.set_shader_parameter("c_boots", outfit.shoes)
 		_mats[key] = m
 	return _mats[key]
 
@@ -87,6 +104,14 @@ var action_side := 1.0
 var base := ""            # sabit döngü (sahneler: talk, juggle, crouch...)
 var mirror_seed := 0
 var gk := false
+var overlay := ""          # kol kaplaması: phone / notebook / arms_crossed
+var overlay_w := 0.0
+var _last_overlay := ""
+var nod_t := -1.0          # baş sallama zamanlayıcı
+var head_yaw := 0.0        # başı sağa-sola çevir (rad)
+var _head_yaw_cur := 0.0
+const ARM_R := [11, 12, 13]
+const ARM_L := [7, 8, 9]
 
 func build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, font: Font = null) -> void:
 	_load()
@@ -97,8 +122,12 @@ func build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, f
 	add_child(inst)
 	skel = inst.get_node("S")
 	mesh_inst = skel.get_node("M")
-	mesh_inst.material_override = _mat(shirt, shorts, socks, SKIN[clampi(skin_i, 0, 4)], HAIR[clampi(hair_i, 0, 5)], posmod(style, 3))
+	var ofit := {}
+	if int(kit.get("pattern", 0)) > 0:
+		ofit = {"pattern": int(kit.pattern), "c2": kit.get("c2", Color.WHITE)}
+	mesh_inst.material_override = _mat(shirt, shorts, socks, SKIN[clampi(skin_i, 0, 4)], HAIR[clampi(hair_i, 0, 5)], posmod(style, 3), ofit)
 	mesh_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_dress_head(HAIR[clampi(hair_i, 0, 5)], style)
 	for b in BONES:
 		bid.append(skel.find_bone(b))
 	pel_rest = skel.get_bone_rest(skel.find_bone("pelvis")).origin
@@ -122,11 +151,58 @@ func build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, f
 	_place_number(att)
 	tick(0.0, 0.0)
 
+## göz, kaş ve saç modelleri
+func _dress_head(hair: Color, style: int) -> void:
+	if _eye_mat == null:
+		_eye_mat = StandardMaterial3D.new()
+		_eye_mat.albedo_texture = T_EYE
+		_eye_mat.roughness = 0.2
+	var key := hair.to_html()
+	if not _hair_mats.has(key):
+		var hm := StandardMaterial3D.new()
+		hm.albedo_color = hair
+		hm.albedo_texture = T_HAIR
+		hm.roughness = 0.75
+		hm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_hair_mats[key] = hm
+	var hmat: StandardMaterial3D = _hair_mats[key]
+	if skel.has_node("Eyes"):
+		var e: MeshInstance3D = skel.get_node("Eyes")
+		e.material_override = _eye_mat
+		e.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if skel.has_node("Brows"):
+		var br: MeshInstance3D = skel.get_node("Brows")
+		br.material_override = hmat
+		br.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var att := BoneAttachment3D.new()
+	att.bone_name = "Head"
+	skel.add_child(att)
+	var names := [HAIRS[posmod(style, HAIRS.size())]]
+	if posmod(style, 7) == 3:
+		names.append("hair_beard")
+	for hn in names:
+		if not _hair_mesh.has(hn):
+			_hair_mesh[hn] = load("res://assets/man/%s.res" % hn)
+		var mi := MeshInstance3D.new()
+		mi.mesh = _hair_mesh[hn]
+		mi.material_override = hmat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		att.add_child(mi)
+
 func _place_number(att: BoneAttachment3D) -> void:
 	# spine_03 global rest -> sırt (-Z) tarafına, dışa bakan etiket
 	var g := skel.get_bone_global_rest(skel.find_bone("spine_03"))
 	var want := Transform3D(Basis(Vector3.UP, PI), Vector3(0, g.origin.y - 0.06, g.origin.z - 0.13))
 	number_lbl.transform = g.affine_inverse() * want
+
+## Sahne kıyafeti: forma yerine günlük/takım elbise
+func build_outfit(top: Color, pants: Color, shoes: Color, skin_i: int, hair_i: int, style: int, sleeves := true) -> void:
+	build(kit_mats(top, pants, pants), skin_i, hair_i, style, 0)
+	mesh_inst.material_override = _mat(top, pants, pants, SKIN[clampi(skin_i, 0, 4)], HAIR[clampi(hair_i, 0, 5)], posmod(style, 3), {"sleeves": sleeves, "pants": true, "shoes": shoes})
+	number_lbl.visible = false
+
+func nod() -> void:
+	nod_t = 0.0
 
 func set_base(clip: String) -> void:
 	base = clip if CL.has(clip) else ""
@@ -175,6 +251,12 @@ func tick(delta: float, spd: float, anim_speed := 1.0) -> void:
 		action_t += delta * anim_speed
 		if action_t >= action_dur + 0.25:
 			action = ""
+	overlay_w = move_toward(overlay_w, 1.0 if overlay != "" else 0.0, delta * 4.0)
+	if nod_t >= 0.0:
+		nod_t += delta
+		if nod_t > 0.9:
+			nod_t = -1.0
+	_head_yaw_cur = lerpf(_head_yaw_cur, head_yaw, minf(1.0, delta * 5.0))
 	_apply(lo[0], hi[0], w)
 
 func _sample_loop(c: Dictionary, t: float, k: int) -> Quaternion:
@@ -221,6 +303,26 @@ func _apply(ca: String, cb: String, w: float) -> void:
 	if wx > 0.001:
 		p = p.lerp((X.a as Animation).position_track_interpolate(X.p, tx), wx)
 	skel.set_bone_pose_position(bid[0], p)
+	# kol kaplaması
+	if overlay_w > 0.001 and CL.has(overlay if overlay != "" else _last_overlay):
+		var oc: Dictionary = CL[overlay if overlay != "" else _last_overlay]
+		var bones: Array = ARM_R if (overlay if overlay != "" else _last_overlay) == "phone" else ARM_R + ARM_L
+		for k in bones:
+			var cur := skel.get_bone_pose_rotation(bid[k])
+			var oq := (oc.a as Animation).rotation_track_interpolate(oc.r[k], 0.0)
+			skel.set_bone_pose_rotation(bid[k], cur.slerp(oq, overlay_w))
+	if overlay != "":
+		_last_overlay = overlay
+	# baş: sallama + çevirme
+	if nod_t >= 0.0 or absf(_head_yaw_cur) > 0.01:
+		var nodv := sin(clampf(nod_t / 0.9, 0.0, 1.0) * TAU * 1.5) * 0.22 if nod_t >= 0.0 else 0.0
+		var hq := skel.get_bone_pose_rotation(bid[5])
+		skel.set_bone_pose_rotation(bid[5], hq * Quaternion(Vector3.RIGHT, nodv))
+		var nq := skel.get_bone_pose_rotation(bid[4])
+		# boyun kemiğinin yerel ekseni bilinmiyor: global Y etrafında döndür
+		var ng := skel.get_bone_global_pose(skel.get_bone_parent(bid[4])).basis
+		var axis := (ng.inverse() * Vector3.UP).normalized()
+		skel.set_bone_pose_rotation(bid[4], Quaternion(axis, _head_yaw_cur) * nq)
 	# dalışta gövdeyi yana yatır (klip yana sıçrama; yatay uçuş hissi)
 	var roll := 0.0
 	if wx > 0.001 and action == "dive":
