@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.13.3"
+const VERSION := "v0.14"
 
 var bg: ColorRect
 var hub
@@ -3051,10 +3051,13 @@ func _scr_report(pid: String) -> void:
 			continue
 		var mid: float = (r[0] + r[1]) / 2.0
 		var tag := ""
+		var code := ""
 		if mid >= 14:
 			tag = "+" + T.t("a_" + a)
+			code = "+" + a
 		elif mid <= 9:
 			tag = "−" + T.t("a_" + a)
+			code = "-" + a
 		if tag == "":
 			continue
 		any_tag = true
@@ -3072,7 +3075,7 @@ func _scr_report(pid: String) -> void:
 			tb.add_theme_color_override("font_hover_color", c)
 			tb.add_theme_color_override("font_pressed_color", c)
 		paint.call(false)
-		var tg := tag
+		var tg := code
 		tb.pressed.connect(func():
 			var tags: Array = state.tags
 			if tg in tags:

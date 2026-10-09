@@ -103,7 +103,7 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
 			var fm := rng.randfn(0.0, 2.6 - float(p.hid.consistency) * 0.11) * 0.8
 			if sd == "h" and not youth:
-				fm += 0.5   # ev sahibi avantajı
+				fm += 0.3   # ev sahibi avantajı
 			if not youth and g.club(m.h if sd == "a" else m.a).get("prestige", 0) >= 80:
 				fm += (float(p.hid.big_match) - 10.0) * 0.06
 			form[pid] = fm
@@ -115,6 +115,10 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.st = {"p": 0, "po": 0, "kp": 0, "d": 0, "do": 0, "t": 0, "s": 0, "so": 0, "g": 0, "as": 0, "sv": 0, "err": 0, "air": 0, "air_ok": 0}
 			pl[pid] = q
 			team[sd].append(q)
+	# hız/çeviklik de maç seviyesine göre (alt ligler yavaş çekim gibi oynamasın)
+	for q: Pl in pl.values():
+		q.vmax = 6.3 + at(q, "pace") * 0.14
+		q.acc = 4.6 + at(q, "agility") * 0.13
 	_kickoff("h")
 
 func _slots(xi: Array) -> Dictionary:
@@ -144,9 +148,11 @@ func other(sd: String) -> String:
 	return "a" if sd == "h" else "h"
 
 func at(q: Pl, k: String) -> float:
-	var v: float = q.a[k]
+	## Maçın kendi seviyesine göre ölçeklenmiş özellik: 10 + (değer - bu maçtaki ortalama).
+	## Böylece BAL ligi ile Süper Lig aynı oyun temposunda oynar; farkı oyuncular arası fark belirler.
+	var v: float = 10.0 + (float(q.a[k]) - _raw_avg(k)) * float(_raw_cache.get(k + "#f", 1.0))
 	if clock > 4200.0 and k != "stamina":
-		v -= (10.0 - float(q.a.stamina)) * 0.12 * (clock - 4200.0) / 1200.0
+		v -= (10.0 - at(q, "stamina")) * 0.12 * (clock - 4200.0) / 1200.0
 	return v
 
 func duel(att: Pl, aw: Array, def: Pl, dw: Array, base: float, slope: float) -> Dictionary:
@@ -154,11 +160,16 @@ func duel(att: Pl, aw: Array, def: Pl, dw: Array, base: float, slope: float) -> 
 	var ae := 0.0
 	for x in aw:
 		ae += at(att, x[0]) * x[1]
-	var de := 10.0
-	if def != null:
+	var de := 0.0
+	if def == null:
+		# rakipsiz düello: sabit 10 yerine bu maçtaki oyuncuların ortalaması (lig seviyesinden bağımsız)
+		for x in aw:
+			de += _avg_attr(x[0]) * x[1]
+	else:
 		de = 0.0
 		for x in dw:
 			de += at(def, x[0]) * x[1]
+	slope *= 1.2   # oyuncu kalitesinin etkisini belirginleştir
 	var p := clampf(base + slope * (ae - de), 0.04, 0.96)
 	var aa := []
 	for x in aw:
@@ -170,6 +181,45 @@ func duel(att: Pl, aw: Array, def: Pl, dw: Array, base: float, slope: float) -> 
 			var de10: float = de - (at(def, x[0]) - 10.0) * x[1]
 			ta.append([x[0], 1.0 - clampf(base + slope * (ae - de10), 0.04, 0.96), slope * x[1]])
 	return {"p": p, "aa": aa, "ta": ta}
+
+var _raw_cache := {}
+
+func _raw_avg(k: String) -> float:
+	if not _raw_cache.has(k):
+		var tot := 0.0
+		var n := 0
+		for q: Pl in pl.values():
+			var gk_attr: bool = k in ["reflexes", "handling"]
+			if q.gk != gk_attr and not (k == "stamina"):
+				continue
+			tot += float(q.a[k])
+			n += 1
+		var avg := tot / float(n) if n > 0 else 10.0
+		var var_sum := 0.0
+		for q: Pl in pl.values():
+			var gk2: bool = k in ["reflexes", "handling"]
+			if q.gk != gk2 and not (k == "stamina"):
+				continue
+			var_sum += pow(float(q.a[k]) - avg, 2.0)
+		var sd := sqrt(var_sum / float(maxi(1, n)))
+		# çok geniş yetenek farkı olan maçlarda (dev - küçük) farkı biraz sıkıştır
+		_raw_cache[k + "#f"] = clampf(2.6 / maxf(0.1, sd), 0.6, 1.0)
+		_raw_cache[k] = avg
+	return _raw_cache[k]
+
+var _avg_cache := {}
+
+func _avg_attr(k: String) -> float:
+	if not _avg_cache.has(k):
+		var tot := 0.0
+		var n := 0
+		for q: Pl in pl.values():
+			if q.gk and k != "reflexes" and k != "handling":
+				continue
+			tot += at(q, k)
+			n += 1
+		_avg_cache[k] = tot / maxf(1.0, float(n)) if n > 0 else 10.0
+	return _avg_cache[k]
 
 func emit(ty: String, sd: String, pid: String, tgt: String, ok: bool, aa: Array, ta: Array) -> void:
 	events.append({"t": int(clock), "ty": ty, "side": sd, "pid": pid, "tgt": tgt, "ok": ok,
@@ -679,7 +729,7 @@ func _do_shot(o: Pl, header: bool, pen := false) -> void:
 	var dist := o.pos.distance_to(goal)
 	var att := [["finishing", 0.7], ["composure", 0.3]] if not header else [["heading", 0.6], ["finishing", 0.2], ["composure", 0.2]]
 	var press := pressure_on(o) if not pen else 0.0
-	var du := duel(o, att, null, [], (0.72 - dist / 55.0 - press * 0.1) if not pen else 0.86, 0.03)
+	var du := duel(o, att, null, [], (0.76 - dist / 55.0 - press * 0.1) if not pen else 0.86, 0.03)
 	var on: bool = rng.randf() < du.p
 	o.st.s += 1
 	shots[o.side] += 1
@@ -717,7 +767,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 			_set_restart("goalkick", k.side, Vector2(L * signf(ball.x) - 5.5 * signf(ball.x), rng.randf_range(-6, 6)))
 		return
 	var sv := duel(k, [["reflexes", 0.65], ["handling", 0.35]], sh, [["finishing", 0.6], ["composure", 0.4]] if not fl.header else [["heading", 1.0]],
-		clampf(0.45 + float(fl.dist) / 90.0, 0.4, 0.85) if not fl.get("pen", false) else 0.2, 0.025)
+		clampf(0.41 + float(fl.dist) / 90.0, 0.36, 0.84) if not fl.get("pen", false) else 0.2, 0.025)
 	var saved: bool = rng.randf() < sv.p
 	if saved:
 		var held: bool = rng.randf() < 0.35 + at(k, "handling") * 0.025

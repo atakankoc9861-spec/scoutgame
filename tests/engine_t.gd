@@ -6,7 +6,8 @@ func _ready() -> void:
 	var tot := {"g": 0, "shots": 0, "on": 0, "pass": 0, "pass_ok": 0, "drib": 0, "press": 0, "cross": 0, "head": 0, "save": 0, "corner": 0, "foul": 0, "yellow": 0, "red": 0, "penalty": 0, "offside": 0, "home_w": 0, "away_w": 0, "draw": 0}
 	var n := int(OS.get_environment("N")) if OS.get_environment("N") != "" else 20
 	var t0 := Time.get_ticks_msec()
-	var ms = Game.week_matches(["SL"])
+	var lgs = OS.get_environment("LG").split(",") if OS.get_environment("LG") != "" else ["SL"]
+	var ms = Game.week_matches(lgs)
 	var stronger := 0
 	for i in n:
 		var wm = ms[i % ms.size()]

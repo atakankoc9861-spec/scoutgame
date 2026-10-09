@@ -296,8 +296,9 @@ func gen_squad(cid: String, league: String) -> void:
 	var c: Dictionary = s.clubs[cid]
 	var t := tier(league)
 	var lvl := club_level(cid)
-	var plan := ["GK", "GK", "GK", "CB", "CB", "CB", "CB", "LB", "LB", "RB", "RB",
-		"DM", "DM", "CM", "CM", "CM", "AM", "AM", "LW", "LW", "RW", "RW", "ST", "ST", "ST", "CM"]
+	# önce tam bir ilk 11 + yedek kaleci, sonra derinlik (küçük kadrolarda forvet eksik kalmasın)
+	var plan := ["GK", "CB", "CB", "LB", "RB", "DM", "CM", "CM", "AM", "LW", "RW", "ST", "GK", "ST", "CB", "CB",
+		"LB", "RB", "CM", "DM", "AM", "LW", "RW", "ST", "GK", "CM"]
 	var size: int = {1: 26, 2: 26, 3: 24, 4: 22, 5: 20}[t]
 	plan = plan.slice(0, size)
 	for i in plan.size():
@@ -314,6 +315,36 @@ func gen_squad(cid: String, league: String) -> void:
 		c.squad.append(new_player(pos, clampi(tgt, 28, 90), age, nat, cid))
 	if t <= 3:
 		gen_u19(cid, 16 if t <= 2 else 10)
+
+const SQUAD_MIN := {1: 22, 2: 22, 3: 21, 4: 20, 5: 20}
+const POS_MIN := {"GK": 2, "CB": 3, "LB": 1, "RB": 1, "DM": 1, "CM": 2, "AM": 1, "LW": 1, "RW": 1, "ST": 2}
+
+## Eksik mevkileri ve asgari kadroyu lig seviyesine uygun oyuncularla tamamla
+func fill_squad(cid: String) -> int:
+	var c: Dictionary = s.clubs[cid]
+	var t := tier(c.league)
+	var lvl := club_level(cid)
+	var cnt := {}
+	for pid in c.squad:
+		var p := player(pid)
+		if not p.is_empty():
+			cnt[p.pos] = int(cnt.get(p.pos, 0)) + 1
+	var added := 0
+	var need := []
+	for pos in POS_MIN:
+		for i in maxi(0, int(POS_MIN[pos]) - int(cnt.get(pos, 0))):
+			need.append(pos)
+	var depth := ["CM", "CB", "ST", "LW", "RW", "DM", "AM", "LB", "RB"]
+	var di := 0
+	while c.squad.size() + need.size() < int(SQUAD_MIN.get(t, 20)):
+		need.append(depth[di % depth.size()])
+		di += 1
+	for pos in need:
+		var age := ri(18, 29)
+		var tgt := int(lvl + rng.randfn(0.0, 4.0)) - ri(0, 5)
+		c.squad.append(new_player(pos, clampi(tgt, 28, 90), age, club_nat(cid), cid))
+		added += 1
+	return added
 
 func gen_u19(cid: String, n: int, ages := [15, 18]) -> void:
 	var c: Dictionary = s.clubs[cid]
@@ -436,7 +467,7 @@ func offer_salary(c: Dictionary) -> int:
 	return 90 + int(c.prestige) * 8
 
 func offer_budget(c: Dictionary) -> int:
-	return 2500 + int(c.prestige) * 170
+	return 6000 + int(c.prestige) * 420
 
 func take_job(cid: String) -> void:
 	var c: Dictionary = s.clubs[cid]
@@ -444,6 +475,7 @@ func take_job(cid: String) -> void:
 	s.scout.salary = offer_salary(c)
 	s.scout.budget = offer_budget(c)
 	s.scout.spent = 0
+	s.scout["rep_start"] = s.scout.rep
 	s.assign = []
 	add_news("n_hired", [c.name, c.manager.name], true, "career")
 	make_assignments(3)
@@ -585,7 +617,15 @@ func travel_info(city: String) -> Dictionary:
 
 func _spend_travel(city: String) -> Dictionary:
 	var info := travel_info(city)
-	s.scout.spent += info.cost
+	var room := maxi(0, int(s.scout.budget) - int(s.scout.spent))
+	var cost: int = info.cost
+	if cost > room:
+		# bütçe bitti: fark scout'un kendi cebinden (para yetmezse bütçe aşılır)
+		var pocket := mini(cost - room, int(s.scout.money))
+		s.scout.money -= pocket
+		cost -= pocket
+		s.scout["pocket"] = int(s.scout.get("pocket", 0)) + pocket
+	s.scout.spent += cost
 	s.scout.fatigue = min(100, s.scout.fatigue + info.fat)
 	return info
 
@@ -1012,6 +1052,7 @@ func assignment_need_stars(a: Dictionary) -> float:
 	return stars(float(a.min_ovr) + extra)
 
 func submit_report(pid: String, aid: String, cur: float, pot: float, rec: String, tags: Array = []) -> void:
+	s.scout["season_reports"] = int(s.scout.get("season_reports", 0)) + 1
 	var r := {"id": "r%d" % s.next_rid, "pid": pid, "aid": aid, "cur": cur, "pot": pot, "rec": rec,
 		"season": s.season, "week": s.week, "status": "pending", "from_club": player(pid).club,
 		"ovr0": player(pid).ovr, "evals": 0, "tags": tags}
@@ -1058,14 +1099,32 @@ func _decide_report(r: Dictionary) -> void:
 	var claim: float = r.pot if a.kind in ["prospect", "wonderkid"] else r.cur
 	if claim < need_st:
 		trust -= 0.3
-	if r.tags.size() >= 2:
-		trust += 0.05
+	# etiketler: doğruysa güven artar, yanlışsa düşer (kod biçimi "+attr" / "-attr")
+	for tg in r.tags:
+		var tgs := String(tg)
+		var attr := tgs.substr(1)
+		if not p.attrs.has(attr):
+			continue
+		var v := float(p.attrs[attr])
+		var right: bool = (v >= 13.0) if tgs.begins_with("+") else (v <= 9.0)
+		trust += 0.04 if right else -0.07
 	var m: Dictionary = me.manager
 	var fit := 0.0
 	for at in Data.STYLE_ATTRS[m.style]:
 		fit += float(p.attrs[at])
 	fit /= 3.0
-	if a.kind != "wonderkid" and fit < 9.5 and rf() < 0.6:
+	# eşik sabit değil: kulübün kendi kadrosunun bu özelliklerdeki ortalamasının biraz altı
+	var sq_fit := 0.0
+	var sq_n := 0
+	for spid in me.squad:
+		var sp := player(spid)
+		if sp.is_empty():
+			continue
+		for at2 in Data.STYLE_ATTRS[m.style]:
+			sq_fit += float(sp.attrs[at2])
+		sq_n += 3
+	var fit_need := (sq_fit / float(sq_n) - 1.5) if sq_n > 0 else 9.5
+	if a.kind != "wonderkid" and fit < fit_need and rf() < 0.6:
 		r.status = "rejected"
 		add_news("n_rej_manager", [m.name, pname(p)], true, "bad")
 		return
@@ -2096,7 +2155,7 @@ func _season_end() -> void:
 			continue
 		var act_cur := stars(float(p.ovr))
 		var act_pot := stars(float(p.pa))
-		var score := 2.0 - absf(float(r.cur) - act_cur) * 1.5 - absf(float(r.pot) - act_pot) * 0.8
+		var score := 2.0 - absf(float(r.cur) - act_cur) * 1.5 - absf(float(r.pot) - act_pot) * 0.8 - maxf(0.0, float(r.pot) - act_pot) * 0.7
 		if p.st.apps >= 8:
 			var avg: float = p.st.rs / p.st.apps
 			if avg >= 7.0:
@@ -2115,9 +2174,19 @@ func _season_end() -> void:
 		r.evals += 1
 		summ.evals.append({"pid": r.pid, "cur": r.cur, "pot": r.pot, "act_cur": act_cur, "act_pot": act_pot, "delta": delta,
 			"apps": p.st.apps, "avg": (p.st.rs / p.st.apps) if p.st.apps > 0 else 0.0})
+	# imzalanmayan raporların da isabeti sayılır (yarım ağırlık, tek sefer)
+	for r in s.scout.reports:
+		if r.status == "signed" or int(r.get("evals", 0)) > 0:
+			continue
+		var rp := player(r.pid)
+		if rp.is_empty():
+			continue
+		var sc2 := 1.0 - absf(float(r.cur) - stars(float(rp.ovr))) * 1.0 - maxf(0.0, float(r.pot) - stars(float(rp.pa))) * 0.8
+		s.scout.rep = clampf(s.scout.rep + clampf(sc2 * 0.6, -2.0, 2.0), 0.0, 100.0)
+		r.evals = 3
 	if s.scout.spent > s.scout.budget:
 		var over := float(s.scout.spent - s.scout.budget) / maxf(1.0, float(s.scout.budget))
-		s.scout.rep = maxf(0.0, s.scout.rep - over * 10.0)
+		s.scout.rep = maxf(0.0, s.scout.rep - minf(over * 8.0, 5.0))
 		summ.over_budget = true
 	summ.rep_after = s.scout.rep
 	var bd := board()
@@ -2166,6 +2235,7 @@ func _season_end() -> void:
 			gen_u19(cid, ri(3, 5) if tier(c.league) <= 2 else ri(2, 3), [15, 15])
 		while c.squad.size() > 32:
 			_release_worst(cid)
+		fill_squad(cid)
 		c.budget = int(c.budget * 0.6 + 300000.0 * exp(float(c.prestige) / 20.0))
 	# iş teklifleri
 	s.offers = []
@@ -2174,10 +2244,12 @@ func _season_end() -> void:
 		var c := club(cid)
 		if cid == mine.id:
 			continue
-		if c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 and rf() < 0.35:
+		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 and rf() < 0.35:
 			s.offers.append(cid)
 	s.offers = s.offers.slice(0, 3)
-	summ.fired = s.scout.rep < float(mine.prestige) * 0.15 and s.scout.rep < summ.rep_before - 4
+	var rep_start: float = float(s.scout.get("rep_start", summ.rep_before))
+	var lazy: bool = int(s.scout.get("season_reports", 0)) == 0
+	summ.fired = (s.scout.rep < float(mine.prestige) * 0.15 and s.scout.rep < rep_start - 4) or (lazy and rf() < 0.6)
 	if summ.fired:
 		add_news("n_fired", [mine.name], true, "bad")
 		if s.offers.is_empty():
@@ -2186,6 +2258,9 @@ func _season_end() -> void:
 					s.offers.append(cid)
 			s.offers.shuffle()
 			s.offers = s.offers.slice(0, 3)
+	s.scout["rep_start"] = s.scout.rep
+	s.scout["season_reports"] = 0
+	s.scout["pocket"] = 0
 	s.season_summary = summ
 	s.scout.history.append({"season": s.season, "club": mine.short, "rep": snappedf(s.scout.rep, 0.1)})
 	s.season += 1
@@ -2455,6 +2530,11 @@ func load_game() -> bool:
 				hd[Data.HIDDEN[i]] = int(p.hid[i])
 			p.hid = hd
 	_fix_ints()
+	# eski kayıtlar: eriyen/forvetsiz kadroları onar
+	for cid in s.clubs:
+		fill_squad(cid)
+	if not s.scout.has("rep_start"):
+		s.scout["rep_start"] = s.scout.rep
 	return true
 
 func _fix_ints() -> void:
