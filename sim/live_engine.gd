@@ -73,6 +73,8 @@ var stoppage := 0.0
 var celebrate_t := 0.0
 var scorer := ""
 var form := {}
+var eye_pid := ""               # Analist Gözü: bu oyuncunun sıradaki kararı kaydedilir
+var eye_res := {}
 var dbg := {"dec": 0, "dec_f3": 0, "shot_opt": 0, "pick": {}, "lx_sum": 0.0}
 
 # ================================================================ kurulum
@@ -570,6 +572,8 @@ func _decide(o: Pl) -> void:
 		if r <= 0.0:
 			pick = op
 			break
+	if o.id == eye_pid:
+		_eye_record(o, opts, mx, pick)
 	dbg.dec += 1
 	dbg.lx_sum += lx
 	if lx > 17.5:
@@ -589,6 +593,83 @@ func _decide(o: Pl) -> void:
 			_do_cross(o)
 		"clear":
 			_do_clear(o)
+
+# ================================================================ Analist Gözü
+
+const EYE_GOOD := 0.004
+
+func _eye_temp(dec: float) -> float:
+	return clampf(0.008 - (dec - 10.0) * 0.0005, 0.003, 0.016)
+
+func _eye_record(o: Pl, opts: Array, mx: float, pick: Dictionary) -> void:
+	## Kararı kaydet: iyi seçenek mi + karar özelliği için Bernoulli kredisi (p10, eğim)
+	eye_pid = ""
+	var pg := func(temp: float) -> float:
+		var tot := 0.0
+		var good := 0.0
+		for op in opts:
+			var w := exp((float(op.v) - mx) / temp)
+			tot += w
+			if float(op.v) >= mx - EYE_GOOD:
+				good += w
+		return good / maxf(1e-9, tot)
+	var p10: float = clampf(pg.call(_eye_temp(10.0)), 0.04, 0.96)
+	var p11: float = clampf(pg.call(_eye_temp(11.0)), 0.04, 0.96)
+	var to_id := ""
+	if pick.k == "pass":
+		to_id = (pick.to as Pl).id
+	eye_res = {"pid": o.id, "k": pick.k, "to": to_id, "good": float(pick.v) >= mx - EYE_GOOD, "p10": p10, "sl": p11 - p10}
+
+func eye_preview(o: Pl) -> Array:
+	## Rastgelelik olmadan seçeneklerin gerçek değeri (görselleştirme + doğru cevap)
+	var d := o.d
+	var out := []
+	var press := pressure_on(o)
+	var lx := o.pos.x * d
+	var loss := 0.012 + value(o.pos, -d) * 0.7
+	if lx > 15.0 and absf(o.pos.y) < 26.0:
+		var q := xg(o.pos, d) * (0.6 + at(o, "finishing") * 0.03) * (1.0 - press * 0.3)
+		var goal_p := Vector2(L * d, 0)
+		var blockers := 0
+		for op: Pl in team[other(o.side)]:
+			if op.gk:
+				continue
+			var seg := goal_p - o.pos
+			var tp2 := clampf((op.pos - o.pos).dot(seg) / maxf(0.01, seg.length_squared()), 0.0, 1.0)
+			if (o.pos + seg * tp2).distance_to(op.pos) < 2.5:
+				blockers += 1
+		var mult := 1.05
+		if blockers == 0 and lx > 30.0:
+			mult = 2.0
+		elif blockers == 0:
+			mult = 1.5
+		out.append({"k": "shot", "to": "", "tp": goal_p, "v": q * mult, "risk": clampf(blockers * 0.3, 0.0, 1.0)})
+	var off_line := _offside_line(o.side)
+	for mt: Pl in team[o.side]:
+		if mt == o or mt.gk:
+			continue
+		var dist := mt.pos.distance_to(o.pos)
+		if dist < 4.0 or dist > 50.0:
+			continue
+		var speed := clampf(10.0 + dist * 0.35, 12.0, 24.0)
+		var tp: Vector2 = mt.pos + mt.vel * (dist / speed) * 0.85
+		tp = Vector2(clampf(tp.x, -L + 1, L - 1), clampf(tp.y, -W + 1, W - 1))
+		var offs: bool = tp.x * d > off_line and mt.pos.x * d > off_line + 0.3
+		var risk := _lane_risk(o, tp, speed)
+		var long := dist > 30.0
+		var acc_q := (at(o, "passing") * (0.65 if long else 1.0) + (at(o, "vision") * 0.35 if long else 0.0) - 10.0) * 0.022
+		var ps := clampf(0.97 - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
+		var mp := pressure_on(mt)
+		var v := ps * (value(tp, d) * (1.0 - mp * 0.3) + 0.004) - (1.0 - ps) * loss
+		if offs:
+			v = -1.0
+		out.append({"k": "pass", "to": mt.id, "tp": tp, "v": v, "risk": risk, "offside": offs})
+	var opp := nearest_opp(o, o.pos + Vector2(4.0 * d, 0))
+	var near := opp != null and opp.pos.distance_to(o.pos) < 6.0
+	var carry_to := o.pos + Vector2(d * 8.0, 0)
+	var pd := 0.93 if not near else clampf(0.5 + (at(o, "dribbling") * 0.55 + at(o, "agility") * 0.25 + at(o, "pace") * 0.2 - (at(opp, "tackling") * 0.6 + at(opp, "positioning") * 0.4)) * 0.03, 0.1, 0.9)
+	out.append({"k": "dribble", "to": "", "tp": carry_to, "v": pd * value(carry_to, d) - (1.0 - pd) * loss + (0.002 if not near else -0.006), "risk": 1.0 - pd})
+	return out
 
 func _offside_line(sd: String) -> float:
 	## Hücum eden takımın yerel koordinatında ofsayt çizgisi (sondan ikinci savunmacı)

@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.14"
+const VERSION := "v0.15"
 
 var bg: ColorRect
 var hub
@@ -936,8 +936,10 @@ func _scr_offers() -> void:
 # ================================================================ OFİS (ana)
 
 func _scr_home() -> void:
-	_sheet([["summary", T.t("st_summary")], ["board", T.t("st_board")], ["career", T.t("st_career")], ["club", T.t("st_myclub")]], sub.home, _sub_cb("home"))
+	_sheet([["summary", T.t("st_summary")], ["board", T.t("st_board")], ["career", T.t("st_career")], ["archive", T.t("st_archive")], ["club", T.t("st_myclub")]], sub.home, _sub_cb("home"))
 	match sub.home:
+		"archive":
+			_home_archive()
 		"board":
 			_home_board()
 		"career":
@@ -1165,6 +1167,7 @@ func _home_career() -> void:
 	if nxt_key != "":
 		rv.add_child(_hand(T.t("next_title", [T.t(nxt_key), nxt]), 24, C_BLUE))
 	rh.add_child(rv)
+	_rep_card()
 	# istatistikler
 	var sv := _card()
 	_section(T.t("career"), sv, "trophy")
@@ -1250,6 +1253,131 @@ func _home_career() -> void:
 		hc.add_child(_hand(T.t("no_history"), 26, C_INK2))
 	for hrow in hist:
 		_kv(hc, "%d/%02d  %s" % [int(hrow.season), (int(hrow.season) + 1) % 100, hrow.club], T.t("rep") + " %d" % int(hrow.rep))
+
+func _rep_card() -> void:
+	## İtibar: bölge ağı + uzmanlık rozetleri + rapor isabeti
+	var sc: Dictionary = Game.s.scout
+	var v := _card()
+	_section(T.t("rep_map"), v, "globe")
+	v.add_child(_typed(T.t("rep_map_hint"), 15, C_INK2))
+	for ar in Game.AREAS:
+		var val := Game.area_rep(ar)
+		var row := _h(v)
+		var nl := _lbl(T.t("area_" + ar), 19, C_INK if val > 0.5 else C_INK2, false, F_SEMI)
+		nl.custom_minimum_size = Vector2(230, 0)
+		row.add_child(nl)
+		_bar(row, val / 100.0, C_GREEN, 12).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var vl := _lbl("%d" % int(val), 22, C_INK, false, F_HEAD)
+		vl.custom_minimum_size = Vector2(44, 0)
+		vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(vl)
+	var acc: Dictionary = sc.get("acc", {})
+	if int(acc.get("n", 0)) > 0:
+		_kv(v, T.t("rep_accuracy"), "%d%%  (%d)" % [int(Game.reliability() * 100.0), int(acc.n)], C_GREEN if Game.reliability() >= 0.6 else C_INK)
+	var bv := _card()
+	_section(T.t("badges"), bv, "star")
+	var have := Game.scout_badges()
+	if "inflater" in have:
+		var wc := _card(bv, "memo", 12)
+		wc.add_child(_head(T.t("badge_inflater"), 22))
+		wc.add_child(_typed(T.t("badge_inflater_d"), 15, C_RED))
+	for id in Game.BADGES.keys() + ["reliable"]:
+		var got: bool = id in have
+		var bc := _h(bv, 10)
+		bc.add_child(Icon.new().setup("star", C_BRASS if got else Color(C_INK, 0.22), 30))
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", 0)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bc.add_child(tv)
+		tv.add_child(_lbl(T.t("badge_" + id), 20, C_INK if got else C_INK2, false, F_SEMI))
+		tv.add_child(_typed(T.t("badge_" + id + "_d"), 14, C_INK2))
+		if not got:
+			_bar(tv, Game.badge_progress(id), C_BRASS, 8)
+
+func _home_archive() -> void:
+	## Kaçanlar Müzesi + keşif tarihçesi
+	var mus: Array = Game.s.get("museum", []).duplicate()
+	mus.reverse()
+	var mv := _card(null, "manila", 20)
+	_section(T.t("museum_title"), mv, "trophy")
+	mv.add_child(_typed(T.t("museum_hint"), 15, C_INK2))
+	if mus.is_empty():
+		mv.add_child(_hand(T.t("museum_empty"), 26, C_INK2))
+	for e in mus:
+		var pc := _card(mv, "card", 14)
+		var hh := _h(pc, 10)
+		var p := Game.player(e.pid)
+		if not p.is_empty():
+			hh.add_child(_avatar(p, 56))
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", -2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hh.add_child(tv)
+		tv.add_child(_head(String(e.name), 22))
+		tv.add_child(_typed(T.t("museum_then", [_pos_short(e.pos), int(e.seen_season), int(e.seen_age)]), 15, C_INK2))
+		var now_club: Dictionary = Game.club(e.club)
+		tv.add_child(_typed(T.t("museum_now", [now_club.get("name", "-"), Game.money_str(int(e.value))]), 15, C_INK))
+		hh.add_child(_stamp(T.t("mwhy_" + String(e.why)), C_RED, 6.0, 15))
+		if not p.is_empty():
+			var id: String = e.pid
+			_btn("", func(): _show("player", id), "ghost", hh, "arrow").custom_minimum_size = Vector2(56, 50)
+	# keşif tarihçesi
+	var log: Array = Game.s.scout.get("disc_log", [])
+	var hv := _card()
+	_section(T.t("disc_title"), hv, "youth")
+	if log.is_empty():
+		hv.add_child(_hand(T.t("disc_empty"), 26, C_INK2))
+		return
+	var by := {}
+	for d in log:
+		by[d.how] = int(by.get(d.how, 0)) + 1
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 10)
+	hv.add_child(grid)
+	_stat_box(grid, str(log.size()), T.t("disc_total"))
+	for how in ["match", "u19", "tip", "staff", "report"]:
+		if by.has(how):
+			_stat_box(grid, str(by[how]), T.t("dhow_" + how))
+	hv.add_child(_typed(T.t("disc_hint"), 15, C_INK2))
+	# en çok yol alanlar (kamuya açık bilgi: kulüp, değer, maç puanı)
+	var rows := []
+	for d in log:
+		var p := Game.player(d.pid)
+		if p.is_empty():
+			continue
+		var moved: bool = p.club != d.club
+		var score := float(p.value) / 100000.0 + (20.0 if moved and Game.club(p.club).get("prestige", 0) > Game.club(d.club).get("prestige", 0) else 0.0)
+		rows.append([score, d, p])
+	rows.sort_custom(func(x, y): return x[0] > y[0])
+	for row in rows.slice(0, 25):
+		var d: Dictionary = row[1]
+		var p: Dictionary = row[2]
+		var rb := _row_button(hv, 86)
+		var inner: HBoxContainer = rb[1]
+		inner.add_child(_avatar(p, 50))
+		var nv := VBoxContainer.new()
+		nv.add_theme_constant_override("separation", -2)
+		nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		inner.add_child(nv)
+		var nl := _lbl(Game.pname(p), 19, C_INK, false, F_SEMI)
+		nl.clip_text = true
+		nv.add_child(nl)
+		var then_c: Dictionary = Game.club(d.club)
+		var now_c: Dictionary = Game.club(p.club)
+		var line := T.t("disc_line", [int(d.season), T.t("dhow_" + String(d.how)).to_lower(), then_c.get("short", "-"), int(d.age)])
+		nv.add_child(_typed(line, 14, C_INK2, false))
+		var nowl := T.t("disc_now", [now_c.get("short", "-"), Game.money_str(int(p.value))])
+		var avg := (float(p.st.rs) / float(p.st.apps)) if int(p.st.apps) > 0 else 0.0
+		if avg > 0.0:
+			nowl += "  •  %.1f" % avg
+		nv.add_child(_typed(nowl, 14, C_GREEN if p.club != d.club else C_INK, false))
+		_ignore_all(inner)
+		var id: String = d.pid
+		(rb[0] as Button).pressed.connect(func():
+			if not _dragged:
+				_show("player", id))
 
 func _home_club() -> void:
 	var sc: Dictionary = Game.s.scout
@@ -1804,7 +1932,23 @@ func _tasks_requests() -> void:
 		top.add_child(tv)
 		var stc: Color = {"open": C_BLUE, "submitted": C_BRASS.darkened(0.2), "done": C_GREEN, "expired": C_RED}.get(a.status, C_INK)
 		top.add_child(_stamp(T.t("status_" + a.status), stc, 8.0, 20))
-		v.add_child(_hand(T.t("memo_" + a.kind), 26, C_BLUE))
+		if a.has("why"):
+			var ref: String = a.get("ref", "")
+			var rp := Game.player(ref)
+			var rname: String = Game.pname(rp) if not rp.is_empty() else ref
+			if a.get("urgent", false):
+				top.add_child(_stamp(T.t("urgent"), C_RED, -6.0, 18))
+			v.add_child(_hand(T.t("why_" + String(a.why), [rname]), 26, C_BLUE))
+		else:
+			v.add_child(_hand(T.t("memo_" + a.kind), 26, C_BLUE))
+		var sh: Array = Game.shadow_of(a.pos)
+		if not sh.is_empty() and open:
+			var names := []
+			for spid in sh:
+				var sp := Game.player(spid)
+				if not sp.is_empty():
+					names.append(Game.short_name(sp))
+			v.add_child(_typed(T.t("shadow_ready", [", ".join(names)]), 16, C_GREEN))
 		_kv(v, T.t("max_age"), "≤ %d" % int(a.max_age))
 		_kv(v, T.t("max_value"), Game.money_str(a.max_value), C_GREEN)
 		var lh := _h(v)
@@ -1916,9 +2060,11 @@ func _tasks_transfers() -> void:
 # ================================================================ OYUNCULAR
 
 func _scr_players() -> void:
-	_sheet([["shortlist", T.t("pm_shortlist")], ["search", T.t("pm_search")], ["youth", T.t("pm_youth")], ["compare", T.t("pm_compare")]], sub.players, _sub_cb("players"))
+	_sheet([["shortlist", T.t("pm_shortlist")], ["shadow", T.t("pm_shadow")], ["search", T.t("pm_search")], ["youth", T.t("pm_youth")], ["compare", T.t("pm_compare")]], sub.players, _sub_cb("players"))
 	players_mode = sub.players
 	match sub.players:
+		"shadow":
+			_players_shadow()
 		"search":
 			search_f.youth_only = false
 			_players_search()
@@ -1928,6 +2074,67 @@ func _scr_players() -> void:
 			_players_compare()
 		_:
 			_players_shortlist()
+
+func _players_shadow() -> void:
+	## Gölge kadro: her mevki için yedek aday listesi (saha düzeninde)
+	_title(T.t("pm_shadow"), null, 34, "team")
+	page.add_child(_typed(T.t("shadow_hint"), 15, C_INK2))
+	var pitch := PanelContainer.new()
+	pitch.add_theme_stylebox_override("panel", _sb(Color("#2f6b3a"), 14, 2, Color(1, 1, 1, 0.35), 10))
+	page.add_child(pitch)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	pitch.add_child(col)
+	for row in [["LW", "ST", "RW"], ["AM"], ["CM", "DM"], ["LB", "CB", "RB"], ["GK"]]:
+		var h := HBoxContainer.new()
+		h.alignment = BoxContainer.ALIGNMENT_CENTER
+		h.add_theme_constant_override("separation", 8)
+		col.add_child(h)
+		for pos in row:
+			h.add_child(_shadow_slot(pos))
+	var need := []
+	for a in Game.s.assign:
+		if a.status == "open":
+			need.append(T.t("pos_" + a.pos))
+	if not need.is_empty():
+		page.add_child(_typed(T.t("shadow_need", [", ".join(need)]), 16, C_RED))
+
+func _shadow_slot(pos: String) -> Control:
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(212, 0)
+	pc.add_theme_stylebox_override("panel", _sb(Color(0.96, 0.94, 0.86, 0.95), 8, 1, Color(C_INK, 0.3), 8))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 2)
+	pc.add_child(v)
+	var hd := _h(v, 6)
+	var pl := _lbl(_pos_short(pos), 20, C_CARD, false, F_HEAD)
+	pl.add_theme_stylebox_override("normal", _sb(C_INK, 4, 0, C_LINE, 6))
+	hd.add_child(pl)
+	var st := Game.starter_at(pos)
+	var sp := Game.player(st)
+	var sl := _lbl((Game.short_name(sp) + " (%d)" % int(sp.age)) if not sp.is_empty() else "—", 15, C_INK2, true, F_BODY)
+	sl.clip_text = true
+	sl.autowrap_mode = TextServer.AUTOWRAP_OFF
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hd.add_child(sl)
+	var arr: Array = Game.shadow_of(pos)
+	if arr.is_empty():
+		v.add_child(_typed(T.t("shadow_empty"), 14, Color(C_INK, 0.45), false))
+	var i := 0
+	for pid in arr:
+		var p := Game.player(pid)
+		if p.is_empty():
+			continue
+		i += 1
+		var id: String = pid
+		var o := Game.ovr_range(pid)
+		var b := _btn("%d. %s %s" % [i, Game.short_name(p), _star_txt(o)], func(): _show("player", id), "ghost", v)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.autowrap_mode = TextServer.AUTOWRAP_OFF
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(0, 40)
+		b.add_theme_font_size_override("font_size", 15)
+	return pc
 
 func _players_shortlist() -> void:
 	_title(T.t("pm_shortlist"), null, 34, "star")
@@ -2206,6 +2413,8 @@ func _player_header(pid: String, p: Dictionary) -> void:
 	card.add_child(stamps)
 	if pid in Game.s.scout.shortlist:
 		stamps.add_child(_stamp(T.t("st_tracking"), C_BLUE, -5.0, 17))
+	if Game.shadow_slot_of(pid) != "":
+		stamps.add_child(_stamp(T.t("st_shadow", [_pos_short(Game.shadow_slot_of(pid))]), C_INK, 3.0, 17))
 	if p.youth:
 		stamps.add_child(_stamp("U19", C_GREEN, 4.0, 17))
 	if int(p.inj) > 0:
@@ -2220,6 +2429,19 @@ func _player_header(pid: String, p: Dictionary) -> void:
 	if not cl.is_empty():
 		var cid: String = cl.id
 		_expand(_btn(cl.short, func(): _show("club", cid), "small", sh, "shirt"))
+	if p.club != Game.s.scout.club_id:
+		var slot := Game.shadow_slot_of(pid)
+		var ppos: String = p.pos
+		var b := _btn(T.t("shadow_remove") if slot != "" else T.t("shadow_add", [_pos_short(ppos)]), func():
+			if slot != "":
+				Game.shadow_remove(pid)
+			elif not Game.shadow_add(pid, ppos):
+				_toast(T.t("shadow_full"))
+				return
+			else:
+				_toast(T.t("shadow_added"))
+			_refresh(), "toggle_on" if slot != "" else "small", card, "team")
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 func _player_file(pid: String, p: Dictionary) -> void:
 	var cl := Game.club(p.club)

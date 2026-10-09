@@ -392,6 +392,7 @@ func new_game(scout_name: String, lang: String) -> void:
 		"pending": [], "last_obs": [], "season_summary": {}, "offers": [], "news": [],
 		"staff": [], "staff_pool": [], "staff_reports": [], "next_sid": 1,
 	}
+	_ensure_v15()
 	var idx := 0
 	for row in Data.SUPER_LIG:
 		_make_club("c%d" % idx, row, "SL")
@@ -724,7 +725,7 @@ func observe(pid: String, strength: float, groups: Array, perf_noise_scale := 1.
 		if g == "gk" and p.pos != "GK":
 			continue
 		var vis := 1.3 if w.has(a) else 0.55
-		var gain: float = clampf(strength * vis * eye_factor() * fatigue_factor() * rng.randf_range(0.7, 1.2), 0.0, 0.6)
+		var gain: float = clampf(strength * vis * eye_factor() * fatigue_factor() * area_learn_mult(pid) * rng.randf_range(0.7, 1.2), 0.0, 0.6)
 		kn.k[a] = snappedf(minf(1.0, kn.k[a] + gain * (1.0 - kn.k[a]) * 1.4), 0.001)
 		var perf := rng.randfn(0.0, (2.6 - cons * 0.11) * perf_noise_scale)
 		kn.e[a] = snappedf(lerpf(float(kn.e[a]), perf, clampf(gain * 1.3, 0.0, 0.8)), 0.01)
@@ -851,6 +852,7 @@ func do_training(pid: String, focus := "all", sparks := 0) -> Dictionary:
 	var c := club(p.club)
 	_take_day("train", pid)
 	_spend_travel(c.city)
+	area_gain(area_of_club(p.club), 0.7)
 	var groups: Array = FOCUS_GROUPS.get(focus, ["phy", "men"])
 	observe(pid, (0.3 if focus != "all" else 0.18) + 0.1 * sparks, groups, 0.9)
 	var kn := know(pid)
@@ -902,6 +904,7 @@ func do_meet(pid: String, topics: Array = []) -> Dictionary:
 		return {"ok": false, "msg": "need_lang"}
 	_take_day("meet", pid)
 	_spend_travel(club(p.club).city)
+	area_gain(area_of_club(p.club), 1.0)
 	kn.met = true
 	var asked: Array = topics if not topics.is_empty() else ["professionalism", "adaptability"]
 	var answers := []
@@ -922,6 +925,7 @@ func do_source(pid: String, kind: String, want := "") -> Dictionary:
 	if s.scout.money < cost:
 		return {"ok": false, "msg": "no_money"}
 	_take_day("src_" + kind, pid)
+	area_gain(area_of_player(pid), 0.6)
 	s.scout.money -= cost
 	var p := player(pid)
 	var kn := know(pid)
@@ -1055,9 +1059,11 @@ func submit_report(pid: String, aid: String, cur: float, pot: float, rec: String
 	s.scout["season_reports"] = int(s.scout.get("season_reports", 0)) + 1
 	var r := {"id": "r%d" % s.next_rid, "pid": pid, "aid": aid, "cur": cur, "pot": pot, "rec": rec,
 		"season": s.season, "week": s.week, "status": "pending", "from_club": player(pid).club,
+		"age0": int(player(pid).age), "lg0": club(player(pid).club).get("league", "SL"),
 		"ovr0": player(pid).ovr, "evals": 0, "tags": tags}
 	s.next_rid += 1
 	s.scout.reports.append(r)
+	log_discovery(pid, "report")
 	s.scout.stats.reports += 1
 	for a in s.assign:
 		if a.id == aid and rec == "sign":
@@ -1095,7 +1101,7 @@ func _decide_report(r: Dictionary) -> void:
 		add_news("n_rej_budget", [pname(p), money_str(fee)], true, "bad")
 		return
 	var need_st := assignment_need_stars(a)
-	var trust := 0.35 + float(s.scout.rep) / 140.0
+	var trust := 0.35 + float(s.scout.rep) / 140.0 + badge_trust(p, a)
 	var claim: float = r.pot if a.kind in ["prospect", "wonderkid"] else r.cur
 	if claim < need_st:
 		trust -= 0.3
@@ -1132,6 +1138,10 @@ func _decide_report(r: Dictionary) -> void:
 		r.status = "rejected"
 		add_news("n_rej_manager_age", [m.name, pname(p)], true, "bad")
 		return
+	if a.get("urgent", false):
+		trust += 0.1
+	if r.pid in shadow_of(a.pos):
+		trust += 0.08
 	if board().get("favor", "") == r.pid:
 		trust += 0.35
 		board().favor = ""
@@ -1161,6 +1171,10 @@ func _decide_report(r: Dictionary) -> void:
 		s.pending.append({"pid": r.pid, "to": me.id, "fee": fee, "rid": r.id})
 		add_news("n_agreed", [pname(p), seller.name, money_str(fee)], true, "good")
 	s.scout.stats.signed += 1
+	if a.get("urgent", false):
+		s.scout.rep = minf(100.0, s.scout.rep + 1.5)
+		add_news("n_urgent_done", [pname(p)], true, "good")
+	area_gain(area_of_club(seller.id), 5.0)
 	s.scout.money += 250
 	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
 
@@ -1448,6 +1462,7 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	var youth: bool = data.youth
 	var all: Array = m.xi_h + m.xi_a
 	s.scout.stats.watched += 1
+	area_gain(area_of_club(m.h), 1.2 if not youth else 0.9)
 	# her oyuncu için olay istatistikleri
 	var agg := Timeline.aggregate(self, tl, all)
 	var obs := {"key": data.key, "h": m.h, "a": m.a, "gh": m.gh, "ga": m.ga, "youth": youth, "rt": m.get("rt", {}),
@@ -1478,9 +1493,11 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 			p.disc = true
 			obs.new_disc.append(pid)
 			s.scout.stats.disc += 1
+			log_discovery(pid, "u19")
 		if focused:
 			var kn := know(pid)
 			kn.seen += 1
+			log_discovery(pid, "match")
 			var notes := Timeline.notes_for(self, pid, agg[pid], m)
 			if obs.rival != "" and _rival_cares(pid, obs.rival):
 				p.rival = obs.rival
@@ -1496,6 +1513,24 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 				var ht: String = ["big_match", "consistency"][sp % 2]
 				kn.hid[ht] = {"lvl": hid_level(int(p.hid.get(ht, 10))), "src": "match"}
 				notes.push_front(["nt_spark", [str(sp), T.t("q_" + ht)]])
+			# Analist Gözü: dondurulmuş anlarda kararın kalitesi
+			var eyes: Array = focus_events.get("_eye", {}).get(pid, [])
+			if not eyes.is_empty():
+				var ag2 := {"attr": {}}
+				var goods := 0
+				for e in eyes:
+					if bool(e[0]):
+						goods += 1
+					if float(e[2]) > 0.004:
+						Timeline._credit(ag2, [["decisions", float(e[1]), float(e[2])], ["vision", float(e[1]), float(e[2]) * 0.5]], bool(e[0]))
+				if not ag2.attr.is_empty():
+					_learn_from_agg(pid, ag2, 1.6)
+				notes.push_front(["nt_eye", [str(goods), str(eyes.size())]])
+			var hits: int = int(focus_events.get("_eye_hits", {}).get(pid, 0))
+			if hits > 0:
+				_learn_from_agg(pid, agg[pid], 0.12 * hits)
+				_gain_xp("eye", 3 * hits)
+				notes.append(["nt_eye_hit", [str(hits)]])
 			obs.notes[pid] = notes
 			obs.lines[pid] = line
 			_gain_xp("eye", 2)
@@ -1532,7 +1567,7 @@ func _learn_from_agg(pid: String, ag: Dictionary, weight: float) -> void:
 	if not kn.has("ev"):
 		kn.ev = {}
 	var inv0 := 1.0 / 16.0
-	var w := weight * 1.5 * eye_factor() * fatigue_factor()
+	var w := weight * 1.5 * eye_factor() * fatigue_factor() * area_learn_mult(pid)
 	for a in ag.attr:
 		var d: Dictionary = ag.attr[a]
 		if not kn.ev.has(a):
@@ -1619,18 +1654,22 @@ func _week_events() -> void:
 	for a in s.assign:
 		if a.status in ["open", "submitted"]:
 			open += 1
-	if open < 2 and s.week <= WEEKS - 6 and s.week % 4 == 0:
+	if open < 2 and s.week <= WEEKS - 6 and s.week % 4 == 0 and _organic_open() == 0:
 		make_assignments(1)
 		add_news("n_new_assign", [], true, "career")
 	if s.week == 12 or s.week == 24:
 		_manager_sackings()
 	if s.week % 3 == 0:
 		_flavor_news()
+	_organic_requests()
 	_tips()
 
 func _tips() -> void:
 	## Bağlantılardan altyapı ihbarı
-	var chance := 0.18 + float(s.scout.net) * 0.017
+	var best_area := 0.0
+	for ar in s.scout.get("arep", {}):
+		best_area = maxf(best_area, float(s.scout.arep[ar]))
+	var chance := 0.18 + float(s.scout.net) * 0.017 + best_area * 0.0015
 	if rf() > chance:
 		return
 	var best := ""
@@ -1644,7 +1683,7 @@ func _tips() -> void:
 		var p := player(pid)
 		if p.disc:
 			continue
-		var v := float(p.pa) + rng.randfn(0.0, 14.0 - float(s.scout.net) * 0.5)
+		var v := float(p.pa) + rng.randfn(0.0, 14.0 - float(s.scout.net) * 0.5) + area_rep(area_of_club(cid)) * 0.12
 		if v > bv:
 			bv = v
 			best = pid
@@ -1656,6 +1695,7 @@ func _tips() -> void:
 	kn.pa_k = 0.08
 	s.scout.stats.tips += 1
 	s.scout.stats.disc += 1
+	log_discovery(best, "tip")
 	add_news("n_tip", [club(p.club).name, T.t("pos_" + p.pos), int(p.age), pname(p)], true, "tip")
 
 func _ai_transfers() -> void:
@@ -1683,6 +1723,7 @@ func _ai_transfers() -> void:
 				_transfer(pid, cid, fee)
 				if pid in sl or s.scout.knowledge.has(pid):
 					add_news("n_rival_took", [c.name, pname(p), money_str(fee)], true, "bad")
+					_museum_mark(pid, "rival", c.id)
 		var n := ri(0, 2) if tier(c.league) <= 3 else ri(0, 1)
 		var bcc := league_country(c.league)
 		for i in n:
@@ -1950,6 +1991,7 @@ func _staff_scout(m: Dictionary) -> void:
 			"note": pick(["sr_note_1", "sr_note_2", "sr_note_3", "sr_note_4", "sr_note_5"])}
 		rep.pot = maxf(rep.pot, rep.cur)
 		s.staff_reports.append(rep)
+		log_discovery(best, "staff", m.name)
 		m.reports = int(m.reports) + 1
 		if float(rep.pot) >= 4.0 or float(rep.cur) >= 4.0:
 			add_news("n_staff_report", [m.name, pname(p), club(p.club).name, _fs2(rep.cur), _fs2(rep.pot)], true, "tip")
@@ -2168,6 +2210,9 @@ func _season_end() -> void:
 			score += 2.0
 			s.scout.stats.finds += 1
 			add_news("n_your_find", [pname(p)], true, "good")
+			area_gain(area_of_club(r.get("from_club", "")), 6.0)
+		if int(r.evals) == 0:
+			_rep_track(r, p, score, act_pot)
 		var weight := 1.0 / (1.0 + float(r.evals))
 		var delta: float = clampf(score * 1.6 * weight, -6.0, 8.0)
 		s.scout.rep = clampf(s.scout.rep + delta, 0.0, 100.0)
@@ -2183,7 +2228,9 @@ func _season_end() -> void:
 			continue
 		var sc2 := 1.0 - absf(float(r.cur) - stars(float(rp.ovr))) * 1.0 - maxf(0.0, float(r.pot) - stars(float(rp.pa))) * 0.8
 		s.scout.rep = clampf(s.scout.rep + clampf(sc2 * 0.6, -2.0, 2.0), 0.0, 100.0)
+		_rep_track(r, rp, sc2, stars(float(rp.pa)))
 		r.evals = 3
+	_check_badges()
 	if s.scout.spent > s.scout.budget:
 		var over := float(s.scout.spent - s.scout.budget) / maxf(1.0, float(s.scout.budget))
 		s.scout.rep = maxf(0.0, s.scout.rep - minf(over * 8.0, 5.0))
@@ -2209,6 +2256,7 @@ func _season_end() -> void:
 			if not _is_tracked(pid):
 				s.players.erase(pid)
 				s.scout.knowledge.erase(pid)
+	_museum_check(summ)
 	# altyapı: yükselme ve yeni alımlar
 	for cid in s.clubs:
 		var c := club(cid)
@@ -2244,7 +2292,7 @@ func _season_end() -> void:
 		var c := club(cid)
 		if cid == mine.id:
 			continue
-		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 and rf() < 0.35:
+		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 + area_rep(area_of_club(cid)) * 0.15 and rf() < 0.35 + area_rep(area_of_club(cid)) * 0.003:
 			s.offers.append(cid)
 	s.offers = s.offers.slice(0, 3)
 	var rep_start: float = float(s.scout.get("rep_start", summ.rep_before))
@@ -2259,6 +2307,8 @@ func _season_end() -> void:
 			s.offers.shuffle()
 			s.offers = s.offers.slice(0, 3)
 	s.scout["rep_start"] = s.scout.rep
+	for ar in s.scout.arep:
+		s.scout.arep[ar] = snappedf(float(s.scout.arep[ar]) * 0.88, 0.01)
 	s.scout["season_reports"] = 0
 	s.scout["pocket"] = 0
 	s.season_summary = summ
@@ -2370,6 +2420,8 @@ func club_league_at_end(cid: String) -> String:
 	return club(cid).league
 
 func _is_tracked(pid: String) -> bool:
+	if s.players.has(pid) and s.players[pid].get("keep", false):
+		return true
 	for r in s.scout.reports:
 		if r.pid == pid:
 			return true
@@ -2506,6 +2558,375 @@ func save_game() -> void:
 		f.close()
 	print("[BC] kayit ms ", Time.get_ticks_msec() - t0, " boyut ", txt.length())
 
+# ================================================================ organik talepler + gölge kadro (v0.15)
+
+const SHADOW_SLOTS := ["GK", "LB", "CB", "RB", "DM", "CM", "AM", "LW", "ST", "RW"]
+
+func shadow_of(pos: String) -> Array:
+	return s.scout.get("shadow", {}).get(pos, [])
+
+func shadow_add(pid: String, pos: String) -> bool:
+	if not s.scout.has("shadow"):
+		s.scout["shadow"] = {}
+	var arr: Array = s.scout.shadow.get(pos, [])
+	if pid in arr:
+		return true
+	if arr.size() >= 3:
+		return false
+	arr.append(pid)
+	s.scout.shadow[pos] = arr
+	if not (pid in s.scout.shortlist):
+		s.scout.shortlist.append(pid)
+	changed.emit()
+	return true
+
+func shadow_remove(pid: String) -> void:
+	for pos in s.scout.get("shadow", {}):
+		s.scout.shadow[pos].erase(pid)
+	changed.emit()
+
+func shadow_slot_of(pid: String) -> String:
+	for pos in s.scout.get("shadow", {}):
+		if pid in s.scout.shadow[pos]:
+			return pos
+	return ""
+
+func shadow_move(pid: String, dir: int) -> void:
+	var pos := shadow_slot_of(pid)
+	if pos == "":
+		return
+	var arr: Array = s.scout.shadow[pos]
+	var i := arr.find(pid)
+	var j := clampi(i + dir, 0, arr.size() - 1)
+	if i != j:
+		arr[i] = arr[j]
+		arr[j] = pid
+	changed.emit()
+
+func starter_at(pos: String) -> String:
+	## Kulübümüzde o mevkideki en iyi oyuncu
+	var best := ""
+	var bv := -1
+	for pid in my_club().get("squad", []):
+		var p := player(pid)
+		if not p.is_empty() and p.pos == pos and int(p.ovr) > bv:
+			bv = int(p.ovr)
+			best = pid
+	return best
+
+func _organic_open() -> int:
+	var n := 0
+	for a in s.assign:
+		if a.status in ["open", "submitted"] and a.has("why"):
+			n += 1
+	return n
+
+func _has_req(why: String, ref: String) -> bool:
+	for a in s.assign:
+		if a.get("why", "") == why and a.get("ref", "") == ref and a.get("season", 0) == s.season:
+			return true
+	return false
+
+func _organic_assign(kind: String, pos: String, why: String, ref: String, urgent: bool, weeks: int) -> Dictionary:
+	var c := my_club()
+	var avg := club_avg_ovr(c.id)
+	var a := {"id": "a%d" % s.next_aid, "pos": pos, "kind": kind, "status": "open",
+		"deadline": min(WEEKS, s.week + weeks), "season": s.season, "why": why, "ref": ref, "urgent": urgent}
+	s.next_aid += 1
+	match kind:
+		"first11":
+			a.max_age = 31 if urgent else ri(24, 29)
+			a.min_ovr = int(avg) + (0 if urgent else 2)
+			a.max_value = int(minf(c.budget * (0.7 if urgent else 0.6), 120000.0 * exp((a.min_ovr + 6 - 50.0) / 7.5)))
+		"prospect":
+			a.max_age = ri(19, 21)
+			a.min_ovr = int(avg) - 14
+			a.max_value = int(minf(c.budget * 0.25, 900000))
+		_:
+			a.max_age = ri(26, 32)
+			a.min_ovr = int(avg) - 4
+			a.max_value = int(minf(c.budget * 0.2, 600000))
+	a.max_value = max(100000, int(round(a.max_value / 50000.0) * 50000))
+	s.assign.append(a)
+	var ready := shadow_of(pos).size()
+	if ready > 0:
+		add_news("n_req_ready", [T.t("pos_" + pos), ready], true, "career")
+	return a
+
+func _organic_requests() -> void:
+	## Kulübün gerçek durumundan doğan talepler: sakatlık, satış, yaşlanma, hoca isteği, zayıf halka
+	if s.scout.club_id == "" or s.week > WEEKS - 5 or _organic_open() >= 3:
+		return
+	var me := my_club()
+	var xi := best_xi(me.id)
+	# 1) uzun süreli sakatlık (sakatlar best_xi'de olmaz: kadroda en iyi oyunculara bak)
+	var top := []
+	for pid in me.squad:
+		var p := player(pid)
+		if not p.is_empty():
+			top.append([int(p.ovr), pid])
+	top.sort_custom(func(x, y): return x[0] > y[0])
+	for row in top.slice(0, 13):
+		var p := player(row[1])
+		if int(p.inj) >= 5 and not _has_req("inj", row[1]):
+			_organic_assign("first11", p.pos, "inj", row[1], true, 6)
+			add_news("n_req_inj", [pname(p), int(p.inj), T.t("pos_" + p.pos)], true, "career")
+			return
+	# 2) büyük kulüp ilk 11'den oyuncu kapar (transfer dönemi)
+	if in_window() and rf() < 0.12 and not xi.is_empty():
+		var pid: String = pick(xi)
+		var p := player(pid)
+		var buyers := []
+		for cid in s.clubs:
+			var c := club(cid)
+			if cid != me.id and int(c.prestige) > int(me.prestige) + 6 and league_country(c.league) == league_country(me.league):
+				buyers.append(cid)
+		if not buyers.is_empty() and not p.is_empty() and p.pos != "GK":
+			var bc: String = pick(buyers)
+			var fee := int(p.value * rng.randf_range(1.2, 1.6))
+			_transfer(pid, bc, fee)
+			add_news("n_req_sold", [club(bc).name, pname(p), money_str(fee)], true, "career")
+			_organic_assign("first11", p.pos, "sold", pid, true, 7)
+			return
+	# 3) yaşlanan as: halef
+	if s.week in [9, 21]:
+		var old := ""
+		var oa := 0
+		for pid in xi:
+			var p := player(pid)
+			if int(p.age) >= 31 and int(p.age) > oa:
+				oa = int(p.age)
+				old = pid
+		if old != "" and not _has_req("succ", old):
+			var p := player(old)
+			_organic_assign("prospect", p.pos, "succ", old, false, 12)
+			add_news("n_req_succ", [pname(p), oa], true, "career")
+			return
+	# 4) hocanın oyun planı
+	if s.week == 5 and not _has_req("style", me.manager.name):
+		var grp: String = {"attack": "ATT", "counter": "ATT", "press": "MID", "possession": "MID", "defend": "DEF"}[me.manager.style]
+		var poss := []
+		for ps in Data.POSITIONS:
+			if Data.POS_GROUP[ps] == grp:
+				poss.append(ps)
+		var pos: String = pick(poss)
+		_organic_assign("first11", pos, "style", me.manager.name, false, 12)
+		add_news("n_req_style", [me.manager.name, T.t("style_" + me.manager.style), T.t("pos_" + pos)], true, "career")
+		return
+	# 5) zayıf halka
+	if s.week == 14 and not _has_req("weak", str(s.season)):
+		var worst := ""
+		var wv := 999.0
+		for pid in xi:
+			var p := player(pid)
+			if p.is_empty():
+				continue
+			if float(p.ovr) < wv:
+				wv = float(p.ovr)
+				worst = pid
+		if worst != "":
+			var p := player(worst)
+			_organic_assign("first11", p.pos, "weak", str(s.season), false, 10)
+			add_news("n_req_weak", [T.t("pos_" + p.pos), pname(p)], true, "career")
+
+# ================================================================ keşif tarihçesi + Kaçanlar Müzesi (v0.15)
+
+func log_discovery(pid: String, how: String, by := "") -> void:
+	if not s.scout.has("disc_log"):
+		return
+	for d in s.scout.disc_log:
+		if d.pid == pid:
+			return
+	var p := player(pid)
+	if p.is_empty():
+		return
+	s.scout.disc_log.append({"pid": pid, "season": s.season, "week": s.week, "how": how, "by": by,
+		"club": p.club, "age": int(p.age), "ovr": int(p.ovr), "lg": club(p.club).get("league", "")})
+	if s.scout.disc_log.size() > 400:
+		s.scout.disc_log.pop_front()
+
+func discovery(pid: String) -> Dictionary:
+	for d in s.scout.get("disc_log", []):
+		if d.pid == pid:
+			return d
+	return {}
+
+func _museum_has(pid: String) -> bool:
+	for e in s.get("museum", []):
+		if e.pid == pid:
+			return true
+	return false
+
+func _museum_mark(pid: String, why: String, to := "") -> void:
+	## Rakibin elinden kaçırdığın oyuncu: hemen değil, yıldızlaşırsa müzeye girer
+	var d := discovery(pid)
+	if d.is_empty():
+		log_discovery(pid, "match")
+		d = discovery(pid)
+	if not d.is_empty():
+		d["lost"] = why
+		d["lost_to"] = to
+
+func _signed_by_me(pid: String) -> bool:
+	for r in s.scout.reports:
+		if r.pid == pid and r.status in ["signed", "agreed"]:
+			return true
+	return false
+
+func _museum_check(summ: Dictionary) -> void:
+	## Sezon sonu: gördüğün ama almadığın oyunculardan yıldızlaşanlar müzeye (sezon başına en çarpıcı 3)
+	if not s.has("museum"):
+		return
+	summ["museum"] = []
+	var me := my_club()
+	var bar := club_avg_ovr(me.id) + 4.0
+	var cands := []
+	for d in s.scout.get("disc_log", []):
+		var pid: String = d.pid
+		if _museum_has(pid) or _signed_by_me(pid):
+			continue
+		var p := player(pid)
+		if p.is_empty() or p.club == me.id or p.club == "":
+			continue
+		var grew := int(p.ovr) - int(d.ovr)
+		if int(p.ovr) >= bar and grew >= 8 and int(s.season) > int(d.season):
+			cands.append([grew + int(p.ovr) - bar, d])
+	cands.sort_custom(func(x, y): return x[0] > y[0])
+	for row in cands.slice(0, 3):
+		var d: Dictionary = row[1]
+		var pid: String = d.pid
+		var p := player(pid)
+		var why: String = d.get("lost", "")
+		if why == "":
+			why = "never"
+			for r in s.scout.reports:
+				if r.pid == pid:
+					why = "rejected" if r.status == "rejected" else ("passed" if r.rec != "sign" else "never")
+		var e := {"pid": pid, "name": pname(p), "pos": p.pos, "seen_season": d.season, "seen_age": d.age, "ovr0": d.ovr,
+			"ovr": int(p.ovr), "club": p.club, "why": why, "season": s.season, "value": int(p.value), "how": d.how}
+		s.museum.append(e)
+		summ.museum.append(pid)
+		add_news("n_museum", [pname(p), club(p.club).name, int(d.season)], true, "bad")
+	# kaydedilen oyuncular silinmesin
+	for e in s.museum:
+		if s.players.has(e.pid):
+			s.players[e.pid]["keep"] = true
+
+# ================================================================ itibar (v0.15)
+
+const AREAS := ["TR1", "TR2", "TR3", "EN", "IT", "BR"]
+const BADGES := {
+	"spec_GK": ["spec", "GK", 5.0], "spec_DEF": ["spec", "DEF", 6.0], "spec_MID": ["spec", "MID", 6.0], "spec_ATT": ["spec", "ATT", 6.0],
+	"spec_youth": ["spec", "youth", 5.0], "spec_gem": ["spec", "gem", 5.0],
+}
+
+func area_of_club(cid: String) -> String:
+	if cid == "" or not s.clubs.has(cid):
+		return ""
+	var cc := club_country(cid)
+	if cc != "TR":
+		return cc
+	var t := club_tier(cid)
+	return "TR1" if t <= 2 else ("TR2" if t <= 4 else "TR3")
+
+func area_of_player(pid: String) -> String:
+	var p := player(pid)
+	return area_of_club(p.get("club", "")) if not p.is_empty() else ""
+
+func area_rep(area: String) -> float:
+	return float(s.scout.get("arep", {}).get(area, 0.0))
+
+func area_gain(area: String, amt: float) -> void:
+	## Bölge ağı: azalan getiri, 0-100
+	if area == "" or not s.scout.has("arep"):
+		return
+	var r := area_rep(area)
+	if amt > 0.0:
+		r += amt * (1.0 - r / 110.0)
+	else:
+		r += amt
+	s.scout.arep[area] = snappedf(clampf(r, 0.0, 100.0), 0.01)
+
+func area_learn_mult(pid: String) -> float:
+	## Yerel bağlantılar: aynı gözlemden daha çok bilgi
+	return 1.0 + area_rep(area_of_player(pid)) / 250.0
+
+func reliability() -> float:
+	## Raporlarının isabet oranı (yeterli veri yoksa nötr 0.5)
+	var acc: Dictionary = s.scout.get("acc", {})
+	var n := int(acc.get("n", 0))
+	if n < 3:
+		return 0.5
+	return float(acc.good) / float(n)
+
+func scout_badges() -> Array:
+	## Kazanılmış rozetler (olumsuz etiket dahil)
+	var out := []
+	var sp: Dictionary = s.scout.get("spec", {})
+	for id in BADGES:
+		var b: Array = BADGES[id]
+		if float(sp.get(b[1], 0.0)) >= float(b[2]):
+			out.append(id)
+	var acc: Dictionary = s.scout.get("acc", {})
+	if int(acc.get("n", 0)) >= 5 and reliability() >= 0.7:
+		out.append("reliable")
+	if int(acc.get("infl", 0)) >= 3 and float(acc.infl) / maxf(1.0, float(acc.n)) >= 0.4:
+		out.append("inflater")
+	return out
+
+func badge_progress(id: String) -> float:
+	if BADGES.has(id):
+		var b: Array = BADGES[id]
+		return clampf(float(s.scout.get("spec", {}).get(b[1], 0.0)) / float(b[2]), 0.0, 1.0)
+	if id == "reliable":
+		var n := int(s.scout.get("acc", {}).get("n", 0))
+		return clampf(minf(float(n) / 5.0, reliability() / 0.7), 0.0, 1.0)
+	return 0.0
+
+func badge_trust(p: Dictionary, a: Dictionary) -> float:
+	## Rozetlerin yönetim güvenine etkisi
+	var b := scout_badges()
+	var t := 0.0
+	if ("spec_" + String(Data.POS_GROUP[p.pos])) in b:
+		t += 0.07
+	if "spec_youth" in b and a.get("kind", "") in ["prospect", "wonderkid"]:
+		t += 0.07
+	if "spec_gem" in b and club_tier(p.club) >= 3:
+		t += 0.05
+	if "reliable" in b:
+		t += 0.06
+	if "inflater" in b:
+		t -= 0.1
+	return t
+
+func _rep_track(r: Dictionary, p: Dictionary, score: float, act_pot: float) -> void:
+	## Rapor değerlendirmesi: isabet, uzmanlık puanı, abartma
+	var acc: Dictionary = s.scout.acc
+	acc.n = int(acc.n) + 1
+	var good := score >= 0.5
+	if good:
+		acc.good = int(acc.good) + 1
+	if float(r.pot) - act_pot >= 1.0:
+		acc.infl = int(acc.infl) + 1
+	var grp: String = Data.POS_GROUP.get(p.pos, "MID")
+	var sp: Dictionary = s.scout.spec
+	var dv := 1.0 if good else (-0.5 if score < -0.5 else 0.0)
+	sp[grp] = maxf(0.0, float(sp.get(grp, 0.0)) + dv)
+	if int(r.get("age0", p.age)) <= 19:
+		sp.youth = maxf(0.0, float(sp.youth) + dv)
+	if tier(r.get("lg0", "SL")) >= 3 and good:
+		sp.gem = float(sp.gem) + 1.0
+
+func _check_badges() -> void:
+	var now := scout_badges()
+	for id in now:
+		if not (id in s.scout.badges):
+			s.scout.badges.append(id)
+			add_news("n_badge", [T.t("badge_" + id)], true, "bad" if id == "inflater" else "career")
+	for id in s.scout.badges.duplicate():
+		if not (id in now):
+			s.scout.badges.erase(id)
+
 func load_game() -> bool:
 	if not has_save():
 		return false
@@ -2535,7 +2956,30 @@ func load_game() -> bool:
 		fill_squad(cid)
 	if not s.scout.has("rep_start"):
 		s.scout["rep_start"] = s.scout.rep
+	_ensure_v15()
 	return true
+
+func _ensure_v15() -> void:
+	## v0.15 alanları (eski kayıtlarla uyum)
+	var sc: Dictionary = s.scout
+	if not sc.has("arep"):
+		sc["arep"] = {}
+	if not sc.has("spec"):
+		sc["spec"] = {"GK": 0.0, "DEF": 0.0, "MID": 0.0, "ATT": 0.0, "youth": 0.0, "gem": 0.0}
+	if not sc.has("acc"):
+		sc["acc"] = {"n": 0, "good": 0, "infl": 0}
+	if not sc.has("badges"):
+		sc["badges"] = []
+	if not sc.has("shadow"):
+		sc["shadow"] = {}
+	if not sc.has("disc_log"):
+		sc["disc_log"] = []
+	if not s.has("requests"):
+		s["requests"] = []
+	if not s.has("museum"):
+		s["museum"] = []
+	if not s.has("next_qid"):
+		s["next_qid"] = 1
 
 func _fix_ints() -> void:
 	for k in ["season", "week", "next_pid", "next_aid", "next_rid"]:
