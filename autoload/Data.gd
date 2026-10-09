@@ -118,115 +118,127 @@ const IKINCI_LIG := [
 	["Elazığ Atak SK", "ELA", "Elazığ", 26, "#ffbe0b", "#2a9d8f"],
 	["Aksaray Yıldız SK", "AKS", "Aksaray", 23, "#f26b1d", "#588157"],
 ]
-const UCUNCU_LIG := [
-	["Ordu Akıncı SK", "ORD", "Ordu", 27, "#111111", "#3a0ca3"],
-	["Ereğli Şimşek SK", "ERE", "Konya", 25, "#023e8a", "#ffbe0b"],
-	["Gölcük Ova FK", "GOL", "Kocaeli", 24, "#111111", "#d62828"],
-	["Aydın Şimşek SK", "AYD", "Aydın", 25, "#f26b1d", "#588157"],
-	["Salihli Birlik SK", "SAL", "Manisa", 23, "#7b2cbf", "#9d0208"],
-	["Çerkezköy Kale SK", "CER", "Tekirdağ", 23, "#2b9348", "#0077b6"],
-	["Zonguldak Atak SK", "ZON", "Zonguldak", 25, "#588157", "#0077b6"],
-	["Küçükçekmece Ova FK", "KUC", "İstanbul", 23, "#7b2cbf", "#f26b1d"],
-	["Çanakkale Çelik SK", "CAN", "Çanakkale", 23, "#6a040f", "#023e8a"],
-	["Bafra Yıldız SK", "BAF", "Samsun", 24, "#023e8a", "#264653"],
-	["Batman Akıncı SK", "BAT", "Batman", 26, "#264653", "#588157"],
-	["Soma Kale SK", "SOM", "Manisa", 24, "#c1121f", "#6a040f"],
-	["Kırşehir İdman Yurdu", "KIR", "Kırşehir", 25, "#1d4ed8", "#9d0208"],
-	["Fethiye Akıncı SK", "FET", "Muğla", 23, "#2b9348", "#6a040f"],
-	["Nizip Şimşek SK", "NIZ", "Gaziantep", 22, "#1d4ed8", "#588157"],
-	["Elbistan Şimşek SK", "ELB", "Kahramanmaraş", 24, "#2b9348", "#3a0ca3"],
-	["Akçaabat Ova FK", "AKC", "Trabzon", 22, "#588157", "#6a040f"],
-	["Kırıkkale Kartal FK", "KRI", "Kırıkkale", 23, "#2a9d8f", "#111111"],
-	["Erzincan Atak SK", "EZI", "Erzincan", 22, "#2b9348", "#d62828"],
-	["Isparta Atak SK", "ISP", "Isparta", 22, "#c1121f", "#ffd60a"],
-	["Ağrı Kale SK", "AGR", "Ağrı", 21, "#ffbe0b", "#2b9348"],
-	["Burdur Anadolu FK", "BUR", "Burdur", 22, "#264653", "#0077b6"],
-	["Ayvalık Kartal FK", "AYV", "Balıkesir", 20, "#0077b6", "#111111"],
-	["Ünye Çelik SK", "UNY", "Ordu", 20, "#023e8a", "#ffd60a"],
-	["Hopa Şimşek SK", "HOP", "Artvin", 19, "#c1121f", "#2a9d8f"],
-	["Kütahya Yıldız SK", "KUT", "Kütahya", 20, "#f26b1d", "#9d0208"],
-	["Gemlik Kartal FK", "GEM", "Bursa", 20, "#264653", "#2b9348"],
-	["Sultanbeyli Gençlik", "SUL", "İstanbul", 22, "#f26b1d", "#111111"],
-	["Yalova Gücü", "YAL", "Yalova", 20, "#2a9d8f", "#7b2cbf"],
-	["Karabük Şimşek SK", "KRA", "Karabük", 21, "#c1121f", "#d62828"],
-	["Mudanya Birlik SK", "MUD", "Bursa", 19, "#ffd60a", "#264653"],
-	["Çarşamba Akıncı SK", "CAR", "Samsun", 19, "#ffd60a", "#d62828"],
-	["Of Atak SK", "OFF", "Trabzon", 20, "#111111", "#2b9348"],
-	["Adıyaman Çelik SK", "ADI", "Adıyaman", 18, "#e63946", "#f26b1d"],
-	["Manavgat Kale SK", "MAN", "Antalya", 17, "#588157", "#e63946"],
-	["Yıldırım Doğan SK", "YIL", "Bursa", 17, "#111111", "#ffffff"],
-	["Marmaris Çelik SK", "MRM", "Muğla", 16, "#0077b6", "#7b2cbf"],
-	["Polatlı İdman Yurdu", "POL", "Ankara", 19, "#3a0ca3", "#ffd60a"],
-	["Yozgat Gençlik", "YOZ", "Yozgat", 15, "#c1121f", "#ffbe0b"],
-	["Lüleburgaz Kartal FK", "LUL", "Kırklareli", 16, "#9d0208", "#f26b1d"],
-	["Ödemiş Kale SK", "ODE", "İzmir", 18, "#2a9d8f", "#f26b1d"],
-	["Tire Gençlik", "TIR", "İzmir", 18, "#7b2cbf", "#ffffff"],
-	["Kastamonu Anadolu FK", "KAS", "Kastamonu", 15, "#9d0208", "#c1121f"],
-	["Serik Şimşek SK", "SER", "Antalya", 15, "#0077b6", "#d62828"],
-	["Karaman Kale SK", "KAN", "Karaman", 17, "#2b9348", "#023e8a"],
-	["Bartın Gücü", "BAR", "Bartın", 17, "#ffbe0b", "#f26b1d"],
-	["Kilis Kale SK", "KIL", "Kilis", 15, "#1d4ed8", "#d62828"],
-	["Darıca Akıncı SK", "DAR", "Kocaeli", 14, "#ffd60a", "#3a0ca3"],
-]
-const BAL_LIG := [
-	["Körfez Atak SK", "KOR", "Kocaeli", 15, "#264653", "#111111"],
-	["Erdemli Kale SK", "ERD", "Mersin", 14, "#023e8a", "#f26b1d"],
-	["Karadeniz Ereğli Şimşek SK", "KAI", "Zonguldak", 15, "#e63946", "#0077b6"],
-	["Ceyhan Birlik SK", "CEY", "Adana", 15, "#6a040f", "#023e8a"],
-	["Amasya Kartal FK", "AMA", "Amasya", 16, "#264653", "#6a040f"],
-	["Torbalı Kale SK", "TOR", "İzmir", 13, "#e63946", "#c1121f"],
-	["Kuşadası İdman Yurdu", "KUS", "Aydın", 13, "#f26b1d", "#6a040f"],
-	["Kozan Şimşek SK", "KOZ", "Adana", 14, "#e63946", "#ffbe0b"],
-	["Biga Yıldız SK", "BIG", "Çanakkale", 12, "#023e8a", "#111111"],
-	["Niğde Atak SK", "NIG", "Niğde", 11, "#588157", "#3a0ca3"],
-	["Patnos Yıldız SK", "PAT", "Ağrı", 14, "#7b2cbf", "#3a0ca3"],
-	["Çankırı İdman Yurdu", "CNK", "Çankırı", 11, "#ffbe0b", "#6a040f"],
-	["Çatalca Kartal FK", "CAT", "İstanbul", 13, "#3a0ca3", "#e63946"],
-	["Bilecik Şimşek SK", "BIL", "Bilecik", 14, "#1d4ed8", "#0077b6"],
-	["Siverek Kale SK", "SVE", "Şanlıurfa", 12, "#3a0ca3", "#ffffff"],
-	["Fatsa Kale SK", "FAT", "Ordu", 12, "#0077b6", "#ffffff"],
-	["Tokat Çelik SK", "TOK", "Tokat", 11, "#2a9d8f", "#588157"],
-	["Edremit Atak SK", "EDR", "Balıkesir", 10, "#264653", "#d62828"],
-	["Karasu Atak SK", "KAU", "Sakarya", 11, "#e63946", "#2a9d8f"],
-	["Nevşehir İdman Yurdu", "NEV", "Nevşehir", 13, "#7b2cbf", "#1d4ed8"],
-	["Şırnak Yıldız SK", "SIR", "Şırnak", 9, "#1d4ed8", "#0077b6"],
-	["Kırklareli Anadolu FK", "KII", "Kırklareli", 12, "#f26b1d", "#d62828"],
-	["Söke Yıldız SK", "SOK", "Aydın", 9, "#c1121f", "#ffffff"],
-	["Pazar Atak SK", "PAZ", "Rize", 11, "#588157", "#0077b6"],
-	["Mardin Kartal FK", "MRD", "Mardin", 8, "#1d4ed8", "#7b2cbf"],
-	["Kars Anadolu FK", "KRS", "Kars", 10, "#1d4ed8", "#3a0ca3"],
-	["Akşehir Anadolu FK", "ASE", "Konya", 10, "#0077b6", "#1d4ed8"],
-	["Hendek Kartal FK", "HEN", "Sakarya", 8, "#7b2cbf", "#264653"],
-	["Milas Atak SK", "MIL", "Muğla", 9, "#588157", "#111111"],
-	["Gümüşhane Anadolu FK", "GUM", "Gümüşhane", 7, "#ffd60a", "#ffbe0b"],
-	["Siirt Anadolu FK", "SII", "Siirt", 8, "#023e8a", "#1d4ed8"],
-	["Artvin Gençlik", "ART", "Artvin", 10, "#e63946", "#7b2cbf"],
-	["Bergama Doğan SK", "BER", "İzmir", 7, "#3a0ca3", "#0077b6"],
-	["Tunceli Atak SK", "TUN", "Tunceli", 7, "#2a9d8f", "#3a0ca3"],
-	["Kızıltepe Yıldız SK", "KIZ", "Mardin", 9, "#2b9348", "#6a040f"],
-	["Kemer Şimşek SK", "KEM", "Antalya", 6, "#ffbe0b", "#7b2cbf"],
-	["Muş İdman Yurdu", "MUS", "Muş", 6, "#0077b6", "#6a040f"],
-	["Keşan Yıldız SK", "KES", "Edirne", 7, "#0077b6", "#111111"],
-	["İnegöl Ovası Gücü", "IEG", "Bursa", 7, "#111111", "#f26b1d"],
-	["Sinop Doğan SK", "SNO", "Sinop", 6, "#111111", "#6a040f"],
-	["Ardahan Doğan SK", "ARD", "Ardahan", 6, "#023e8a", "#6a040f"],
-	["Hakkari Kartal FK", "HAK", "Hakkari", 6, "#7b2cbf", "#1d4ed8"],
-	["Ergani İdman Yurdu", "ERG", "Diyarbakır", 5, "#111111", "#ffffff"],
-	["Bitlis Anadolu FK", "BIT", "Bitlis", 4, "#e63946", "#2b9348"],
-	["Bayburt Doğan SK", "BAY", "Bayburt", 4, "#1d4ed8", "#d62828"],
-	["Bingöl Şimşek SK", "BIN", "Bingöl", 5, "#6a040f", "#ffd60a"],
-	["Kurtalan Gücü", "KUR", "Siirt", 5, "#264653", "#ffd60a"],
-	["Muş Ovası Gençlik", "MSO", "Muş", 4, "#023e8a", "#588157"],
-]
 
 
 ## Yabancı ligler (kurgusal, çağrışımlı adlar). [isim, kısa, şehir, prestij, renk1, renk2]
-const COUNTRIES := {
-	"TR": {"leagues": ["SL", "L1", "L2A", "L2B", "L3A", "L3B", "L3C", "BAL1", "BAL2", "BAL3", "BAL4"], "lang": "TR", "base": 50.0},
-	"EN": {"leagues": ["EN1"], "lang": "EN", "base": 52.0},
-	"IT": {"leagues": ["IT1"], "lang": "IT", "base": 50.0},
-	"BR": {"leagues": ["BR1"], "lang": "PT", "base": 46.0},
+## Ülkeler: res://data/world.json'dan yüklenir (Türkiye elle tanımlı)
+var COUNTRIES := {
+	"TR": {"leagues": ["SL", "L1", "L2A", "L2B"], "lang": "TR", "base": 50.0, "tr": "Türkiye", "en": "Türkiye", "tiers": {1: ["SL"], 2: ["L1"], 3: ["L2A", "L2B"]}},
 }
+## lig kimliği -> {cc, tier}
+var LG := {"SL": {"cc": "TR", "tier": 1}, "L1": {"cc": "TR", "tier": 2}, "L2A": {"cc": "TR", "tier": 3}, "L2B": {"cc": "TR", "tier": 3}}
+## dünya kulüp satırları: ülke -> [[ad, kısa, şehir, prestij, c1, c2, lig]]
+var WORLD_CLUBS := {}
+## şehir -> [enlem, boylam, ülke]
+var CITY_W := {}
+var POOL_OF := {}
+var LANG_NAMES := {}
+## Ülkeler güç sırasına göre (seçicilerde)
+var COUNTRY_ORDER: Array = []
+
+func _ready() -> void:
+	_load_world()
+
+func _load_world() -> void:
+	var f := FileAccess.open("res://data/world.json", FileAccess.READ)
+	if f == null:
+		push_error("world.json yok")
+		return
+	var w: Dictionary = JSON.parse_string(f.get_as_text())
+	f.close()
+	for cc in w.countries:
+		var c: Dictionary = w.countries[cc]
+		var lgs := []
+		var tiers := {}
+		for l in c.leagues:
+			lgs.append(l.id)
+			tiers[int(l.tier)] = [l.id]
+			LG[l.id] = {"cc": cc, "tier": int(l.tier)}
+		COUNTRIES[cc] = {"leagues": lgs, "lang": c.lang, "base": float(c.base), "tr": c.tr, "en": c.en, "tiers": tiers, "ptop": int(c.ptop)}
+		WORLD_CLUBS[cc] = c.clubs
+		if not CLUB_NATS.has(cc):
+			CLUB_NATS[cc] = c.nats
+	for city in w.cities:
+		CITY_W[city] = w.cities[city]
+	for k in w.names:
+		var fl: Array = w.names[k][0]
+		var ll: Array = w.names[k][1]
+		if FIRST.has(k):
+			for n in fl:
+				if not (n in FIRST[k]):
+					FIRST[k].append(n)
+			for n in ll:
+				if not (n in LAST[k]):
+					LAST[k].append(n)
+		else:
+			FIRST[k] = fl
+			LAST[k] = ll
+	POOL_OF = w.pool_of
+	LANG_NAMES = w.lang_names
+	COUNTRY_ORDER = COUNTRIES.keys()
+	COUNTRY_ORDER.sort_custom(func(a, b):
+		return country_strength(a) > country_strength(b))
+
+## Bölgeler (yurtdışı izni, ekip bölgeleri, itibar ağı)
+const ZONES := {
+	"tr": ["TR"],
+	"brit": ["EN", "SCO", "WAL", "NIR", "IE"],
+	"west": ["FR", "BE", "NL", "LU", "ES", "PT", "AD", "GI"],
+	"central": ["DE", "AT", "CH", "CZ", "SK", "PL", "HU", "SI"],
+	"south": ["IT", "SM", "MT", "GR", "CY", "IL"],
+	"balkan": ["HR", "RS", "BA", "ME", "MK", "AL", "XK", "BG", "RO", "MD"],
+	"nordic": ["DK", "SE", "NO", "FI", "IS", "FO", "EE", "LV", "LT"],
+	"east": ["RU", "UA", "BY", "KZ", "GE", "AM", "AZ"],
+	"sa": ["BR"],
+}
+const ZONE_NAMES := {
+	"tr": ["Türkiye", "Türkiye"], "brit": ["Britanya & İrlanda", "Britain & Ireland"], "west": ["Batı Avrupa", "Western Europe"],
+	"central": ["Orta Avrupa", "Central Europe"], "south": ["Akdeniz", "Mediterranean"], "balkan": ["Balkanlar", "Balkans"],
+	"nordic": ["Kuzey Avrupa", "Northern Europe"], "east": ["Doğu Avrupa", "Eastern Europe"], "sa": ["Güney Amerika", "South America"],
+}
+
+func zone_of(cc: String) -> String:
+	for z in ZONES:
+		if cc in ZONES[z]:
+			return z
+	return "west"
+
+func zone_name(z: String) -> String:
+	var n: Array = ZONE_NAMES.get(z, [z, z])
+	return n[0] if T.lang == "tr" else n[1]
+
+func lang_name(code: String) -> String:
+	var n: Array = LANG_NAMES.get(code, [code, code])
+	return n[0] if T.lang == "tr" else n[1]
+
+func country_strength(cc: String) -> float:
+	if cc == "TR":
+		return 74.0
+	var c: Dictionary = COUNTRIES[cc]
+	return float(c.base) + float(c.get("ptop", 50)) * 0.3
+
+func country_name(cc: String) -> String:
+	if not COUNTRIES.has(cc):
+		return cc
+	return COUNTRIES[cc].tr if T.lang == "tr" else COUNTRIES[cc].en
+
+func _pool(nat: String) -> String:
+	if FIRST.has(nat):
+		return nat
+	if POOL_OF.has(nat):
+		var arr: Array = POOL_OF[nat]
+		return arr[randi() % arr.size()]
+	return "EN" if not FIRST.has(nat) else nat
+
+func name_pair(nat: String) -> Array:
+	## [ad, soyad] — uyruğa uygun havuzdan
+	var p := _pool(nat)
+	if not FIRST.has(p):
+		p = "TR"
+	var fl: Array = FIRST[p]
+	var ll: Array = LAST.get(p, LAST["TR"])
+	return [fl[randi() % fl.size()], ll[randi() % ll.size()]]
+
 const EN_LIG := [
 	["Manchester Sky FC", "MSK", "Manchester", 93, "#6cabdd", "#1c2c5b"],
 	["Liverpool Mersey FC", "LIV", "Liverpool", 92, "#c8102e", "#f6eb61"],
@@ -288,7 +300,7 @@ const BR_LIG := [
 	["Goiânia Esmeraldino", "GOI", "Goiânia", 58, "#006a3e", "#ffffff"],
 ]
 ## Kulüp uyrukları: ülke -> {uyruk: ağırlık}
-const CLUB_NATS := {
+var CLUB_NATS := {
 	"EN": {"EN": 55, "FR": 7, "PT": 5, "BR": 6, "NL": 5, "NG": 4, "SN": 3, "GH": 3, "AR": 3, "IT": 2, "SE": 3, "PL": 2, "HR": 2},
 	"IT": {"IT": 58, "BR": 7, "AR": 7, "FR": 5, "RS": 4, "HR": 4, "NL": 3, "NG": 3, "SN": 3, "PL": 3, "GE": 2, "UY": 3},
 	"BR": {"BR": 90, "AR": 5, "UY": 5},
@@ -398,7 +410,7 @@ const NATIONS := {
 	"MA": [2, 1], "NL": [2, 1], "GE": [2, 1], "PL": [2, 1], "SE": [1, 0], "UY": [2, 1],
 }
 
-const FIRST := {
+var FIRST := {
 	"TR": ["Emre", "Mert", "Burak", "Kerem", "Yusuf", "Arda", "Can", "Ozan", "Berkay", "Enes", "Furkan", "Halil", "İsmail", "Kaan", "Oğuz", "Serdar", "Taylan", "Umut", "Volkan", "Yiğit", "Barış", "Cengiz", "Doğukan", "Efe", "Görkay", "Hakan", "İrfan", "Koray", "Metehan", "Okan", "Onur", "Sinan", "Tolga", "Uğurcan", "Batuhan", "Eren", "Ferdi", "Gökhan", "Kazım", "Recep", "Salih", "Semih", "Tarık", "Yunus", "Ahmet", "Bora", "Cenk", "Deniz", "Ege", "Alperen", "Bertuğ", "Kenan", "Orkun", "Rıdvan", "Atakan", "Berkan", "Çağan", "Mücahit", "Ensar", "Tayyip"],
 	"BR": ["Thiago", "Gabriel", "Matheus", "Lucas", "Rafael", "Vinícius", "Diego", "Rodrigo", "Felipe", "Bruno", "Caio", "Igor", "João", "Leandro", "Marcelo", "Renan", "Wesley", "Everton", "Jádson", "Kaio"],
 	"AR": ["Nicolás", "Facundo", "Lautaro", "Tomás", "Agustín", "Franco", "Gonzalo", "Ezequiel", "Matías", "Leandro", "Joaquín", "Santiago", "Cristian", "Federico"],
@@ -420,7 +432,7 @@ const FIRST := {
 	"IT": ["Lorenzo", "Federico", "Alessandro", "Matteo", "Nicolò", "Davide", "Gianluca", "Andrea", "Marco", "Giacomo", "Sandro", "Riccardo", "Francesco", "Leonardo", "Gianluigi", "Domenico", "Mattia", "Simone", "Tommaso", "Pietro", "Manuel", "Raoul", "Samuele", "Edoardo", "Destiny", "Wilfried"],
 	"SE": ["Emil", "Viktor", "Oscar", "Jesper", "Linus", "Anton", "Isak", "Hugo", "Albin", "Gustav"],
 }
-const LAST := {
+var LAST := {
 	"TR": ["Yılmaz", "Kaya", "Demir", "Şahin", "Çelik", "Yıldız", "Aydın", "Öztürk", "Arslan", "Doğan", "Kılıç", "Aslan", "Çetin", "Kara", "Koç", "Kurt", "Özdemir", "Polat", "Erdem", "Güneş", "Bulut", "Tekin", "Acar", "Akın", "Kalkan", "Bozkurt", "Ünal", "Güler", "Tosun", "Duman", "Karaca", "Uysal", "Işık", "Sarı", "Taş", "Altun", "Ekinci", "Bayram", "Coşkun", "Keskin", "Akgül", "Turan", "Yavuz", "Ateş", "Erkan", "Sezer", "Ayhan", "Karadağ", "Okumuş", "Tunç", "Yazıcı", "Gündoğdu", "Özkan", "Kocabaş", "Akbaba", "Dursun", "Ercan", "Bilgin", "Toprak", "Elmas"],
 	"BR": ["Silva", "Santos", "Oliveira", "Souza", "Pereira", "Costa", "Rodrigues", "Almeida", "Nascimento", "Lima", "Araújo", "Fernandes", "Carvalho", "Gomes", "Ribeiro", "Barbosa", "Rocha", "Moura", "Teixeira", "Cardoso"],
 	"AR": ["González", "Rodríguez", "Fernández", "López", "Martínez", "Sosa", "Romero", "Álvarez", "Benítez", "Acosta", "Medina", "Herrera", "Castro", "Ledesma"],
@@ -456,6 +468,8 @@ const STYLE_ATTRS := {
 func city_pos(c: String) -> Array:
 	if CITY_POS.has(c):
 		return CITY_POS[c]
+	if CITY_W.has(c):
+		return CITY_W[c]
 	return CITY_POS_INT.get(c, [39.0, 35.0])
 
 func city_distance(a: String, b: String) -> float:
@@ -474,11 +488,6 @@ func city_distance(a: String, b: String) -> float:
 func city_country(c: String) -> String:
 	if CITY_POS.has(c):
 		return "TR"
-	if CITY_POS_INT.has(c):
-		var p: Array = CITY_POS_INT[c]
-		if float(p[0]) < 0.0:
-			return "BR"
-		if float(p[1]) < 2.0:
-			return "EN"
-		return "IT"
+	if CITY_W.has(c):
+		return str(CITY_W[c][2])
 	return "TR"

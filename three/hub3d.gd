@@ -5,6 +5,7 @@ extends SubViewportContainer
 const FB = preload("res://three/mocap_man.gd")
 const Stadium = preload("res://three/stadium.gd")
 const TrMap = preload("res://ui/map.gd")
+const Europe = preload("res://ui/europe.gd")
 
 var sv: SubViewport
 var world: Node3D
@@ -718,33 +719,9 @@ func _build_map() -> void:
 	holo.material_override = _shader(HOLO_SHADER)
 	holo.position = Vector3(0, 0.845, 0)
 	map_root.add_child(holo)
-	# Türkiye: ekstrüde poligon
-	var poly := PackedVector2Array()
-	for p in TrMap.OUTLINE:
-		poly.append(_geo(p[0], p[1]))
-	var tris := Geometry2D.triangulate_polygon(poly)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var top_y := 0.97
-	var bot_y := 0.85
-	for i in range(0, tris.size(), 3):
-		for k in [0, 2, 1]:
-			var v: Vector2 = poly[tris[i + k]]
-			st.set_normal(Vector3.UP)
-			st.add_vertex(Vector3(v.x, top_y, v.y))
-	for i in poly.size():
-		var a: Vector2 = poly[i]
-		var b: Vector2 = poly[(i + 1) % poly.size()]
-		var n := Vector3(b.y - a.y, 0, -(b.x - a.x)).normalized()
-		for v in [Vector3(a.x, top_y, a.y), Vector3(b.x, top_y, b.y), Vector3(b.x, bot_y, b.y), Vector3(a.x, top_y, a.y), Vector3(b.x, bot_y, b.y), Vector3(a.x, bot_y, a.y)]:
-			st.set_normal(n)
-			st.add_vertex(v)
-	var land := MeshInstance3D.new()
-	land.mesh = st.commit()
-	var lm := _mat(Color(0.18, 0.42, 0.26), 0.55, 0.1, 0.25)
-	lm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	land.material_override = lm
-	map_root.add_child(land)
+	map_land = Node3D.new()
+	map_root.add_child(map_land)
+	_build_land("TR")
 	var spot := SpotLight3D.new()
 	spot.position = Vector3(0, 5.5, 1.5)
 	spot.rotation_degrees = Vector3(-75, 0, 0)
@@ -762,23 +739,108 @@ func _build_map() -> void:
 	map_dyn = Node3D.new()
 	map_root.add_child(map_dyn)
 
+var map_land: Node3D
+var map_cc := ""
+var view_c := Vector2(35.3, 38.95)
+var view_s := 0.438
+var view_k := 0.777
+const BOARD := Rect2(-3.55, -1.85, 7.1, 3.7)
+
 func _geo(lon: float, lat: float) -> Vector2:
-	var w := 6.6
-	var x := (lon - 35.3) / 19.4 * w
-	var y := -(lat - 38.95) / 19.4 * w * 1.28
-	return Vector2(x, y)
+	return Vector2((lon - view_c.x) * view_k * view_s, -(lat - view_c.y) * view_s)
+
+func _build_land(cc: String) -> void:
+	## Seçili ülkeyi merkeze alan Avrupa haritası (kara + iç denizler), tahtaya kırpılmış
+	map_cc = cc
+	for ch in map_land.get_children():
+		ch.queue_free()
+	var vr := Europe.view_for(cc)
+	view_c = vr.get_center()
+	view_k = cos(deg_to_rad(view_c.y))
+	view_s = minf(6.6 / (vr.size.x * view_k), 3.4 / vr.size.y)
+	var rect := PackedVector2Array([BOARD.position, Vector2(BOARD.end.x, BOARD.position.y), BOARD.end, Vector2(BOARD.position.x, BOARD.end.y)])
+	var land_polys := []
+	for poly in Europe.LAND:
+		var pp := PackedVector2Array()
+		for q in poly:
+			pp.append(_geo(q[0], q[1]))
+		for part in Geometry2D.intersect_polygons(pp, rect):
+			land_polys.append(part)
+	var water_polys := []
+	for poly in Europe.WATER:
+		var pp := PackedVector2Array()
+		for q in poly:
+			pp.append(_geo(q[0], q[1]))
+		for part in Geometry2D.intersect_polygons(pp, rect):
+			water_polys.append(part)
+	var top_y := 0.97
+	var bot_y := 0.85
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for poly in land_polys:
+		var tris := Geometry2D.triangulate_polygon(poly)
+		var cw := Geometry2D.is_polygon_clockwise(poly)
+		for i in range(0, tris.size(), 3):
+			for k in ([0, 2, 1] if not cw else [0, 1, 2]):
+				var v: Vector2 = poly[tris[i + k]]
+				st.set_normal(Vector3.UP)
+				st.add_vertex(Vector3(v.x, top_y, v.y))
+		for i in poly.size():
+			var a: Vector2 = poly[i]
+			var b: Vector2 = poly[(i + 1) % poly.size()]
+			var n := Vector3(b.y - a.y, 0, -(b.x - a.x)).normalized()
+			for v in [Vector3(a.x, top_y, a.y), Vector3(b.x, top_y, b.y), Vector3(b.x, bot_y, b.y), Vector3(a.x, top_y, a.y), Vector3(b.x, bot_y, b.y), Vector3(a.x, bot_y, a.y)]:
+				st.set_normal(n)
+				st.add_vertex(v)
+	var land := MeshInstance3D.new()
+	land.mesh = st.commit()
+	var lm := _mat(Color(0.18, 0.42, 0.26), 0.55, 0.1, 0.25)
+	lm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	land.material_override = lm
+	map_land.add_child(land)
+	if not water_polys.is_empty():
+		var sw := SurfaceTool.new()
+		sw.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for poly in water_polys:
+			var tris := Geometry2D.triangulate_polygon(poly)
+			for i in range(0, tris.size(), 3):
+				for k in [0, 2, 1]:
+					var v: Vector2 = poly[tris[i + k]]
+					sw.set_normal(Vector3.UP)
+					sw.add_vertex(Vector3(v.x, top_y + 0.004, v.y))
+		var wm := MeshInstance3D.new()
+		wm.mesh = sw.commit()
+		var wmat := _mat(Color(0.06, 0.08, 0.1), 0.3, 0.4)
+		wmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		wm.material_override = wmat
+		map_land.add_child(wm)
+
+func _map_cities(cc: String) -> Array:
+	## Haritada gösterilecek şehirler: ülkenin şehirleri + tahtaya düşen komşular
+	var out := []
+	if cc == "TR":
+		return Data.CITY_POS.keys()
+	for city in Data.CITY_W:
+		var c: Array = Data.CITY_W[city]
+		if str(c[2]) == cc and BOARD.grow(-0.05).has_point(_geo(float(c[1]), float(c[0]))):
+			out.append(city)
+	return out
 
 func set_map(home: String, match_cities: Array, planned: Array, labels: Dictionary) -> void:
 	for c in map_dyn.get_children():
 		c.queue_free()
 	var pole := _mat(Color(0.8, 0.82, 0.85), 0.3, 0.8)
-	for city in Data.CITY_POS:
-		var p = Data.CITY_POS[city]
+	var hcc := Data.city_country(home)
+	if hcc != map_cc:
+		_build_land(hcc)
+	for city in _map_cities(hcc) + match_cities.filter(func(x): return Data.city_country(x) != hcc and BOARD.has_point(_geo(Data.city_pos(x)[1], Data.city_pos(x)[0]))):
+		var p = Data.city_pos(city)
 		var g := _geo(p[1], p[0])
+		var other: bool = Data.city_country(city) != hcc
 		var is_home: bool = city == home
 		var is_match: bool = city in match_cities
 		var is_plan: bool = city in planned
-		var col := Color(0.55, 0.62, 0.58, 1)
+		var col := Color(0.55, 0.62, 0.58, 1) if not other else Color(0.35, 0.4, 0.38, 1)
 		var h := 0.05
 		var r := 0.028
 		var emis := 0.0
@@ -806,11 +868,11 @@ func set_map(home: String, match_cities: Array, planned: Array, labels: Dictiona
 		if labels.has(city):
 			var l := _label(map_dyn, labels[city], Vector3(g.x, 0.97 + h + 0.18, g.y), 0.0032, col, true)
 	# rotalar: evden planlanan şehirlere ark
-	var hp = Data.CITY_POS.get(home, [39.0, 35.0])
+	var hp = Data.city_pos(home)
 	var hg := _geo(hp[1], hp[0])
 	var dot := _mat(Color("#e8c547"), 0.3, 0.0, 4.0)
 	for city in planned:
-		var cp = Data.CITY_POS.get(city, [39.0, 35.0])
+		var cp = Data.city_pos(city)
 		var cg := _geo(cp[1], cp[0])
 		var a := Vector3(hg.x, 1.38, hg.y)
 		var b := Vector3(cg.x, 1.28, cg.y)

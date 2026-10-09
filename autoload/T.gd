@@ -3,9 +3,45 @@ extends Node
 
 var lang := "tr"
 
+func _dyn(key: String) -> String:
+	## Avrupa dünyası: veri dosyasından gelen adlar
+	if key.begins_with("country_"):
+		return Data.country_name(key.substr(8))
+	if key.begins_with("zone_"):
+		return Data.zone_name(key.substr(5))
+	if key.begins_with("area_"):
+		return Data.zone_name(key.substr(5))
+	if key.begins_with("lang_"):
+		return Data.lang_name(key.substr(5))
+	if key.begins_with("league_"):
+		var lg := key.substr(7)
+		if Data.LG.has(lg):
+			var cc: String = Data.LG[lg].cc
+			var t := int(Data.LG[lg].tier)
+			if lang == "tr":
+				return "%s %d. Lig" % [Data.country_name(cc), t]
+			return "%s Div. %d" % [Data.country_name(cc), t]
+	if key == "rg_home1":
+		return "Üst ligler" if lang == "tr" else "Top leagues"
+	if key == "rg_home2":
+		return "Alt ligler" if lang == "tr" else "Lower leagues"
+	if key.begins_with("rg_"):
+		return Data.zone_name(key.substr(3))
+	return key
+
 func t(key: String, args: Array = []) -> String:
 	var d: Dictionary = TR if lang == "tr" else EN
-	var txt: String = d.get(key, TR.get(key, key))
+	var txt: String
+	if d.has(key):
+		txt = d[key]
+	elif TR.has(key):
+		txt = TR[key]
+	else:
+		txt = _dyn(key)
+	if key.begins_with("league_") and not Game.s.is_empty():
+		var ln = Game.s.get("league_names", {})
+		if ln is Dictionary and ln.has(key.substr(7)):
+			txt = ln[key.substr(7)]
 	if args.is_empty():
 		return txt
 	var sargs := []
@@ -17,6 +53,17 @@ func t(key: String, args: Array = []) -> String:
 	return txt % sargs
 
 const TR := {
+	"old_save_note": "Yeni sürümde dünya tüm Avrupa'ya genişledi. Eski kariyerin bu sürümle devam edemiyor; yeni bir kariyer başlat.",
+	"n_leagues": "%s kademe",
+	"pick_country": "Ülke seç",
+	"country_lbl": "Ülke: %s",
+	"other_country": "Başka ülke…",
+	"start_country": "Başlangıç ülkesi",
+	"start_country_hint": "Kariyerine hangi ülkede başlamak istiyorsun? İlk iş teklifleri bu ülkenin kulüplerinden gelir.",
+	"country_info": "%s kademe lig • %s kulüp • Dil: %s",
+	"change_country": "Ülkeyi değiştir",
+	"no_moves": "Bu ülkede tek kademe var.",
+	"other_lang": "Diğer diller…",
 	# genel
 	"title": "GÖZCÜ", "subtitle": "Scout Kariyeri",
 	"new_game": "Yeni Kariyer", "continue": "Devam Et", "language": "Dil: Türkçe",
@@ -529,7 +576,7 @@ const TR := {
 	"need_travel_day": "Yurtdışına gitmek için boş bir iş günü lazım.",
 	"travel_plane_int": "Uçak (%s km)",
 	"mv_simulating": "Maç simüle ediliyor… %%%s",
-	"locked_s": "(izin yok)",
+	"locked_s": "izin yok",
 	"tap_continue": "devam için dokun ▸",
 	"sc_you": "Sen",
 	"sc_you_ask": "Soruyorsun:",
@@ -630,6 +677,8 @@ const TR := {
 	"pres_hello_mid": "„Buyur %s. Vaktim kısıtlı, ne lazım?”",
 	"pres_hello_lo": "„%s... Açık konuşayım, beklentimizin altındasın. Dinliyorum.”",
 	"pt_abroad": "%s'de gözlem yapmak için izin ve bütçe istiyorum",
+	"pt_abroad_any": "Yurtdışında gözlem yapmak için izin istiyorum",
+	"sc_abroad_q": "Hangi bölge?",
 	"pt_staff": "Ekibime bir kişi daha almak istiyorum",
 	"pt_budget": "Seyahat bütçemi artırmalıyız",
 	"pt_push": "Bir oyuncuyu bizzat size önermek istiyorum",
@@ -743,12 +792,6 @@ const TR := {
 	"st_shadow": "GÖLGE %s",
 	"rep_map": "İtibar haritası",
 	"rep_map_hint": "Maç izledikçe, oyuncularla görüştükçe ve transfer getirdikçe o bölgede çevren genişler. Güçlü çevre: daha çok ihbar, aynı gözlemden daha çok bilgi, o bölgeden iş teklifi.",
-	"area_TR1": "Türkiye üst ligler",
-	"area_TR2": "Türkiye alt ligler",
-	"area_TR3": "Amatör sahalar",
-	"area_EN": "İngiltere",
-	"area_IT": "İtalya",
-	"area_BR": "Brezilya",
 	"rep_accuracy": "Rapor isabeti",
 	"badges": "Uzmanlık rozetleri",
 	"badge_spec_GK": "Kaleci Uzmanı",
@@ -801,6 +844,17 @@ const TR := {
 }
 
 const EN := {
+	"old_save_note": "The world now spans all of Europe. Your old career can't continue in this version; please start a new one.",
+	"n_leagues": "%s tiers",
+	"pick_country": "Choose country",
+	"country_lbl": "Country: %s",
+	"other_country": "Other country…",
+	"start_country": "Starting country",
+	"start_country_hint": "Where do you want to start your career? Your first job offers come from this country's clubs.",
+	"country_info": "%s league tiers • %s clubs • Language: %s",
+	"change_country": "Change country",
+	"no_moves": "This country has a single tier.",
+	"other_lang": "Other languages…",
 	"title": "GÖZCÜ", "subtitle": "Scout Career",
 	"new_game": "New Career", "continue": "Continue", "language": "Language: English",
 	"your_name": "Your scout name", "start": "Start", "back": "‹ Back", "close": "Close", "ok": "OK",
@@ -1299,7 +1353,7 @@ const EN := {
 	"need_travel_day": "You need a free workday to travel abroad.",
 	"travel_plane_int": "Flight (%s km)",
 	"mv_simulating": "Simulating match… %s%%",
-	"locked_s": "(no permit)",
+	"locked_s": "no permit",
 	"tap_continue": "tap to continue ▸",
 	"sc_you": "You",
 	"sc_you_ask": "You ask:",
@@ -1400,6 +1454,8 @@ const EN := {
 	"pres_hello_mid": "“Yes %s. I'm short on time, what do you need?”",
 	"pres_hello_lo": "“%s... frankly, you're below expectations. I'm listening.”",
 	"pt_abroad": "I want a permit and budget to scout in %s",
+	"pt_abroad_any": "I want permission to scout abroad",
+	"sc_abroad_q": "Which region?",
 	"pt_staff": "I want to add one more person to my staff",
 	"pt_budget": "We need to increase my travel budget",
 	"pt_push": "I want to recommend a player to you personally",
@@ -1513,12 +1569,6 @@ const EN := {
 	"st_shadow": "SHADOW %s",
 	"rep_map": "Reputation map",
 	"rep_map_hint": "Watching matches, meeting players and landing signings grows your network in that area. A strong network means more tips, more info from the same observation and job offers from that area.",
-	"area_TR1": "Turkey top leagues",
-	"area_TR2": "Turkey lower leagues",
-	"area_TR3": "Amateur grounds",
-	"area_EN": "England",
-	"area_IT": "Italy",
-	"area_BR": "Brazil",
 	"rep_accuracy": "Report accuracy",
 	"badges": "Specialist badges",
 	"badge_spec_GK": "Goalkeeper Specialist",

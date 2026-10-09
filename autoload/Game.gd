@@ -7,28 +7,39 @@ const Timeline = preload("res://sim/timeline.gd")
 const LiveEngine = preload("res://sim/live_engine.gd")
 
 const SAVE_PATH := "user://kariyer.json"
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 const WEEKS := 34
 const WORK_DAYS := 5          # Pzt-Cum
 const WED := 2                # U19 günü
 const WINDOWS := [[0, 2], [17, 19]]
 ## Lig yapısı: her grup ayrı bir lig kimliği. Kademe 1 = Süper Lig ... 5 = BAL
-const LEAGUES := {
-	"SL": 1, "L1": 2, "L2A": 3, "L2B": 3, "L3A": 4, "L3B": 4, "L3C": 4,
-	"BAL1": 5, "BAL2": 5, "BAL3": 5, "BAL4": 5,
-	"EN1": 1, "IT1": 1, "BR1": 1,
-}
-const TIER_GROUPS := {1: ["SL"], 2: ["L1"], 3: ["L2A", "L2B"], 4: ["L3A", "L3B", "L3C"], 5: ["BAL1", "BAL2", "BAL3", "BAL4"]}
+## lig -> kademe (Data.LG'den kurulur; tüm Avrupa + Brezilya)
+var LEAGUES := {}
+const TIER_GROUPS := {1: ["SL"], 2: ["L1"], 3: ["L2A", "L2B"]}
 const TITLES := [[0, "title_0"], [20, "title_1"], [40, "title_2"], [60, "title_3"], [80, "title_4"]]
 
 var s: Dictionary = {}
+## eski sürüm (v0.17 ve öncesi) kaydı bulundu: yeni dünya ile uyumsuz
+var old_save := false
 var rng := RandomNumberGenerator.new()
 
 var settings := {"quality": "medium", "sound": true, "music": true}
 const SETTINGS_PATH := "user://ayarlar.cfg"
 const CRASH_FLAG := "user://mac_suruyor.flag"
 
+func _build_leagues() -> void:
+	LEAGUES = {}
+	for lg in Data.LG:
+		LEAGUES[lg] = int(Data.LG[lg].tier)
+
+func tier_groups(cc: String, t: int) -> Array:
+	return Data.COUNTRIES.get(cc, {}).get("tiers", {}).get(t, [])
+
+func max_tier(cc: String) -> int:
+	return Data.COUNTRIES.get(cc, {}).get("tiers", {}).size()
+
 func _ready() -> void:
+	_build_leagues()
 	rng.randomize()
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS_PATH) == OK:
@@ -191,8 +202,7 @@ func new_player(pos: String, target: int, age: int, nat: String, cid: String, yo
 	s.next_pid += 1
 	var p := {
 		"id": pid,
-		"first": pick(Data.FIRST[nat]),
-		"last": pick(Data.LAST[nat]),
+		"first": "", "last": "",
 		"nat": nat, "age": age, "pos": pos,
 		"foot": "L" if (pos in ["LB", "LW"] and rf() < 0.75) or rf() < 0.2 else "R",
 		"club": cid,
@@ -205,6 +215,9 @@ func new_player(pos: String, target: int, age: int, nat: String, cid: String, yo
 		"youth": youth, "disc": not youth, "rival": "",
 		"skin": ri(0, 4), "hair": ri(0, 5), "seed": ri(0, 99999),
 	}
+	var nm := Data.name_pair(nat)
+	p.first = nm[0]
+	p.last = nm[1]
 	if nat in ["NG", "SN", "GH", "CM"]:
 		p.skin = ri(3, 4)
 	elif nat in ["SE", "NL", "PL", "HR", "RS", "GE", "FR"]:
@@ -231,16 +244,21 @@ func new_player(pos: String, target: int, age: int, nat: String, cid: String, yo
 	return pid
 
 func league_country(lg: String) -> String:
-	for cc in Data.COUNTRIES:
-		if lg in Data.COUNTRIES[cc].leagues:
-			return cc
-	return "TR"
+	return str(Data.LG.get(lg, {}).get("cc", "TR"))
 
 func club_country(cid: String) -> String:
 	return club(cid).get("country", league_country(club(cid).get("league", "SL")))
 
 func my_country() -> String:
-	return club_country(s.scout.club_id) if s.scout.club_id != "" else "TR"
+	return club_country(s.scout.club_id) if s.scout.club_id != "" else str(s.get("start_cc", "TR"))
+
+func country_lang(cc: String) -> String:
+	return str(Data.COUNTRIES.get(cc, {}).get("lang", "EN"))
+
+func nat_lang(nat: String) -> String:
+	if Data.COUNTRIES.has(nat):
+		return country_lang(nat)
+	return {"AR": "ES", "UY": "ES", "BR": "PT"}.get(nat, "EN")
 
 func pick_weight(d: Dictionary) -> String:
 	var total := 0.0
@@ -257,7 +275,7 @@ func tier(lg: String) -> int:
 	return int(LEAGUES.get(lg, 5))
 
 func club_tier(cid: String) -> int:
-	return tier(club(cid).get("league", "BAL1"))
+	return tier(club(cid).get("league", "L2A"))
 
 func tier_level(t: int, prestige: float) -> float:
 	## Kademe ve prestije göre kadro hedef seviyesi (OVR)
@@ -286,6 +304,36 @@ func club_level(cid: String) -> float:
 		return float(Data.COUNTRIES[cc].base) + float(c.prestige) * 0.30
 	return tier_level(tier(c.league), float(c.prestige))
 
+func is_lazy(cid: String) -> bool:
+	return s.clubs.has(cid) and bool(s.clubs[cid].get("lazy", false))
+
+func ensure_squad(cid: String) -> bool:
+	## Ayrıntısız (kadrosu üretilmemiş) kulübün kadrosunu ilk ihtiyaçta üret. Üretildiyse true.
+	if not is_lazy(cid):
+		return false
+	var c: Dictionary = s.clubs[cid]
+	c.erase("lazy")
+	c.squad = []
+	c.u19 = []
+	gen_squad(cid, c.league)
+	return true
+
+func ensure_league(lg: String) -> int:
+	var n := 0
+	for cid in league_clubs(lg):
+		if ensure_squad(cid):
+			n += 1
+	return n
+
+func ensure_country(cc: String) -> void:
+	for lg in Data.COUNTRIES.get(cc, {}).get("leagues", []):
+		ensure_league(lg)
+
+func has_u19(cid: String) -> bool:
+	var c := club(cid)
+	var t := tier(c.get("league", ""))
+	return t <= 2 or (club_country(cid) == "TR" and t <= 3)
+
 func club_nat(cid: String) -> String:
 	var cc := league_country(s.clubs[cid].league)
 	if cc != "TR":
@@ -313,7 +361,7 @@ func gen_squad(cid: String, league: String) -> void:
 			tgt -= ri(0, 4)
 		var nat := club_nat(cid)
 		c.squad.append(new_player(pos, clampi(tgt, 28, 90), age, nat, cid))
-	if t <= 3:
+	if has_u19(cid):
 		gen_u19(cid, 16 if t <= 2 else 10)
 
 const SQUAD_MIN := {1: 22, 2: 22, 3: 21, 4: 20, 5: 20}
@@ -355,7 +403,7 @@ func gen_u19(cid: String, n: int, ages := [15, 18]) -> void:
 		var age := ri(ages[0], ages[1])
 		var tgt := int(base + (age - 15) * 3.0 + rng.randfn(0.0, 4.0))
 		var cc := league_country(c.league)
-		var home_nat: String = {"TR": "TR", "EN": "EN", "IT": "IT", "BR": "BR"}[cc]
+		var home_nat: String = cc
 		var nat := home_nat if rf() < 0.88 else (weighted_pick(Data.NATIONS, 1) if cc == "TR" else pick_weight(Data.CLUB_NATS[cc]))
 		var pid := new_player(pos, clampi(tgt, 25, 64), age, nat, cid, true)
 		if cc == "BR":
@@ -365,15 +413,18 @@ func gen_u19(cid: String, n: int, ages := [15, 18]) -> void:
 		c.u19.append(pid)
 
 func new_manager(nat := "TR") -> Dictionary:
+	var nm := Data.name_pair(nat)
 	return {
-		"name": "%s %s" % [pick(Data.FIRST[nat]), pick(Data.LAST[nat])],
+		"name": "%s %s" % [nm[0], nm[1]],
 		"style": pick(Data.MANAGER_STYLES),
 		"pref": pick(["young", "exp", "none", "none"]),
 	}
 
 # ================================================================ yeni oyun
 
-func new_game(scout_name: String, lang: String) -> void:
+func new_game(scout_name: String, lang: String, start_cc := "TR") -> void:
+	if not Data.COUNTRIES.has(start_cc):
+		start_cc = "TR"
 	s = {
 		"version": SAVE_VERSION, "lang": lang,
 		"season": 2026, "week": 0,
@@ -383,7 +434,7 @@ func new_game(scout_name: String, lang: String) -> void:
 			"name": scout_name, "club_id": "", "rep": 15.0,
 			"eye": 9, "net": 8, "xp_eye": 0, "xp_net": 0,
 			"money": 2000, "salary": 0, "budget": 0, "spent": 0, "fatigue": 0,
-			"knowledge": {}, "shortlist": [], "reports": [], "history": [], "langs": ["TR"],
+			"knowledge": {}, "shortlist": [], "reports": [], "history": [], "langs": [country_lang(start_cc)],
 			"stats": {"watched": 0, "disc": 0, "signed": 0, "tips": 0, "reports": 0, "finds": 0},
 		},
 		"cal": {},
@@ -392,6 +443,7 @@ func new_game(scout_name: String, lang: String) -> void:
 		"pending": [], "last_obs": [], "season_summary": {}, "offers": [], "news": [],
 		"staff": [], "staff_pool": [], "staff_reports": [], "next_sid": 1,
 	}
+	s["start_cc"] = start_cc
 	_ensure_v15()
 	var idx := 0
 	for row in Data.SUPER_LIG:
@@ -400,35 +452,44 @@ func new_game(scout_name: String, lang: String) -> void:
 	for row in Data.BIRINCI_LIG:
 		_make_club("c%d" % idx, row, "L1")
 		idx += 1
-	for pair in [[Data.IKINCI_LIG, 3], [Data.UCUNCU_LIG, 4], [Data.BAL_LIG, 5]]:
-		var ids := []
-		for row in pair[0]:
-			_make_club("c%d" % idx, row, TIER_GROUPS[pair[1]][0])
-			ids.append("c%d" % idx)
-			idx += 1
-		_regroup(pair[1], ids)
-	for pair in [[Data.EN_LIG, "EN1", "EN"], [Data.IT_LIG, "IT1", "IT"], [Data.BR_LIG, "BR1", "BR"]]:
-		for row in pair[0]:
-			_make_club("c%d" % idx, row, pair[1])
-			s.clubs["c%d" % idx].manager = new_manager(pair[2])
+	var l2 := []
+	for row in Data.IKINCI_LIG:
+		_make_club("c%d" % idx, row, "L2A")
+		l2.append("c%d" % idx)
+		idx += 1
+	_regroup(3, l2)
+	for cc in Data.WORLD_CLUBS:
+		var mnat: String = cc
+		for row in Data.WORLD_CLUBS[cc]:
+			var cid := "c%d" % idx
+			_make_club(cid, row, row[6])
+			s.clubs[cid].manager = new_manager(mnat if rf() < 0.8 else pick_weight(Data.CLUB_NATS[cc]))
 			idx += 1
 	for cid in s.clubs:
 		s.clubs[cid].country = league_country(s.clubs[cid].league)
+	# ayrıntı: yalnızca başlangıç ülkesi tam üretilir, diğerleri ilk ihtiyaçta
 	for cid in s.clubs:
-		gen_squad(cid, s.clubs[cid].league)
+		if s.clubs[cid].country == start_cc:
+			gen_squad(cid, s.clubs[cid].league)
+		else:
+			s.clubs[cid]["lazy"] = true
+	var dbd: Dictionary = DB.active()
+	if not dbd.is_empty():
+		s["db_name"] = str(dbd.get("name", ""))
+		DB.apply_to_world(dbd)
 	make_fixtures()
 	make_u19_fixtures()
 
 func _make_club(cid: String, row: Array, league: String) -> void:
 	s.clubs[cid] = {
-		"id": cid, "name": row[0], "short": row[1], "city": row[2], "prestige": row[3],
+		"id": cid, "name": row[0], "short": row[1], "city": row[2], "prestige": mini(99, int(row[3])),
 		"c1": row[4], "c2": row[5], "league": league,
-		"budget": int(round(300000.0 * exp(float(row[3]) / 20.0) / 50000.0) * 50000),
+		"budget": int(round(300000.0 * exp(float(mini(99, int(row[3]))) / 20.0) / 50000.0) * 50000),
 		"manager": new_manager(), "squad": [], "u19": [],
 	}
 
 func _regroup(t: int, ids: Array) -> void:
-	## Kademedeki kulüpleri coğrafi olarak (boylama göre) gruplara böl
+	## Kademedeki kulüpleri coğrafi olarak (boylama göre) gruplara böl (yalnızca Türkiye)
 	var groups: Array = TIER_GROUPS[t]
 	if groups.size() == 1:
 		for cid in ids:
@@ -443,22 +504,36 @@ func _regroup(t: int, ids: Array) -> void:
 	for i in keyed.size():
 		s.clubs[keyed[i][1]].league = groups[mini(i / per, groups.size() - 1)]
 
-func tier_clubs(t: int) -> Array:
+func tier_clubs(t: int, cc := "TR") -> Array:
 	var out := []
 	for cid in s.clubs:
-		if tier(s.clubs[cid].league) == t and league_country(s.clubs[cid].league) == "TR":
+		if tier(s.clubs[cid].league) == t and league_country(s.clubs[cid].league) == cc:
 			out.append(cid)
 	return out
 
-func job_offers_start() -> Array:
-	## Başlangıç teklifleri: farklı kademelerden karışık
+func job_offers_start(cc := "") -> Array:
+	## Başlangıç teklifleri: seçilen ülkenin farklı kademelerinden, alt kademeler ağırlıklı
+	if cc == "":
+		cc = str(s.get("start_cc", "TR"))
 	var out := []
-	var want := {1: 1, 2: 2, 3: 2, 4: 1, 5: 1}
+	var mt := maxi(1, max_tier(cc))
+	var want := {}
+	match mt:
+		1:
+			want = {1: 4}
+		2:
+			want = {1: 2, 2: 3}
+		_:
+			want = {1: 1, 2: 2, 3: 3}
 	for t in want:
 		var pool := []
-		for cid in tier_clubs(t):
-			if t > 1 or s.clubs[cid].prestige <= 52:
-				pool.append(cid)
+		var all_t := tier_clubs(t, cc)
+		all_t.sort_custom(func(a, b): return s.clubs[a].prestige < s.clubs[b].prestige)
+		# üst kademede yalnızca alt yarı (yeni scout'a büyük kulüp gelmez)
+		var lim := all_t.size() if t > 1 or mt == 1 else int(ceil(all_t.size() * 0.5))
+		if mt == 1:
+			lim = int(ceil(all_t.size() * 0.7))
+		pool = all_t.slice(0, lim)
 		pool.shuffle()
 		out += pool.slice(0, want[t])
 	out.sort_custom(func(a, b): return s.clubs[a].prestige > s.clubs[b].prestige)
@@ -472,6 +547,7 @@ func offer_budget(c: Dictionary) -> int:
 
 func take_job(cid: String) -> void:
 	var c: Dictionary = s.clubs[cid]
+	ensure_country(club_country(cid))
 	s.scout.club_id = cid
 	s.scout.salary = offer_salary(c)
 	s.scout.budget = offer_budget(c)
@@ -528,8 +604,9 @@ func make_fixtures() -> void:
 func make_u19_fixtures() -> void:
 	## Çarşamba U19 maçları: yakın kulüpler eşleşir (altyapısı olan kulüpler)
 	var ids: Array = []
+	var mc := my_country()
 	for cid in s.clubs:
-		if not s.clubs[cid].u19.is_empty():
+		if not s.clubs[cid].u19.is_empty() and club_country(cid) == mc:
 			ids.append(cid)
 	ids.shuffle()
 	var fx := []
@@ -658,6 +735,10 @@ func match_abroad(key: String) -> bool:
 func plan_match(day: String, key: String) -> bool:
 	## Yurtdışı maç: bir iş günü yolculuğa gider (cuma tercih edilir)
 	var old: String = s.plan[day]
+	if key != "":
+		var mm := get_match(key)
+		ensure_squad(mm.h)
+		ensure_squad(mm.a)
 	var td: String = s.plan.get("travel_" + day, "")
 	if td != "":
 		s.cal.erase(td)
@@ -1041,6 +1122,8 @@ func make_assignments(n: int) -> void:
 		s.assign.append(a)
 
 func club_avg_ovr(cid: String) -> float:
+	if is_lazy(cid):
+		return club_level(cid)
 	var xi := best_xi(cid)
 	var t := 0.0
 	for pid in xi:
@@ -1273,7 +1356,20 @@ func team_str(xi: Array, big: bool) -> float:
 			t += (float(p.hid.big_match) - 10.0) * 0.15
 	return t / max(1, xi.size())
 
+func _lazy_str(cid: String) -> float:
+	return club_level(cid) + rng.randfn(0.0, 1.5)
+
 func sim_match(m: Dictionary, lg: String, youth := false) -> void:
+	if not youth and (is_lazy(m.h) or is_lazy(m.a)):
+		# ayrıntısız kulüp: oyuncu istatistiği olmadan, kulüp seviyesinden skor
+		var lh := _lazy_str(m.h) if is_lazy(m.h) else team_str(best_xi(m.h, true), false)
+		var la := _lazy_str(m.a) if is_lazy(m.a) else team_str(best_xi(m.a, true), false)
+		lh += 2.0
+		m.gh = _poisson(1.3 * exp((lh - la) / 11.0))
+		m.ga = _poisson(1.05 * exp((la - lh) / 11.0))
+		m.ev = []
+		_update_table(lg, m.h, m.a, m.gh, m.ga)
+		return
 	var hx := best_xi(m.h, true, youth)
 	var ax := best_xi(m.a, true, youth)
 	var big_h: bool = club(m.a).prestige >= 80 and not youth
@@ -1411,6 +1507,8 @@ func play_day(day: String) -> String:
 func watch_match_data(key: String) -> Dictionary:
 	## 3D izleyici için maç + zaman çizelgesi
 	var m := get_match(key)
+	ensure_squad(m.h)
+	ensure_squad(m.a)
 	_spend_travel(club(m.h).city)
 	var eng = LiveEngine.new()
 	eng.setup(self, m, false)
@@ -1710,7 +1808,7 @@ func _ai_transfers() -> void:
 				by_rival[rv] = []
 			by_rival[rv].append(pid)
 	for cid in s.clubs:
-		if cid == s.scout.club_id:
+		if cid == s.scout.club_id or is_lazy(cid):
 			continue
 		var c := club(cid)
 		# önce scoutlarının ilgilendiği oyuncular
@@ -1761,9 +1859,9 @@ func _market_ok(buyer: Dictionary, seller: Dictionary, p: Dictionary) -> bool:
 		# ülke içi: en fazla iki kademe aşağıdan
 		return tier(seller.league) - tier(buyer.league) <= 2
 	# ülkeler arası: satıcı mutlaka üst lig (TR'de Süper Lig/1. Lig) ve şans süzgeci
-	if scc == "TR" and tier(seller.league) > 2:
+	if tier(seller.league) > 2:
 		return false
-	var chance: float = {"EN": 0.35, "IT": 0.3, "TR": 0.25, "BR": 0.05}.get(bcc, 0.1)
+	var chance: float = {"EN": 0.35, "IT": 0.3, "ES": 0.3, "DE": 0.3, "FR": 0.25, "TR": 0.25, "PT": 0.2, "NL": 0.2, "BR": 0.05}.get(bcc, 0.1)
 	# Brezilya kulüpleri neredeyse yalnızca Güney Amerikalı oyuncu alır
 	if bcc == "BR" and not (p.nat in ["BR", "AR", "UY"]):
 		return false
@@ -1804,12 +1902,44 @@ func _flavor_news() -> void:
 
 const STAFF_ROLES := ["scout", "video", "data"]
 const STAFF_PERS := ["optimist", "pessimist", "balanced", "balanced", "lazy", "hungry"]
-## Ekip bölgeleri: anahtar -> lig listesi
-const REGIONS := {
-	"tr_top": ["SL", "L1"], "tr_mid": ["L2A", "L2B"], "tr_low": ["L3A", "L3B", "L3C", "BAL1", "BAL2", "BAL3", "BAL4"],
-	"en": ["EN1"], "it": ["IT1"], "br": ["BR1"],
-}
-const REGION_LANG := {"tr_top": "TR", "tr_mid": "TR", "tr_low": "TR", "en": "EN", "it": "IT", "br": "PT"}
+## Ekip bölgeleri: "home1" (kendi ülkenin üst ligleri), "home2" (alt ligler) ya da bir bölge (Data.ZONES)
+func regions() -> Array:
+	var out := ["home1"]
+	if max_tier(my_country()) >= 3:
+		out.append("home2")
+	var mc := my_country()
+	for z in Data.ZONES:
+		if Data.ZONES[z] != [mc]:
+			out.append(z)
+	return out
+
+func region_leagues(rg: String) -> Array:
+	var mc := my_country()
+	var out := []
+	if rg == "home1" or rg == "home2":
+		for t in range(1, max_tier(mc) + 1):
+			if (rg == "home1" and t <= 2) or (rg == "home2" and t >= 3):
+				out += tier_groups(mc, t)
+		return out
+	for cc in Data.ZONES.get(rg, []):
+		if cc == mc:
+			continue
+		for t in [1, 2]:
+			out += tier_groups(cc, t)
+	return out
+
+func region_langs(rg: String) -> Array:
+	if rg == "home1" or rg == "home2":
+		return [country_lang(my_country())]
+	var out := []
+	for cc in Data.ZONES.get(rg, []):
+		var l := country_lang(cc)
+		if not (l in out):
+			out.append(l)
+	return out
+
+func region_abroad(rg: String) -> bool:
+	return not (rg == "home1" or rg == "home2")
 
 func staff_slots() -> int:
 	var c := my_club()
@@ -1826,21 +1956,21 @@ func staff_cost() -> int:
 
 func _new_staff() -> Dictionary:
 	var role: String = pick(["scout", "scout", "scout", "video", "data"])
-	var nat: String = pick(["TR", "TR", "TR", "TR", "EN", "IT", "BR", "PT", "AR"])
-	var fn: Array = Data.FIRST.get(nat, Data.FIRST["TR"])
-	var ln: Array = Data.LAST.get(nat, Data.LAST["TR"])
+	var mc := my_country()
+	var nat: String = mc if rf() < 0.6 else pick(Data.COUNTRY_ORDER.slice(0, 20) + ["BR", "AR"])
+	var nm := Data.name_pair(nat)
 	var age := ri(24, 62)
 	var eye := clampi(int(rng.randfn(10.0, 3.2) + (age - 40) * 0.06), 3, 19)
 	var net := clampi(int(rng.randfn(9.0, 3.5)), 2, 19)
-	var langs := ["TR"] if nat == "TR" else [{"EN": "EN", "IT": "IT", "BR": "PT", "PT": "PT", "AR": "ES"}[nat]]
-	if nat != "TR" and rf() < 0.35:
-		langs.append("TR")
+	var langs := [nat_lang(nat)]
+	if nat != mc and rf() < 0.35 and not (country_lang(mc) in langs):
+		langs.append(country_lang(mc))
 	if rf() < 0.3 + float(eye) * 0.01:
-		var extra: String = pick(["EN", "IT", "PT", "ES"])
+		var extra: String = pick(["EN", "EN", "ES", "DE", "FR", "IT", "PT", "RU"])
 		if not (extra in langs):
 			langs.append(extra)
 	var m := {
-		"id": "s%d" % s.next_sid, "name": "%s %s" % [pick(fn), pick(ln)], "nat": nat, "age": age, "role": role,
+		"id": "s%d" % s.next_sid, "name": "%s %s" % [nm[0], nm[1]], "nat": nat, "age": age, "role": role,
 		"eye": eye, "net": net, "langs": langs, "spec": pick(["youth", "first", "", ""]),
 		"pers": pick(STAFF_PERS), "morale": ri(55, 85), "region": "", "reports": 0, "weeks": 0,
 		"skin": ri(0, 4), "hair": ri(0, 5),
@@ -1881,7 +2011,7 @@ func fire_staff(sid: String) -> void:
 	changed.emit()
 
 func assign_staff(sid: String, region: String) -> void:
-	if region in ["en", "it", "br"] and not board_abroad_ok({"en": "EN", "it": "IT", "br": "BR"}[region]):
+	if region_abroad(region) and not (region in board().abroad):
 		return
 	for m in s.staff:
 		if m.id == sid:
@@ -1947,7 +2077,7 @@ func _staff_estimate(m: Dictionary, v: float) -> float:
 	return clampf(round((stars(v) + noise * 0.6 + bias) * 2.0) / 2.0, 0.5, 5.0)
 
 func _staff_scout(m: Dictionary) -> void:
-	var lgs: Array = REGIONS.get(m.region, [])
+	var lgs: Array = region_leagues(m.region)
 	var cands := []
 	for cid in s.clubs:
 		if club(cid).league in lgs:
@@ -1957,10 +2087,11 @@ func _staff_scout(m: Dictionary) -> void:
 	var n := 2 if m.pers != "lazy" else 1
 	if m.pers == "hungry":
 		n = 3
-	var lang_ok: bool = REGION_LANG[m.region] in m.langs
 	for i in n:
 		var cid: String = pick(cands)
+		ensure_squad(cid)
 		var c := club(cid)
+		var lang_ok: bool = country_lang(club_country(cid)) in m.langs
 		var pool: Array = c.squad.duplicate()
 		if m.spec == "youth" or rf() < 0.25:
 			pool += c.u19
@@ -2045,8 +2176,7 @@ func can_talk(pid: String) -> bool:
 	## Yabancı oyuncu/kulüp ile iletişim: senin ya da ekibinin dili
 	var p := player(pid)
 	var cc := club_country(p.get("club", ""))
-	var need: String = {"TR": "TR", "EN": "EN", "IT": "IT", "BR": "PT"}.get(cc, "TR")
-	return need in team_langs()
+	return country_lang(cc) in team_langs()
 
 
 # ================================================================ yönetim kurulu / başkan
@@ -2056,11 +2186,9 @@ const PRES_PERS := ["patient", "ambitious", "stingy", "showman"]
 func board() -> Dictionary:
 	if not s.has("board") or s.board.is_empty() or s.board.get("club", "") != s.scout.club_id:
 		var c := my_club()
-		var nat := "TR"
-		var cc := league_country(c.get("league", "SL"))
-		if cc != "TR":
-			nat = {"EN": "EN", "IT": "IT", "BR": "BR"}[cc]
-		s.board = {"club": s.scout.club_id, "name": "%s %s" % [pick(Data.FIRST[nat]), pick(Data.LAST[nat])],
+		var nat := league_country(c.get("league", "SL"))
+		var bn := Data.name_pair(nat)
+		s.board = {"club": s.scout.club_id, "name": "%s %s" % [bn[0], bn[1]],
 			"pers": pick(PRES_PERS), "mood": 55, "abroad": [], "slots": 1, "last": -10, "asked": {},
 			"skin": ri(0, 3), "hair": ri(0, 5), "favor": ""}
 	return s.board
@@ -2076,9 +2204,10 @@ func board_can_meet() -> String:
 	return ""
 
 func board_abroad_ok(cc: String) -> bool:
-	if cc == league_country(my_club().get("league", "SL")):
+	## Yurtdışı izni bölge bazında verilir (Data.ZONES)
+	if cc == my_country():
 		return true
-	return cc in board().abroad
+	return Data.zone_of(cc) in board().abroad
 
 func _board_chance(base: float) -> float:
 	var b := board()
@@ -2106,16 +2235,16 @@ func board_request(topic: String, arg := "") -> Dictionary:
 	var res := {"ok": false, "key": "", "args": []}
 	match topic:
 		"abroad":
-			var cost: int = {"EN": 4500, "IT": 4000, "BR": 6000}.get(arg, 4000)
+			var cost: int = {"brit": 4500, "west": 4200, "central": 4000, "south": 4000, "sa": 6000, "east": 4500, "nordic": 4200}.get(arg, 3800)
 			var p := _board_chance(0.35 + float(s.scout.stats.signed) * 0.06 - nag)
 			if rf() < p:
 				b.abroad.append(arg)
 				s.scout.budget += cost
 				b.mood = clampi(int(b.mood) - 3, 0, 100)
-				res = {"ok": true, "key": "pres_abroad_yes", "args": [T.t("country_" + arg), money_str(cost)]}
+				res = {"ok": true, "key": "pres_abroad_yes", "args": [T.t("zone_" + arg), money_str(cost)]}
 			else:
 				b.mood = clampi(int(b.mood) - 4, 0, 100)
-				res = {"ok": false, "key": "pres_abroad_no", "args": [T.t("country_" + arg)]}
+				res = {"ok": false, "key": "pres_abroad_no", "args": [T.t("zone_" + arg)]}
 		"staff":
 			var cap := 1 + int(float(s.scout.rep) / 20.0) + (1 if int(my_club().prestige) >= 60 else 0)
 			if int(b.slots) >= mini(cap, 6):
@@ -2176,7 +2305,7 @@ func board_mood_key() -> String:
 
 func _season_end() -> void:
 	var summ := {"season": s.season, "rep_before": s.scout.rep, "evals": [], "champ": "", "promoted": [], "relegated": [], "promoted_youth": []}
-	var slo := sorted_table("SL")
+	var slo := sorted_table(top_league(my_country()))
 	summ.champ = slo[0]
 	summ.champs = {}
 	for lg in LEAGUES:
@@ -2184,11 +2313,11 @@ func _season_end() -> void:
 			summ.champs[lg] = sorted_table(lg)[0]
 	var my_lg: String = my_club().get("league", "")
 	var moves := _promotions()
-	summ.promoted = moves.up[2]
-	summ.relegated = moves.down[1]
+	summ.promoted = moves.up.get(2, [])
+	summ.relegated = moves.down.get(1, [])
 	summ.moves = moves
 	add_news("n_champion", [club(slo[0]).name], true, "club")
-	if my_lg != "" and my_lg != "SL" and summ.champs.has(my_lg):
+	if my_lg != "" and my_lg != top_league(my_country()) and summ.champs.has(my_lg):
 		add_news("n_champion_lg", [club(summ.champs[my_lg]).name, T.t("league_" + my_lg)], true, "club")
 	for r in s.scout.reports:
 		if r.status != "signed" or r.evals >= 3:
@@ -2261,6 +2390,8 @@ func _season_end() -> void:
 	# altyapı: yükselme ve yeni alımlar
 	for cid in s.clubs:
 		var c := club(cid)
+		if is_lazy(cid):
+			continue
 		var avg := club_avg_ovr(cid)
 		for pid in c.u19.duplicate():
 			var p := player(pid)
@@ -2280,7 +2411,7 @@ func _season_end() -> void:
 					s.scout.knowledge.erase(pid)
 				else:
 					p.club = ""
-		if tier(c.league) <= 3:
+		if has_u19(cid):
 			gen_u19(cid, ri(3, 5) if tier(c.league) <= 2 else ri(2, 3), [15, 15])
 		while c.squad.size() > 32:
 			_release_worst(cid)
@@ -2293,8 +2424,14 @@ func _season_end() -> void:
 		var c := club(cid)
 		if cid == mine.id:
 			continue
-		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 + area_rep(area_of_club(cid)) * 0.15 and rf() < 0.35 + area_rep(area_of_club(cid)) * 0.003:
+		# yurtdışı teklif nadir: o bölgede ağın (itibarın) varsa artar
+		var home_c := club_country(cid) == club_country(mine.id)
+		var ar := area_rep(area_of_club(cid))
+		var chance := 0.35 + ar * 0.003 if home_c else 0.0006 + ar * 0.002
+		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 + ar * 0.15 and rf() < chance:
 			s.offers.append(cid)
+	s.offers.shuffle()
+	s.offers.sort_custom(func(a, b): return int(club_country(a) == club_country(mine.id)) > int(club_country(b) == club_country(mine.id)))
 	s.offers = s.offers.slice(0, 3)
 	var rep_start: float = float(s.scout.get("rep_start", summ.rep_before))
 	var lazy: bool = int(s.scout.get("season_reports", 0)) == 0
@@ -2318,72 +2455,64 @@ func _season_end() -> void:
 	s.week = 0
 	s.scout.spent = 0
 	s.assign = []
+	_prune_world()
 	make_fixtures()
+	make_u19_fixtures()
 	if not summ.fired:
 		make_assignments(3)
 
 func _promotions() -> Dictionary:
-	## Kademeler arası yükselme/düşme. up[t] = t kademesinden yükselenler, down[t] = t'den düşenler.
-	var up := {}
-	var down := {}
-	up[2] = sorted_table("L1").slice(0, 3)
-	var l2_up := []
-	var l2_second := []
-	for lg in TIER_GROUPS[3]:
-		var o := sorted_table(lg)
-		l2_up.append(o[0])
-		l2_second.append(o[1])
-	l2_second.sort_custom(func(a, b): return _tb_better(a, b))
-	l2_up.append(l2_second[0])
-	up[3] = l2_up
-	var l3_up := []
-	var l3_second := []
-	for lg in TIER_GROUPS[4]:
-		var o := sorted_table(lg)
-		l3_up.append(o[0])
-		l3_second.append(o[1])
-	l3_second.sort_custom(func(a, b): return _tb_better(a, b))
-	l3_up.append(l3_second[0])
-	up[4] = l3_up
-	var bal_up := []
-	for lg in TIER_GROUPS[5]:
-		bal_up.append(sorted_table(lg)[0])
-	up[5] = bal_up
-	var slo := sorted_table("SL")
-	down[1] = slo.slice(slo.size() - 3)
-	var l1o := sorted_table("L1")
-	down[2] = l1o.slice(l1o.size() - 3)
-	var d3 := []
-	for lg in TIER_GROUPS[3]:
-		var o := sorted_table(lg)
-		d3 += o.slice(o.size() - 2)
-	down[3] = d3
-	var d4 := []
-	var lasts2 := []
-	for lg in TIER_GROUPS[4]:
-		var o := sorted_table(lg)
-		d4.append(o[o.size() - 1])
-		lasts2.append(o[o.size() - 2])
-	lasts2.sort_custom(func(a, b): return not _tb_better(a, b))
-	d4.append(lasts2[0])
-	down[4] = d4
-	for t in up:
-		for cid in up[t]:
-			s.clubs[cid].league = TIER_GROUPS[t - 1][0]
-			_promotion_boost(cid, t - 1)
-	for t in down:
-		for cid in down[t]:
-			s.clubs[cid].league = TIER_GROUPS[t + 1][0]
-			s.clubs[cid].prestige = maxi(3, int(s.clubs[cid].prestige) - 2)
-	for t in [3, 4, 5]:
-		_regroup(t, tier_clubs(t))
-	# altyapı: 3. kademeye çıkan kulüp altyapı kurar, 4'e düşen kapatır
+	## Her ülkede kademeler arası yükselme/düşme. Dönüş: {cc, up{t: [..]}, down{t: [..]}, by{cc: {up, down}}}
+	## up[t] = t kademesinden yükselenler, down[t] = t'den düşenler (oyuncunun ülkesi için)
+	var by := {}
+	for cc in Data.COUNTRIES:
+		var mt := max_tier(cc)
+		if mt < 2:
+			continue
+		var up := {}
+		var down := {}
+		for t in range(1, mt):
+			var upper: Array = tier_groups(cc, t)
+			var lower: Array = tier_groups(cc, t + 1)
+			if upper.is_empty() or lower.is_empty() or not s.table.has(upper[0]):
+				continue
+			var usz: int = s.table[upper[0]].size()
+			var n_move := 3 if usz >= 16 else (2 if usz >= 12 else 1)
+			var o := sorted_table(upper[0])
+			down[t] = o.slice(o.size() - n_move)
+			var ups := []
+			var seconds := []
+			var per := maxi(1, n_move / lower.size())
+			for lg in lower:
+				if not s.table.has(lg):
+					continue
+				var lo := sorted_table(lg)
+				ups += lo.slice(0, per)
+				if lo.size() > per:
+					seconds.append(lo[per])
+			seconds.sort_custom(func(x, y): return _tb_better(x, y))
+			while ups.size() < n_move and not seconds.is_empty():
+				ups.append(seconds.pop_front())
+			up[t + 1] = ups.slice(0, n_move)
+		for t in up:
+			for cid in up[t]:
+				s.clubs[cid].league = tier_groups(cc, t - 1)[0]
+				_promotion_boost(cid, t - 1)
+		for t in down:
+			for cid in down[t]:
+				s.clubs[cid].league = tier_groups(cc, t + 1)[0]
+				s.clubs[cid].prestige = maxi(3, int(s.clubs[cid].prestige) - 2)
+		if cc == "TR":
+			_regroup(3, tier_clubs(3, "TR"))
+		by[cc] = {"up": up, "down": down}
+	# altyapı: kademe değişince akademi aç/kapat
 	for cid in s.clubs:
 		var c := club(cid)
-		var t := tier(c.league)
-		if t <= 3 and c.u19.is_empty():
+		if is_lazy(cid):
+			continue
+		if has_u19(cid) and c.u19.is_empty():
 			gen_u19(cid, 8)
-		elif t >= 4 and not c.u19.is_empty():
+		elif not has_u19(cid) and not c.u19.is_empty():
 			for pid in c.u19.duplicate():
 				if not _is_tracked(pid) and not (pid in s.scout.shortlist):
 					s.players.erase(pid)
@@ -2391,19 +2520,60 @@ func _promotions() -> Dictionary:
 				else:
 					s.players[pid].club = ""
 			c.u19 = []
-	return {"up": up, "down": down}
+	var mc := my_country()
+	var mine: Dictionary = by.get(mc, {"up": {}, "down": {}})
+	return {"cc": mc, "up": mine.up, "down": mine.down, "by": by}
+
+func tier_name(cc: String, t: int) -> String:
+	if cc == "TR":
+		return T.t("tier_%d" % t)
+	var g := tier_groups(cc, t)
+	return T.t("league_" + g[0]) if not g.is_empty() else "-"
+
+func top_league(cc: String) -> String:
+	var g := tier_groups(cc, 1)
+	return g[0] if not g.is_empty() else "SL"
 
 func _promotion_boost(cid: String, new_tier: int) -> void:
 	## Yükselen kulüp: prestij artar, yeni seviyeye uygun birkaç takviye yapar
 	var c := club(cid)
 	c.prestige = int(c.prestige) + 3
 	c.budget = int(c.budget) + int(250000.0 * exp(float(c.prestige) / 25.0))
-	var lvl := tier_level(new_tier, float(c.prestige))
+	if is_lazy(cid):
+		return
+	var lvl := club_level(cid)
 	for i in 4:
 		var pos: String = pick(["CB", "CM", "ST", "LW", "RW", "DM", "GK", "LB", "RB", "AM"])
-		c.squad.append(new_player(pos, clampi(int(lvl + rng.randfn(-2.0, 3.0)), 30, 85), ri(23, 30), nat_for_tier(new_tier), cid))
+		c.squad.append(new_player(pos, clampi(int(lvl + rng.randfn(-2.0, 3.0)), 30, 85), ri(23, 30), club_nat(cid), cid))
 	while c.squad.size() > 30:
 		_release_worst(cid)
+
+func _prune_world() -> void:
+	## Hafıza/kayıt boyutu: kendi ülken dışındaki, takip etmediğin kulüplerin kadrolarını tekrar "ayrıntısız" yap
+	var keep_cc := my_country()
+	var keep := {}
+	for pid in s.scout.shortlist:
+		keep[player(pid).get("club", "")] = true
+	for pid in s.scout.knowledge:
+		keep[player(pid).get("club", "")] = true
+	for r in s.scout.reports:
+		keep[player(r.pid).get("club", "")] = true
+	for r in s.get("staff_reports", []):
+		keep[player(r.pid).get("club", "")] = true
+	var n := 0
+	for cid in s.clubs:
+		var c := club(cid)
+		if is_lazy(cid) or club_country(cid) == keep_cc or keep.has(cid):
+			continue
+		for pid in c.squad + c.u19:
+			if not _is_tracked(pid):
+				s.players.erase(pid)
+		c.squad = []
+		c.u19 = []
+		c["lazy"] = true
+		n += 1
+	if n > 0:
+		print("[BC] budandı: ", n, " kulüp")
 
 func _tb_better(a: String, b: String) -> bool:
 	var ta = s.table[club_league_at_end(a)][a]
@@ -2815,7 +2985,7 @@ func _museum_check(summ: Dictionary) -> void:
 
 # ================================================================ itibar (v0.15)
 
-const AREAS := ["TR1", "TR2", "TR3", "EN", "IT", "BR"]
+var AREAS: Array = ["tr", "brit", "west", "central", "south", "balkan", "nordic", "east", "sa"]
 const BADGES := {
 	"spec_GK": ["spec", "GK", 5.0], "spec_DEF": ["spec", "DEF", 6.0], "spec_MID": ["spec", "MID", 6.0], "spec_ATT": ["spec", "ATT", 6.0],
 	"spec_youth": ["spec", "youth", 5.0], "spec_gem": ["spec", "gem", 5.0],
@@ -2824,11 +2994,7 @@ const BADGES := {
 func area_of_club(cid: String) -> String:
 	if cid == "" or not s.clubs.has(cid):
 		return ""
-	var cc := club_country(cid)
-	if cc != "TR":
-		return cc
-	var t := club_tier(cid)
-	return "TR1" if t <= 2 else ("TR2" if t <= 4 else "TR3")
+	return Data.zone_of(club_country(cid))
 
 func area_of_player(pid: String) -> String:
 	var p := player(pid)
@@ -2937,6 +3103,8 @@ func load_game() -> bool:
 	var data = JSON.parse_string(f.get_as_text())
 	f.close()
 	if typeof(data) != TYPE_DICTIONARY or int(data.get("version", 0)) != SAVE_VERSION:
+		if typeof(data) == TYPE_DICTIONARY and int(data.get("version", 0)) < SAVE_VERSION:
+			old_save = true
 		return false
 	s = data
 	for pid in s.players:
@@ -2954,7 +3122,8 @@ func load_game() -> bool:
 	_fix_ints()
 	# eski kayıtlar: eriyen/forvetsiz kadroları onar
 	for cid in s.clubs:
-		fill_squad(cid)
+		if not is_lazy(cid):
+			fill_squad(cid)
 	if not s.scout.has("rep_start"):
 		s.scout["rep_start"] = s.scout.rep
 	_ensure_v15()

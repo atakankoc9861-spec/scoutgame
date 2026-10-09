@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.17.1"
+const VERSION := "v0.18"
 
 var bg: ColorRect
 var hub
@@ -34,6 +34,7 @@ var search_f := {"tier": 0, "grp": "", "max_age": 99, "sort": "rating", "known":
 var players_mode := "shortlist"
 var week_tier := 0
 var week_lg := ""
+var ng_country := "TR"
 var table_lg := ""
 var fix_lg := ""
 var fix_round := -1
@@ -97,7 +98,7 @@ func _input(ev: InputEvent) -> void:
 		return
 	if ev is InputEventScreenTouch:
 		if ev.pressed:
-			_sd_active = holder.get_global_rect().has_point(ev.position)
+			_sd_active = holder.get_global_rect().has_point(ev.position) or _modal_scroll != null
 			_sd_start = ev.position
 			_sd_moved = false
 			_sd_vel = 0.0
@@ -113,7 +114,10 @@ func _input(ev: InputEvent) -> void:
 			_sd_acc -= ev.relative.y
 			var step := int(_sd_acc)
 			_sd_acc -= step
-			scroll.scroll_vertical += step
+			if _modal_scroll != null and is_instance_valid(_modal_scroll):
+				_modal_scroll.scroll_vertical += step
+			else:
+				scroll.scroll_vertical += step
 			_sd_vel = lerpf(_sd_vel, -ev.velocity.y, 0.5)
 
 var _safe_t := 0.0
@@ -456,6 +460,79 @@ func _confirm(text: String, yes: String, no: String) -> bool:
 	layer.queue_free()
 	return r
 
+signal _pick_done(key: String)
+var _modal_scroll: ScrollContainer = null
+
+func _pick_list(title: String, items: Array, cur := "") -> String:
+	## Kaydırılabilir seçim listesi. items: [[anahtar, metin, (alt metin)]]. İptal -> ""
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.6)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _paper_style(C_CARD, 22, 8, 8))
+	card.anchor_left = 0.0
+	card.anchor_right = 1.0
+	card.anchor_top = 0.08
+	card.anchor_bottom = 0.92
+	card.offset_left = 24
+	card.offset_right = -24
+	layer.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	card.add_child(v)
+	var hh := _h(v)
+	var tl := _head(title.to_upper(), 30)
+	hh.add_child(tl)
+	var was := _busy
+	_busy = false
+	var xb := _btn("", func(): _pick_done.emit(""), "ghost", hh, "cross")
+	xb.custom_minimum_size = Vector2(66, 58)
+	xb.size_flags_horizontal = Control.SIZE_SHRINK_END
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.scroll_deadzone = 100000
+	v.add_child(sc)
+	var lv := VBoxContainer.new()
+	lv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lv.add_theme_constant_override("separation", 8)
+	sc.add_child(lv)
+	var cur_btn: Control = null
+	for it in items:
+		var k: String = it[0]
+		var txt: String = it[1]
+		if it.size() > 2 and str(it[2]) != "":
+			txt += "  •  " + str(it[2])
+		var b := _btn(txt, func(): _pick_done.emit(k), "toggle_on" if k == cur else "small", lv)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		if k == cur:
+			cur_btn = b
+	_modal_scroll = sc
+	if cur_btn:
+		(func():
+			await get_tree().process_frame
+			if is_instance_valid(sc) and is_instance_valid(cur_btn):
+				sc.scroll_vertical = int(maxf(0.0, cur_btn.position.y - 200.0))).call()
+	var r: String = await _pick_done
+	_modal_scroll = null
+	_busy = was
+	layer.queue_free()
+	return r
+
+func _country_items() -> Array:
+	var out := []
+	for cc in Data.COUNTRY_ORDER:
+		var c: Dictionary = Data.COUNTRIES[cc]
+		var n := 0
+		for lg in c.leagues:
+			n += 1
+		out.append([cc, Data.country_name(cc), T.t("n_leagues", [c.tiers.size()])])
+	return out
+
 func _toast(text: String) -> void:
 	toast_lbl.text = text
 	toast.visible = true
@@ -692,26 +769,29 @@ func _hub_for(screen: String, arg) -> void:
 			hub.goto("stadium")
 
 func _league_picker(cur: String, cb: Callable, groups := true) -> void:
-	## Ülke -> kademe -> grup seçici. cb(lig_kimliği)
+	## Ülke (liste) -> kademe -> grup seçici. cb(lig_kimliği)
 	var cc := Game.league_country(cur)
-	var r1 := HFlowContainer.new()
-	r1.add_theme_constant_override("h_separation", 8)
-	r1.add_theme_constant_override("v_separation", 8)
-	page.add_child(r1)
-	for c in ["TR", "EN", "IT", "BR"]:
-		var c2: String = c
-		_btn(T.t("country_" + c), func(): cb.call(Data.COUNTRIES[c2].leagues[0]), "toggle_on" if cc == c else "small", r1).custom_minimum_size = Vector2(0, 52)
-	if cc != "TR":
-		return
+	var r0 := _h(page, 8)
+	var cb_country := func():
+		var k := await _pick_list(T.t("pick_country"), _country_items(), cc)
+		if k != "":
+			cb.call(Data.COUNTRIES[k].leagues[0])
+	_expand(_btn(T.t("country_lbl", [Data.country_name(cc)]), cb_country, "small", r0, "globe"))
+	var mc := Game.my_country()
+	if cc != mc:
+		var mb := _btn(Data.country_name(mc), func(): cb.call(Game.my_club().get("league", Data.COUNTRIES[mc].leagues[0])), "ghost", r0)
+		mb.size_flags_horizontal = Control.SIZE_SHRINK_END
 	var t := Game.tier(cur)
-	var r2 := HFlowContainer.new()
-	r2.add_theme_constant_override("h_separation", 8)
-	r2.add_theme_constant_override("v_separation", 8)
-	page.add_child(r2)
-	for k in [1, 2, 3, 4, 5]:
-		var kk: int = k
-		_btn(T.t("tier_%d" % k), func(): cb.call(Game.TIER_GROUPS[kk][0]), "toggle_on" if t == k else "ghost", r2).custom_minimum_size = Vector2(0, 50)
-	var gl: Array = Game.TIER_GROUPS[t]
+	var mt := Game.max_tier(cc)
+	if mt > 1:
+		var r2 := HFlowContainer.new()
+		r2.add_theme_constant_override("h_separation", 8)
+		r2.add_theme_constant_override("v_separation", 8)
+		page.add_child(r2)
+		for k in range(1, mt + 1):
+			var kk: int = k
+			_btn(Game.tier_name(cc, k), func(): cb.call(Game.tier_groups(cc, kk)[0]), "toggle_on" if t == k else "ghost", r2).custom_minimum_size = Vector2(0, 50)
+	var gl: Array = Game.tier_groups(cc, t)
 	if groups and gl.size() > 1:
 		var gr := _h(page, 8)
 		for lg in gl:
@@ -719,9 +799,7 @@ func _league_picker(cur: String, cb: Callable, groups := true) -> void:
 			_expand(_btn(T.t("league_" + lg).replace(T.t("tier_%d" % t), "").strip_edges(), func(): cb.call(l2), "toggle_on" if cur == lg else "ghost", gr))
 
 func _leagues_of(lg: String) -> Array:
-	if Game.league_country(lg) == "TR":
-		return Game.TIER_GROUPS[Game.tier(lg)]
-	return [lg]
+	return Game.tier_groups(Game.league_country(lg), Game.tier(lg))
 
 func _my_tier() -> int:
 	var c := Game.my_club()
@@ -769,7 +847,10 @@ func _scr_title() -> void:
 				_show("season", null, false)
 			else:
 				_goto_tab("home"), "primary", cc, "ball")
-	_btn(T.t("new_game"), func(): _show("newgame"), "brass" if not Game.has_save() else "dark", cv, "plus")
+	if Game.old_save and Game.s.is_empty():
+		var oc := _card(cv, "memo", 14)
+		oc.add_child(_hand(T.t("old_save_note"), 24, C_RED))
+	_btn(T.t("new_game"), func(): _show("newgame"), "brass" if Game.s.is_empty() else "dark", cv, "plus")
 	var qh := _h(cv)
 	_expand(_btn(T.t("language"), func():
 		T.lang = "en" if T.lang == "tr" else "tr"
@@ -886,6 +967,25 @@ func _scr_newgame() -> void:
 	sh.add_child(_typed(T.t("license_no", ["%04d" % (randi() % 9000 + 1000)]), 16, C_INK2))
 	var st := _stamp(T.t("approved"), C_GREEN, -6.0, 22)
 	sh.add_child(st)
+	# başlangıç ülkesi
+	var cc_card := _card(null, "paper", 18)
+	_section(T.t("start_country"), cc_card, "globe")
+	cc_card.add_child(_typed(T.t("start_country_hint"), 16, C_INK2))
+	var cinfo: Dictionary = Data.COUNTRIES.get(ng_country, Data.COUNTRIES["TR"])
+	var ch := _h(cc_card, 10)
+	var nm := _head(Data.country_name(ng_country), 34)
+	ch.add_child(nm)
+	var cnt := 0
+	for cid_row in Data.WORLD_CLUBS.get(ng_country, []):
+		cnt += 1
+	if ng_country == "TR":
+		cnt = Data.SUPER_LIG.size() + Data.BIRINCI_LIG.size() + Data.IKINCI_LIG.size()
+	cc_card.add_child(_typed(T.t("country_info", [cinfo.tiers.size(), cnt, T.t("lang_" + cinfo.lang)]), 17, C_INK))
+	_btn(T.t("change_country"), func():
+		var k := await _pick_list(T.t("pick_country"), _country_items(), ng_country)
+		if k != "":
+			ng_country = k
+			_show("newgame", null, false), "small", cc_card, "globe")
 	var tips := _card(null, "memo")
 	_section(T.t("how_title"), tips, "eye")
 	for k in ["how_1", "how_2", "how_3", "how_4"]:
@@ -894,7 +994,10 @@ func _scr_newgame() -> void:
 		var n := le.text.strip_edges()
 		if n == "":
 			n = "Scout"
-		Game.new_game(n, T.lang)
+		_busy = true
+		await get_tree().process_frame
+		Game.new_game(n, T.lang, ng_country)
+		_busy = false
 		shown_vals = {}
 		_show("offers", null, false), "primary", page, "arrow")
 
@@ -1091,7 +1194,7 @@ func _home_board() -> void:
 	_section(T.t("board_perms"), pc, "check")
 	var ab := []
 	for cc in b.abroad:
-		ab.append(T.t("country_" + cc))
+		ab.append(T.t("zone_" + cc))
 	_kv(pc, T.t("perm_abroad"), ", ".join(ab) if not ab.is_empty() else T.t("none"))
 	_kv(pc, T.t("perm_slots"), str(int(b.slots)))
 	_kv(pc, T.t("travel_budget"), Game.money_str(Game.s.scout.budget))
@@ -1121,9 +1224,13 @@ func _board_meeting() -> void:
 	await get_tree().create_timer(0.6).timeout
 	await _line("pres", b.name, T.t("pres_hello_" + Game.board_mood_key().replace("mood_", ""), [me_name]), "me")
 	var opts := []
-	for cc in ["EN", "IT", "BR"]:
-		if not Game.board_abroad_ok(cc):
-			opts.append(["abroad:" + cc, T.t("pt_abroad", [T.t("country_" + cc)])])
+	var home_zone := Data.zone_of(Game.my_country())
+	var zopts := []
+	for z in Data.ZONES:
+		if z != home_zone and not (z in b.abroad):
+			zopts.append([z, T.t("zone_" + z)])
+	if not zopts.is_empty():
+		opts.append(["abroad", T.t("pt_abroad_any")])
 	opts.append(["staff", T.t("pt_staff")])
 	opts.append(["budget", T.t("pt_budget")])
 	if not Game.s.scout.shortlist.is_empty():
@@ -1133,10 +1240,10 @@ func _board_meeting() -> void:
 	var pick := await _choose(opts, T.t("sc_board_q"))
 	var topic := pick
 	var arg := ""
-	if pick.begins_with("abroad:"):
+	if pick == "abroad":
 		topic = "abroad"
-		arg = pick.split(":")[1]
-		await _line("me", me_name, T.t("ask_abroad", [T.t("country_" + arg)]), "pres")
+		arg = await _choose(zopts, T.t("sc_abroad_q"))
+		await _line("me", me_name, T.t("ask_abroad", [T.t("zone_" + arg)]), "pres")
 	elif pick == "push":
 		var po := []
 		for pid in Game.s.scout.shortlist.slice(0, 6):
@@ -1253,9 +1360,24 @@ func _home_career() -> void:
 	lc.add_child(_hand(", ".join(known), 28, C_BLUE))
 	lc.add_child(_typed(T.t("lang_hint"), 15, C_INK2))
 	var lang_row := _h(lc, 8)
-	for code in ["EN", "IT", "PT"]:
-		if code in mine:
-			continue
+	var sugg := []
+	for code in ["EN", "ES", "DE", "FR", "IT", "PT"]:
+		if not (code in mine) and sugg.size() < 2:
+			sugg.append(code)
+	var others := []
+	for code in Data.LANG_NAMES:
+		if not (code in mine):
+			others.append([code, Data.lang_name(code), Game.money_str(Game.learn_lang_cost(code))])
+	others.sort_custom(func(a, b): return a[1] < b[1])
+	_btn(T.t("other_lang"), func():
+		var k := await _pick_list(T.t("languages"), others)
+		if k != "":
+			if Game.learn_lang(k):
+				_toast(T.t("lang_learned"))
+				_refresh()
+			else:
+				_toast(T.t("not_enough_money")), "ghost", lc, "globe")
+	for code in sugg:
 		var cd: String = code
 		_expand(_btn(T.t("lang_course", [T.t("lang_" + code), Game.money_str(Game.learn_lang_cost(code))]), func():
 			if Game.learn_lang(cd):
@@ -1933,6 +2055,9 @@ func _week_u19() -> void:
 		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 func _scr_match_plan(key: String) -> void:
+	var _mm := Game.get_match(key)
+	Game.ensure_squad(_mm.h)
+	Game.ensure_squad(_mm.a)
 	_sheet()
 	_back_row()
 	var m := Game.get_match(key)
@@ -2347,21 +2472,39 @@ func _players_search() -> void:
 	f1.add_theme_constant_override("h_separation", 8)
 	f1.add_theme_constant_override("v_separation", 8)
 	fc.add_child(f1)
-	for c in ["", "TR", "EN", "IT", "BR"]:
-		var c2: String = c
-		_btn(T.t("all_leagues") if c == "" else T.t("country_" + c), func():
-			search_f.country = c2
+	var scc: String = search_f.get("country", "")
+	_btn(T.t("all_leagues"), func():
+		search_f.country = ""
+		search_f.tier = 0
+		_refresh(), "toggle_on" if scc == "" else "small", f1).custom_minimum_size = Vector2(0, 52)
+	var mcc := Game.my_country()
+	_btn(Data.country_name(mcc), func():
+		search_f.country = mcc
+		search_f.tier = 0
+		_refresh(), "toggle_on" if scc == mcc else "small", f1).custom_minimum_size = Vector2(0, 52)
+	_btn(T.t("country_lbl", [Data.country_name(scc)]) if scc != "" and scc != mcc else T.t("other_country"), func():
+		var k := await _pick_list(T.t("pick_country"), _country_items(), scc)
+		if k != "":
+			search_f.country = k
 			search_f.tier = 0
-			_refresh(), "toggle_on" if search_f.get("country", "") == c else "small", f1).custom_minimum_size = Vector2(0, 52)
-	if search_f.get("country", "") == "TR":
+			_refresh(), "toggle_on" if scc != "" and scc != mcc else "small", f1, "globe").custom_minimum_size = Vector2(0, 52)
+	if scc != "" and Game.max_tier(scc) > 1:
 		var f1b := HFlowContainer.new()
 		f1b.add_theme_constant_override("h_separation", 8)
+		f1b.add_theme_constant_override("v_separation", 8)
 		fc.add_child(f1b)
-		for t in [0, 1, 2, 3, 4, 5]:
+		for t in range(0, Game.max_tier(scc) + 1):
 			var tt: int = t
-			_btn("—" if t == 0 else T.t("tier_%d" % t), func():
+			_btn("—" if t == 0 else Game.tier_name(scc, t), func():
 				search_f.tier = tt
 				_refresh(), "toggle_on" if int(search_f.tier) == t else "ghost", f1b).custom_minimum_size = Vector2(0, 50)
+	if scc != "":
+		# yabancı ülke: aranan ligin kadroları ilk kez burada üretilir
+		var tsel := int(search_f.tier)
+		for t in range(1, Game.max_tier(scc) + 1):
+			if (tsel == 0 and t == 1) or tsel == t:
+				for lg in Game.tier_groups(scc, t):
+					Game.ensure_league(lg)
 	var f2 := _h(fc, 8)
 	var grp_txt := T.t("all_pos") if search_f.grp == "" else T.t("grp_" + search_f.grp)
 	_expand(_btn(grp_txt, func():
@@ -3607,21 +3750,32 @@ func _staff_card(parent: Control, m: Dictionary, hire := false) -> void:
 		var id: String = m.id
 		if m.role == "scout":
 			v.add_child(_typed(T.t("assign_region").to_upper(), 14, C_INK2))
-			var fl := HFlowContainer.new()
+			var fl := GridContainer.new()
+			fl.columns = 2
 			fl.add_theme_constant_override("h_separation", 6)
 			fl.add_theme_constant_override("v_separation", 6)
 			v.add_child(fl)
-			for rg in Game.REGIONS:
+			for rg in Game.regions():
 				var r2: String = rg
-				var lang_ok: bool = Game.REGION_LANG[rg] in m.langs
-				var locked: bool = rg in ["en", "it", "br"] and not Game.board_abroad_ok({"en": "EN", "it": "IT", "br": "BR"}[rg])
-				_btn(T.t("rg_" + rg) + ("" if lang_ok else " ⚠") + ((" " + T.t("locked_s")) if locked else ""), func():
+				var lang_ok := false
+				for l in Game.region_langs(rg):
+					if l in m.langs:
+						lang_ok = true
+				var locked: bool = Game.region_abroad(rg) and not (rg in Game.board().abroad)
+				var rb := _btn(T.t("rg_" + rg) + ("" if lang_ok else " (!)") + ((" • " + T.t("locked_s")) if locked else ""), func():
 					if locked:
 						_toast(T.t("need_board_abroad"))
 						return
 					Game.assign_staff(id, r2)
-					_refresh(), "toggle_on" if m.region == rg else "ghost", fl).custom_minimum_size = Vector2(0, 50)
-			if m.region != "" and not (Game.REGION_LANG[m.region] in m.langs):
+					_refresh(), "toggle_on" if m.region == rg else "ghost", fl)
+				rb.custom_minimum_size = Vector2(0, 50)
+				rb.autowrap_mode = TextServer.AUTOWRAP_OFF
+				rb.clip_text = true
+				rb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				rb.add_theme_font_size_override("font_size", 17)
+				if locked:
+					rb.modulate = Color(1, 1, 1, 0.55)
+			if m.region != "" and Game.region_langs(m.region).filter(func(l): return l in m.langs).is_empty():
 				v.add_child(_hand(T.t("lang_warn"), 24, C_RED))
 		else:
 			v.add_child(_hand(T.t("role_desc_" + m.role), 24, C_BLUE))
@@ -3826,7 +3980,11 @@ func _world_table() -> void:
 	if table_lg == "" or not Game.s.table.has(table_lg):
 		table_lg = Game.my_club().get("league", "SL")
 	var t := Game.tier(table_lg)
-	var foreign := Game.league_country(table_lg) != "TR"
+	var tcc := Game.league_country(table_lg)
+	var foreign := false
+	var tsz: int = Game.s.table[table_lg].size()
+	var nmv := 3 if tsz >= 16 else (2 if tsz >= 12 else 1)
+	var tmax := Game.max_tier(tcc)
 	_league_picker(table_lg, func(lg):
 		table_lg = lg
 		_refresh())
@@ -3845,19 +4003,14 @@ func _world_table() -> void:
 		var c := Game.club(cid)
 		var mine: bool = cid == Game.s.scout.club_id
 		var zone := Color(0, 0, 0, 0)
-		if foreign:
-			zone = C_BRASS if i == 1 else (C_GREEN if i <= 4 else Color(0, 0, 0, 0))
-		elif t > 1 and (i == 1 or (t == 2 and i <= 3)):
-			zone = C_GREEN
-		elif t == 1 and i == 1:
+		var ng := Game.tier_groups(tcc, t).size()
+		if t == 1 and i == 1:
 			zone = C_BRASS
-		if foreign:
-			pass
-		elif t <= 2 and i > n - 3:
-			zone = C_RED
-		elif t == 3 and i > n - 2:
-			zone = C_RED
-		elif t == 4 and i == n:
+		elif t == 1 and tmax == 1 and i <= 3:
+			zone = C_GREEN
+		elif t > 1 and i <= maxi(1, nmv / ng):
+			zone = C_GREEN
+		if t < tmax and i > n - nmv:
 			zone = C_RED
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(0, 54)
@@ -3960,6 +4113,7 @@ func _scr_table() -> void:
 # ================================================================ KULÜP
 
 func _scr_club(cid: String) -> void:
+	Game.ensure_squad(cid)
 	var c := Game.club(cid)
 	_sheet([["squad", T.t("ct_squad")], ["youth", T.t("ct_youth")], ["info", T.t("ct_info")]], sub.club, _sub_cb("club"))
 	_back_row()
@@ -4190,13 +4344,17 @@ func _scr_season() -> void:
 	if not moves.is_empty():
 		var mc := _card(null, "paper", 16)
 		_section(T.t("moves_title"), mc, "swap")
-		for t in [2, 3, 4, 5]:
+		var mcc: String = moves.get("cc", Game.my_country())
+		var mtt := Game.max_tier(mcc)
+		if mtt <= 1:
+			mc.add_child(_typed(T.t("no_moves"), 16, C_INK2))
+		for t in range(2, mtt + 1):
 			var ups: Array = moves.up.get(t, moves.up.get(str(t), []))
-			mc.add_child(_typed("↑ %s → %s" % [T.t("tier_%d" % t), T.t("tier_%d" % (t - 1))], 15, C_GREEN))
+			mc.add_child(_typed("↑ %s → %s" % [Game.tier_name(mcc, t), Game.tier_name(mcc, t - 1)], 15, C_GREEN))
 			mc.add_child(_lbl(", ".join(ups.map(func(c): return Game.club(c).name)), 17, C_INK))
-		for t in [1, 2, 3, 4]:
+		for t in range(1, mtt):
 			var downs: Array = moves.down.get(t, moves.down.get(str(t), []))
-			mc.add_child(_typed("↓ %s → %s" % [T.t("tier_%d" % t), T.t("tier_%d" % (t + 1))], 15, C_RED))
+			mc.add_child(_typed("↓ %s → %s" % [Game.tier_name(mcc, t), Game.tier_name(mcc, t + 1)], 15, C_RED))
 			mc.add_child(_lbl(", ".join(downs.map(func(c): return Game.club(c).name)), 17, C_INK))
 	var rc := _card(null, "manila", 20)
 	_section(T.t("rep"), rc, "star")

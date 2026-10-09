@@ -18,6 +18,7 @@ Data="*res://autoload/Data.gd"
 Game="*res://autoload/Game.gd"
 Sfx="*res://autoload/Sfx.gd"
 Watch="*res://autoload/Watch.gd"
+DB="*res://autoload/DB.gd"
 
 [debug]
 
