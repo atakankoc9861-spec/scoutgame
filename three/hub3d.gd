@@ -59,6 +59,45 @@ const STATIONS := {
 }
 var pitch_deg := 0.0
 var active := true
+## UI'nin üstünde görünen boş şerit (ekran koordinatı). Boşsa tam ekran.
+var band := Rect2()
+## şerit modunda istasyon başına yatay görüş açısı
+const BAND_HFOV := {"office": 74.0, "desk": 66.0, "board": 34.0, "map": 36.0, "pedestal": 56.0, "stadium": 70.0}
+
+func set_band(r: Rect2) -> void:
+	band = r
+	if band.size.y < 40.0:
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	else:
+		# yalnızca görünen şeridi (+ sekme boşlukları için biraz pay) çiz: hem tam kadraj hem daha az GPU
+		set_anchors_preset(Control.PRESET_TOP_WIDE)
+		offset_left = 0
+		offset_right = 0
+		offset_top = band.position.y
+		offset_bottom = band.end.y + BAND_PAD
+	_apply_proj(true)
+
+const BAND_PAD := 70.0
+var fov_target := 55.0
+
+func _apply_proj(snap := false) -> void:
+	if band.size.y < 40.0 or orbit:
+		cam.keep_aspect = Camera3D.KEEP_HEIGHT
+		fov_target = 55.0
+	else:
+		var hf: float = BAND_HFOV.get(station, 70.0)
+		var ar := size.x / maxf(band.size.y, 1.0)
+		hf = clampf(hf * clampf(ar / 1.8, 0.8, 1.15), 30.0, 100.0)
+		if cam.keep_aspect != Camera3D.KEEP_WIDTH:
+			snap = true
+		cam.keep_aspect = Camera3D.KEEP_WIDTH
+		fov_target = hf
+	if snap:
+		cam.fov = fov_target
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_RESIZED and cam:
+		_apply_proj(true)
 
 func set_pitch(deg: float) -> void:
 	pitch_deg = deg
@@ -72,7 +111,11 @@ func set_active(on: bool) -> void:
 		stretch = false
 		sv.size = Vector2i(4, 4)
 	else:
+		# boyutu açıkça geri yükle (stretch tek başına bazen eski 4x4/yanlış oranı bırakıyordu)
+		sv.size = Vector2i(maxi(int(size.x), 8), maxi(int(size.y), 8))
 		stretch = true
+		queue_sort()
+		_apply_proj.call_deferred()
 	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	set_process(on)
 	visible = on
@@ -907,6 +950,7 @@ func goto(name: String, instant := false) -> void:
 		return
 	var far_jump := cam.position.distance_to(to_pos) > 60.0
 	station = name
+	_apply_proj(instant)
 	if tween:
 		tween.kill()
 	if instant or orbit and far_jump:
@@ -933,6 +977,9 @@ func _process(delta: float) -> void:
 	var pd := pitch_deg
 	if station == "pedestal" and pd > 0.0:
 		pd = 9.0
+	if cam.keep_aspect == Camera3D.KEEP_WIDTH:
+		pd = 0.0
+	cam.fov = lerpf(cam.fov, fov_target, minf(1.0, delta * 4.0))
 	if pd != 0.0:
 		cam.rotate_object_local(Vector3.RIGHT, -deg_to_rad(pd))
 	if me_man and station in ["office", "desk", "board"]:

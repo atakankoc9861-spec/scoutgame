@@ -6,10 +6,11 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.17"
+const VERSION := "v0.17.1"
 
 var bg: ColorRect
 var hub
+var hero_node: Control
 var shade: TextureRect
 var root: VBoxContainer
 var topbar: PanelContainer
@@ -118,6 +119,7 @@ func _input(ev: InputEvent) -> void:
 var _safe_t := 0.0
 
 func _process(delta: float) -> void:
+	_hub_band()
 	# güvenlik ağı: sahne hatayla yarıda kalırsa arayüz görünmez/kilitli kalmasın
 	_scene_tick()
 	_safe_t += delta
@@ -494,6 +496,11 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 		hero.custom_minimum_size = Vector2(0, HERO[screen])
 		hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		outer.add_child(hero)
+		hero_node = hero
+	else:
+		hero_node = null
+		if hub:
+			hub.set_band(Rect2())
 	if chrome:
 		_refresh_topbar()
 		_refresh_nav()
@@ -622,6 +629,15 @@ func _back_row(title := "") -> void:
 		var l := _head(title.to_upper(), 30)
 		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		h.add_child(l)
+
+func _hub_band() -> void:
+	## 3B arka planı yalnızca UI üstündeki boş şeride çerçevele
+	if hub == null or hero_node == null or not is_instance_valid(hero_node) or not hero_node.is_inside_tree():
+		return
+	var y := scroll.get_global_rect().position.y + outer.position.y + hero_node.position.y
+	var r := Rect2(0, roundf(y), get_viewport_rect().size.x, hero_node.size.y)
+	if r != hub.band:
+		hub.set_band(r)
 
 func _hub_for(screen: String, arg) -> void:
 	if hub == null:
