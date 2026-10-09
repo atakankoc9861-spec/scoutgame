@@ -117,6 +117,23 @@ func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) 
 		Game.settings["safe3d"] = true
 		check_vp(sv, tag + "+fb", Callable(), tries - 1)
 
+## Ekranda gerçekten ne görünüyor: ana pencerenin görüntüsünü örnekle
+func check_screen(tag: String) -> void:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	if img == null or img.is_empty():
+		bc("ekran %s: alinamadi" % tag)
+		return
+	var w := img.get_width()
+	var h := img.get_height()
+	var lum := 0.0
+	var n := 0
+	for yi in range(2, 7):
+		for xi in range(2, 7):
+			lum += img.get_pixel(w * xi / 8, h * yi / 8).get_luminance()
+			n += 1
+	bc("ekran %s: lum=%.3f %dx%d" % [tag, lum / n, w, h])
+
 ## Kısa iz bırak (ekran değişimi, sahne, maç vb.)
 func bc(msg: String) -> void:
 	var line := "%d %s" % [Time.get_ticks_msec() / 1000, msg]

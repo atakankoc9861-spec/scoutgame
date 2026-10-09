@@ -143,7 +143,7 @@ func _ready() -> void:
 	# görünürlük tespitine güvenme (CanvasLayer içinde bazı GPU'larda hiç çizilmiyor)
 	sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	var q: String = Game.quality()
-	sv.msaa_3d = Viewport.MSAA_2X if q == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
+	sv.msaa_3d = Viewport.MSAA_2X if q == "high" and not Game.settings.get("safe3d", false) and not OS.has_feature("mobile") else Viewport.MSAA_DISABLED
 	# mantıksal boyut fiziksel ekrandan büyük olabilir (stretch=expand); gerçek piksele göre ölçekle
 	var ratio := 1.0
 	var lg := get_viewport().get_visible_rect().size
@@ -228,11 +228,8 @@ func _icon_btn(icon: String, cb: Callable, text := "") -> Button:
 func _glass_panel(radius := 18.0, tint := Color(0.04, 0.08, 0.06, 0.6)) -> PanelContainer:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", _sb(Color(0, 0, 0, 0), int(radius), 14))
-	if Game.quality() == "high":
-		var g = Glass.new().setup(tint, radius)
-		pc.add_child(g)
-	else:
-		pc.add_theme_stylebox_override("panel", _sb(Color(tint.r, tint.g, tint.b, 0.88), int(radius), 14))
+	# Buzlu cam (ekran dokusu + mipmap) Adreno'da her karede doku sızdırıp ekranı karartıyordu: düz panel
+	pc.add_theme_stylebox_override("panel", _sb(Color(tint.r, tint.g, tint.b, 0.88), int(radius), 14))
 	return pc
 
 func _club_color(side: String) -> Color:
@@ -1416,6 +1413,34 @@ func _eye_clear() -> void:
 		bottom_left.visible = true
 		minimap.visible = true
 
+var _tex0 := -1.0
+var _vmem_step := 0
+
+func _vmem_guard() -> void:
+	## Doku belleği sürekli artıyorsa (sürücü sızıntısı) adım adım ağır efektleri kapat
+	var tex := Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1e6
+	if _tex0 < 0.0:
+		_tex0 = tex
+		return
+	if tex - _tex0 < 400.0:
+		return
+	_vmem_step += 1
+	_tex0 = tex
+	Watch.bc("VMEM ARTIYOR tex=%dMB adim=%d" % [int(tex), _vmem_step])
+	match _vmem_step:
+		1:
+			if stadium.sun:
+				stadium.sun.shadow_enabled = false
+			stadium.disable_glow()
+		2:
+			sv.msaa_3d = Viewport.MSAA_DISABLED
+			sv.scaling_3d_scale = 1.0
+		3:
+			for n in stadium.find_children("*", "GPUParticles3D", true, false):
+				n.queue_free()
+			for n in stadium.find_children("*", "CPUParticles3D", true, false):
+				n.queue_free()
+
 func _process(delta: float) -> void:
 	_spark_tick(minf(delta, 0.05))
 	if mode == "live" and not skipping and not paused:
@@ -1426,7 +1451,10 @@ func _process(delta: float) -> void:
 	_hb_t += delta
 	if _hb_t > 3.0:
 		_hb_t = 0.0
-		Watch.bc("mac nabiz kare=%d mod=%s fps=%d dk=%d %s" % [_frames, mode, Engine.get_frames_per_second(), int(eng.clock / 60.0), Watch._mon()])
+		Watch.bc("mac nabiz kare=%d mod=%s fps=%d dk=%d %s sv=%s" % [_frames, mode, Engine.get_frames_per_second(), int(eng.clock / 60.0), Watch._mon(), str(sv.size)])
+		_vmem_guard()
+		if _frames < 400:
+			Watch.check_screen("mac kare %d" % _frames)
 	delta = minf(delta, 0.05)
 	match mode:
 		"intro":
