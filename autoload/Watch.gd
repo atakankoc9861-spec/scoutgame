@@ -16,6 +16,7 @@ var th: Thread
 var alive := true
 var reported := false
 var prev_report := ""
+var bg_exit := false   # önceki oturum arka plandayken kapandı (Android kapattı)
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -29,6 +30,7 @@ func _ready() -> void:
 	if FileAccess.file_exists(BC_FILE) and not FileAccess.file_exists(STALL_FILE):
 		var last := FileAccess.get_file_as_string(BC_FILE).strip_edges().get_slice("\n", FileAccess.get_file_as_string(BC_FILE).strip_edges().count("\n"))
 		if last.find("arka plana alindi") >= 0:
+			bg_exit = true
 			parts.append("=== NOT: uygulama arka plandayken kapandi (Android kapatti ya da donuste takildi) ===")
 	prev_report = "\n".join(parts)
 	if prev_report != "":

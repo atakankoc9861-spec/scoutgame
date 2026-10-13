@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta3"
+const VERSION := "v0.21-beta4"
 
 var bg: ColorRect
 var hub
@@ -61,6 +61,11 @@ func _ready() -> void:
 	_set_flag(true)
 	if crashed:
 		_show("crash", null, false)
+		return
+	# Android oyunu arka planda kapattıysa kaldığın yerden (ofis) devam et
+	if Watch.bg_exit and not Game.s.is_empty() and Game.s.get("scout", {}).get("club_id", "") != "" and Game.s.get("season_summary", {}).is_empty():
+		Watch.bc("arka plan kapanisi: ofisten devam")
+		_goto_tab("home")
 		return
 	_show("title", null, false)
 
@@ -4816,6 +4821,18 @@ func _modal_layer(top := 0.12, bottom := 0.9) -> Array:
 	v.add_theme_constant_override("separation", 12)
 	sc.add_child(v)
 	_modal_scroll = sc
+	# kart içeriğe göre boyutlanır (en fazla verilen alan kadar)
+	var fit := func():
+		if not is_instance_valid(card):
+			return
+		var vh := get_viewport_rect().size.y
+		var want := v.get_combined_minimum_size().y + 60.0
+		var mx := vh * (bottom - top)
+		card.anchor_bottom = top
+		card.offset_top = 0
+		card.offset_bottom = minf(want, mx)
+	v.minimum_size_changed.connect(fit)
+	fit.call_deferred()
 	card.modulate.a = 0.0
 	card.scale = Vector2(0.96, 0.96)
 	card.pivot_offset = Vector2(get_viewport_rect().size.x / 2.0, 300)
