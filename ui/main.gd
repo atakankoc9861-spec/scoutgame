@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta2"
+const VERSION := "v0.21-beta3"
 
 var bg: ColorRect
 var hub
@@ -78,11 +78,13 @@ func _notification(what: int) -> void:
 			_set_flag(false)
 			get_tree().quit()
 	elif what == NOTIFICATION_APPLICATION_PAUSED:
+		_bg_pause()
 		_set_flag(false)
 		if not Game.s.is_empty() and Game.s.scout.club_id != "":
 			Game.save_game()
 	elif what == NOTIFICATION_APPLICATION_RESUMED:
 		_set_flag(true)
+		_bg_resume()
 
 var _sd_active := false
 var _sd_moved := false
@@ -5192,3 +5194,40 @@ func _story(id: String) -> void:
 	await _choice_done
 	_busy = was
 	layer.queue_free()
+
+
+# ================================================================ arka plan: 3D çizimi dondur, dönüşte kademeli aç
+## Arka plana geçerken açık render hedefleri bazı Adreno sürücülerinde dönüşte takılmaya yol açabiliyor.
+var _bg_vps: Array = []
+
+func _all_vps() -> Array:
+	var out := []
+	for n in find_children("*", "SubViewport", true, false):
+		out.append(n)
+	return out
+
+func _bg_pause() -> void:
+	_bg_vps.clear()
+	for v: SubViewport in _all_vps():
+		_bg_vps.append([v, v.render_target_update_mode])
+		v.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	if title_vid and title_vid.is_playing():
+		title_vid.paused = true
+	Watch.bc("arka plan: %d 3B gorunum donduruldu" % _bg_vps.size())
+
+func _bg_resume() -> void:
+	Watch.bc("donus: basladi")
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	Watch.bc("donus: ilk kare cizildi")
+	for pair in _bg_vps:
+		var v = pair[0]
+		if is_instance_valid(v):
+			v.render_target_update_mode = pair[1]
+			await get_tree().process_frame
+	_bg_vps.clear()
+	if title_vid:
+		title_vid.paused = false
+	await RenderingServer.frame_post_draw
+	Watch.bc("donus: 3B acildi")
+	Watch.check_screen("donus")

@@ -26,6 +26,10 @@ func _ready() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(STALL_FILE))
 	if FileAccess.file_exists(BC_FILE):
 		parts.append("=== ONCEKI OTURUM SON ADIMLAR ===\n" + FileAccess.get_file_as_string(BC_FILE))
+	if FileAccess.file_exists(BC_FILE) and not FileAccess.file_exists(STALL_FILE):
+		var last := FileAccess.get_file_as_string(BC_FILE).strip_edges().get_slice("\n", FileAccess.get_file_as_string(BC_FILE).strip_edges().count("\n"))
+		if last.find("arka plana alindi") >= 0:
+			parts.append("=== NOT: uygulama arka plandayken kapandi (Android kapatti ya da donuste takildi) ===")
 	prev_report = "\n".join(parts)
 	if prev_report != "":
 		var f := FileAccess.open(PREV_FILE, FileAccess.WRITE)
@@ -51,14 +55,16 @@ func _process(_d: float) -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if not paused:
+			bc("arka plana alindi (%s)" % ("pause" if what == NOTIFICATION_APPLICATION_PAUSED else "odak") + " " + _mon())
 		paused = true
-		bc("arka plana alindi")
 	elif what == NOTIFICATION_APPLICATION_RESUMED or what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		if paused:
+			bc("on plana geldi")
 		paused = false
 		hb = Time.get_ticks_msec()
 		pre = hb
 		post = hb
-		bc("on plana geldi")
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
 		alive = false
 
