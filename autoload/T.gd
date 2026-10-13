@@ -53,6 +53,7 @@ func t(key: String, args: Array = []) -> String:
 	return txt % sargs
 
 const TR := {
+	"safe_spend": "Haftalık güvenli harcama: %s",
 	"fat_short": "yorgunluk",
 	"info_rep": "İTİBAR %s/100\nRaporların tuttukça artar. Yüksek itibar = büyük kulüplerden teklif, başkandan daha kolay izin, ekibe daha çok kişi.",
 	"info_money": "CEBİNDEKİ PARA %s\nHer hafta maaşın (%s) eklenir. Kurs, kaynak ödemeleri buradan çıkar. Seyahat bütçesi ayrı: kalan %s. Bütçe biterse yol masrafı cebinden gider.",
@@ -898,6 +899,7 @@ const TR := {
 }
 
 const EN := {
+	"safe_spend": "Safe weekly spend: %s",
 	"fat_short": "fatigue",
 	"info_rep": "REPUTATION %s/100\nGrows when your reports prove right. High reputation = offers from bigger clubs, easier permits from the president, more staff.",
 	"info_money": "CASH %s\nYour salary (%s) is added every week. Courses and source fees come from here. Travel budget is separate: %s left. When the budget runs out, travel comes out of your pocket.",

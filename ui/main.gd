@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.20"
+const VERSION := "v0.20.1"
 
 var bg: ColorRect
 var hub
@@ -1999,6 +1999,8 @@ func _week_this() -> void:
 	bh.add_child(_typed(T.t("travel_left"), 17, C_INK2, false))
 	_bar(bh, float(bl) / maxf(1.0, float(sc.budget)), C_BLUE if bl > 0 else C_RED, 12).size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bh.add_child(_lbl(Game.money_str(bl), 20, C_RED if bl < 0 else C_INK, false, F_HEAD))
+	var wleft := maxi(1, Game.WEEKS - maxi(Game.s.week, 1) + 1)
+	bc.add_child(_hand(T.t("safe_spend", [Game.money_str(maxi(0, bl) / wleft)]), 24, C_BLUE if bl > 0 else C_RED))
 	bc.add_child(_typed(T.t("travel_hint"), 15, C_INK2))
 	_btn(T.t("end_preseason") if Game.s.week == 0 else T.t("go_weekend"), _play_weekend, "primary", page, "ball")
 

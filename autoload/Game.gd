@@ -556,7 +556,7 @@ func offer_salary(c: Dictionary) -> int:
 	return 90 + int(c.prestige) * 8
 
 func offer_budget(c: Dictionary) -> int:
-	return 6000 + int(c.prestige) * 420
+	return 9000 + int(c.prestige) * 560
 
 func take_job(cid: String) -> void:
 	var c: Dictionary = s.clubs[cid]
@@ -697,14 +697,14 @@ func travel_info(city: String) -> Dictionary:
 	var home: String = my_club().city
 	var d := Data.city_distance(home, city)
 	if Data.city_country(city) != Data.city_country(home):
-		return {"cost": int(round((250.0 + d * 0.11) / 10.0) * 10), "fat": 22 + int(d / 1200.0), "mode": "plane_int", "km": int(d)}
+		return {"cost": int(round((220.0 + d * 0.09) / 10.0) * 10), "fat": 22 + int(d / 1200.0), "mode": "plane_int", "km": int(d)}
 	if d < 5:
-		return {"cost": 40, "fat": 4, "mode": "local", "km": 0}
+		return {"cost": 25, "fat": 4, "mode": "local", "km": 0}
 	if d < 320:
-		return {"cost": 130, "fat": 10, "mode": "bus", "km": int(d)}
+		return {"cost": 100, "fat": 10, "mode": "bus", "km": int(d)}
 	if d < 650:
-		return {"cost": 260, "fat": 16, "mode": "bus_hotel", "km": int(d)}
-	return {"cost": 420, "fat": 20, "mode": "plane", "km": int(d)}
+		return {"cost": 200, "fat": 16, "mode": "bus_hotel", "km": int(d)}
+	return {"cost": 340, "fat": 20, "mode": "plane", "km": int(d)}
 
 func _spend_travel(city: String) -> Dictionary:
 	var info := travel_info(city)
@@ -1333,7 +1333,7 @@ func submit_report(pid: String, aid: String, cur: float, pot: float, rec: String
 	var r := {"id": "r%d" % s.next_rid, "pid": pid, "aid": aid, "cur": cur, "pot": pot, "rec": rec,
 		"season": s.season, "week": s.week, "status": "pending", "from_club": player(pid).club,
 		"age0": int(player(pid).age), "lg0": club(player(pid).club).get("league", "SL"),
-		"ovr0": player(pid).ovr, "evals": 0, "tags": tags}
+		"ovr0": player(pid).ovr, "evals": 0, "tags": tags, "pot_hi": _shown_pot_hi(pid)}
 	s.next_rid += 1
 	s.scout.reports.append(r)
 	log_discovery(pid, "report")
@@ -1342,6 +1342,14 @@ func submit_report(pid: String, aid: String, cur: float, pot: float, rec: String
 		if a.id == aid and rec == "sign":
 			a.status = "submitted"
 	changed.emit()
+
+func _shown_pot_hi(pid: String) -> float:
+	## rapor anında ekranda görünen potansiyel aralığının üst ucu (yıldız)
+	var pr := pa_range(pid)
+	if pr.is_empty():
+		var o := ovr_range(pid)
+		return stars(float(o[1])) + 1.0 if not o.is_empty() else 5.0
+	return stars(float(pr[1]))
 
 func assignment(aid: String) -> Dictionary:
 	for a in s.assign:
@@ -1374,7 +1382,12 @@ func _decide_report(r: Dictionary) -> void:
 		add_news("n_rej_budget", [pname(p), money_str(fee)], true, "bad")
 		return
 	var need_st := assignment_need_stars(a)
-	var trust := 0.35 + float(s.scout.rep) / 140.0 + badge_trust(p, a)
+	# güven: itibar + raporun kanıtı (bilinen özellik oranı, izlenen maç) + ilk imzalarda deneme süresi
+	var kn0: Dictionary = s.scout.knowledge.get(r.pid, {})
+	var trust := 0.5 + float(s.scout.rep) / 200.0 + badge_trust(p, a)
+	trust += 0.15 * known_fraction(r.pid) + 0.03 * mini(int(kn0.get("seen", 0)), 4)
+	if int(s.scout.stats.signed) < 2:
+		trust += 0.12
 	var claim: float = r.pot if a.kind in ["prospect", "wonderkid"] else r.cur
 	if claim < need_st:
 		trust -= 0.3
@@ -1751,6 +1764,7 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	var youth: bool = data.youth
 	var all: Array = m.xi_h + m.xi_a
 	s.scout.stats.watched += 1
+	s.scout["season_watched"] = int(s.scout.get("season_watched", 0)) + 1
 	area_gain(area_of_club(m.h), 1.2 if not youth else 0.9)
 	# her oyuncu için olay istatistikleri
 	var agg := Timeline.aggregate(self, tl, all)
@@ -1892,6 +1906,7 @@ func finish_week() -> Dictionary:
 	for r in s.scout.reports:
 		if r.status == "pending" and not (r.season == s.season and r.week == s.week):
 			_decide_report(r)
+	_gk_emergency()
 	s.scout.money += s.scout.salary
 	s.scout.fatigue = max(0, s.scout.fatigue - 22)
 	s.cal = {}
@@ -1907,6 +1922,20 @@ func finish_week() -> Dictionary:
 	save_game()
 	changed.emit()
 	return result
+
+func _gk_emergency() -> void:
+	## Sezon içinde sağlıklı kalecisi kalmayan üst lig kulübü serbest kaleci alır
+	for cid in s.clubs:
+		if is_lazy(cid) or is_scout_club(cid) or tier(club(cid).league) > 2:
+			continue
+		var ok := false
+		for pid in club(cid).squad:
+			var p := player(pid)
+			if not p.is_empty() and p.pos == "GK" and int(p.inj) == 0:
+				ok = true
+				break
+		if not ok:
+			club(cid).squad.append(new_player("GK", clampi(int(club_level(cid)) - 4, 30, 85), ri(27, 33), club_nat(cid), cid))
 
 func end_week_auto() -> Dictionary:
 	## Testler için: planlı maçları odak listesiyle otomatik izle
@@ -2624,7 +2653,7 @@ func _season_end() -> void:
 	s.offers.sort_custom(func(a, b): return int(club_country(a) == club_country(mine.id)) > int(club_country(b) == club_country(mine.id)))
 	s.offers = s.offers.slice(0, 3)
 	var rep_start: float = float(s.scout.get("rep_start", summ.rep_before))
-	var lazy: bool = int(s.scout.get("season_reports", 0)) == 0
+	var lazy: bool = int(s.scout.get("season_reports", 0)) == 0 and int(s.scout.get("season_watched", 0)) < 6
 	summ.fired = (s.scout.rep < float(mine.prestige) * 0.15 and s.scout.rep < rep_start - 4) or (lazy and rf() < 0.6)
 	if summ.fired:
 		add_news("n_fired", [mine.name], true, "bad")
@@ -2638,6 +2667,11 @@ func _season_end() -> void:
 	for ar in s.scout.arep:
 		s.scout.arep[ar] = snappedf(float(s.scout.arep[ar]) * 0.88, 0.01)
 	s.scout["season_reports"] = 0
+	s.scout["season_watched"] = 0
+	# itibar düşüp kota küçüldüyse fazla ekip sezon sonunda ayrılır
+	while s.get("staff", []).size() > staff_slots():
+		var gone: Dictionary = s.staff.pop_back()
+		add_news("n_staff_left", [gone.name], true, "bad")
 	s.scout["pocket"] = 0
 	s.season_summary = summ
 	s.scout.history.append({"season": s.season, "club": mine.short, "rep": snappedf(s.scout.rep, 0.1)})
@@ -3263,7 +3297,8 @@ func _rep_track(r: Dictionary, p: Dictionary, score: float, act_pot: float) -> v
 	var good := score >= 0.5
 	if good:
 		acc.good = int(acc.good) + 1
-	if float(r.pot) - act_pot >= 1.0:
+	# abartı: gerçekten 1+ yıldız fazla VE ekranda gösterilen aralığın üstünde yazıldıysa
+	if float(r.pot) - act_pot >= 1.0 and float(r.pot) > float(r.get("pot_hi", 5.0)) + 0.25:
 		acc.infl = int(acc.infl) + 1
 	var grp: String = Data.POS_GROUP.get(p.pos, "MID")
 	var sp: Dictionary = s.scout.spec

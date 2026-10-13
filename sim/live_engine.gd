@@ -105,7 +105,7 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
 			var fm := rng.randfn(0.0, 2.6 - float(p.hid.consistency) * 0.11) * 0.8
 			if sd == "h" and not youth:
-				fm += 0.3   # ev sahibi avantajı
+				fm += 0.55   # ev sahibi avantajı
 			if not youth and g.club(m.h if sd == "a" else m.a).get("prestige", 0) >= 80:
 				fm += (float(p.hid.big_match) - 10.0) * 0.06
 			form[pid] = fm
