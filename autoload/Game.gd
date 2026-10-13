@@ -48,12 +48,14 @@ func _ready() -> void:
 		settings.quality = cf.get_value("g", "quality", "medium")
 		settings.sound = cf.get_value("g", "sound", true)
 		settings.music = cf.get_value("g", "music", true)
+		settings.haptic = cf.get_value("g", "haptic", true)
 
 func save_settings() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("g", "quality", settings.quality)
 	cf.set_value("g", "sound", settings.sound)
 	cf.set_value("g", "music", settings.music)
+	cf.set_value("g", "haptic", settings.get("haptic", true))
 	cf.save(SETTINGS_PATH)
 
 func quality() -> String:
@@ -457,6 +459,7 @@ func new_game(scout_name: String, lang: String, start_cc := "TR") -> void:
 		"staff": [], "staff_pool": [], "staff_reports": [], "next_sid": 1,
 	}
 	s["start_cc"] = start_cc
+	s["tut"] = {"step": 0, "on": true}
 	_ensure_v15()
 	var idx := 0
 	for row in Data.SUPER_LIG:
@@ -708,6 +711,8 @@ func travel_info(city: String) -> Dictionary:
 
 func _spend_travel(city: String) -> Dictionary:
 	var info := travel_info(city)
+	if has_perk("perk_1b"):
+		info.cost = int(float(info.cost) * 0.75)
 	var room := maxi(0, int(s.scout.budget) - int(s.scout.spent))
 	var cost: int = info.cost
 	if cost > room:
@@ -774,6 +779,8 @@ func plan_match(day: String, key: String) -> bool:
 		s.plan["travel_" + day] = str(d)
 	s.plan[day] = key
 	s.plan["focus_" + day] = []
+	if key != "":
+		tut_event("plan")
 	changed.emit()
 	return true
 
@@ -789,7 +796,8 @@ func set_watch_mode(day: String, wm: String) -> void:
 	changed.emit()
 
 func focus_cap(day: String) -> int:
-	return 6 if watch_mode(day) == "moments" else 3
+	var extra := 1 if has_perk("perk_1a") else 0
+	return (6 if watch_mode(day) == "moments" else 3) + extra
 
 func toggle_focus(day: String, pid: String) -> void:
 	var f: Array = s.plan["focus_" + day]
@@ -797,6 +805,7 @@ func toggle_focus(day: String, pid: String) -> void:
 		f.erase(pid)
 	elif f.size() < focus_cap(day):
 		f.append(pid)
+		tut_event("focus")
 	changed.emit()
 
 # ================================================================ bilgi / sis perdesi
@@ -1181,7 +1190,8 @@ func do_trip(cc: String, kind := "academy") -> Dictionary:
 		return {"ok": false, "msg": why}
 	var city := trip_city(cc)
 	_take_day("trip", "")
-	_take_day("trip", "")
+	if not has_perk("perk_3b"):
+		_take_day("trip", "")
 	var info := _spend_travel(city)
 	s.scout.spent += int(float(info.cost) * 0.6)
 	var clubs := []
@@ -1338,6 +1348,7 @@ func submit_report(pid: String, aid: String, cur: float, pot: float, rec: String
 	s.scout.reports.append(r)
 	log_discovery(pid, "report")
 	s.scout.stats.reports += 1
+	tut_event("report")
 	for a in s.assign:
 		if a.id == aid and rec == "sign":
 			a.status = "submitted"
@@ -1375,7 +1386,7 @@ func _decide_report(r: Dictionary) -> void:
 		add_news("n_rej_criteria", [pname(p)], true, "bad")
 		return
 	var fee := int(p.value * rng.randf_range(1.0, 1.35))
-	if p.rival != "":
+	if p.rival != "" and int(p.get("rush", 0)) < s.season * 100 + s.week - 1:
 		fee = int(fee * 1.15)
 	if fee > int(a.max_value) * 1.15 or fee > me.budget:
 		r.status = "rejected"
@@ -1466,7 +1477,13 @@ func _decide_report(r: Dictionary) -> void:
 	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
 
 func _transfer(pid: String, to: String, fee: int) -> void:
+	_hl_transfer(pid, to, fee)
 	var p := player(pid)
+	if to == s.scout.club_id and p.get("hidden_inj", false):
+		p.erase("hidden_inj")
+		p.inj = 8
+		s.scout.rep = maxf(0.0, s.scout.rep - 3.0)
+		add_news("n_hidden_inj", [pname(p)], true, "bad")
 	var from := club(p.club)
 	var dest := club(to)
 	if not from.is_empty():
@@ -1764,6 +1781,7 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	var youth: bool = data.youth
 	var all: Array = m.xi_h + m.xi_a
 	s.scout.stats.watched += 1
+	tut_event("watched")
 	s.scout["season_watched"] = int(s.scout.get("season_watched", 0)) + 1
 	area_gain(area_of_club(m.h), 1.2 if not youth else 0.9)
 	# her oyuncu için olay istatistikleri
@@ -1829,6 +1847,14 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 				if not ag2.attr.is_empty():
 					_learn_from_agg(pid, ag2, 1.6)
 				notes.push_front(["nt_eye", [str(goods), str(eyes.size())]])
+			var deyes: Array = focus_events.get("_eye_def", {}).get(pid, [])
+			if not deyes.is_empty():
+				var ag3 := {"attr": {}}
+				for e in deyes:
+					Timeline._credit(ag3, [["positioning", float(e[1]), float(e[2])], ["tackling", float(e[1]), float(e[2]) * 0.6], ["decisions", float(e[1]), float(e[2]) * 0.4]], bool(e[0]))
+				if not ag3.attr.is_empty():
+					_learn_from_agg(pid, ag3, 1.5)
+				notes.push_front(["nt_eye_def", [str(deyes.filter(func(x): return bool(x[0])).size()), str(deyes.size())]])
 			var hits: int = int(focus_events.get("_eye_hits", {}).get(pid, 0))
 			if hits > 0:
 				_learn_from_agg(pid, agg[pid], 0.12 * hits)
@@ -1981,6 +2007,7 @@ func _week_events() -> void:
 		_flavor_news()
 	_organic_requests()
 	_tips()
+	_v21_week()
 
 func _tips() -> void:
 	## Bağlantılardan altyapı ihbarı
@@ -2165,7 +2192,9 @@ func staff_slots() -> int:
 	var n := 1 + int(float(s.scout.rep) / 20.0)
 	if int(c.get("prestige", 0)) >= 60:
 		n += 1
-	return clampi(mini(n, int(board().slots)), 1, 6)
+	if has_perk("perk_2a"):
+		n += 1
+	return clampi(mini(n, int(board().slots) + (1 if has_perk("perk_2a") else 0)), 1, 7)
 
 func staff_cost() -> int:
 	var t := 0
@@ -2431,6 +2460,8 @@ func board_abroad_ok(cc: String) -> bool:
 func _board_chance(base: float) -> float:
 	var b := board()
 	var c := base + (float(b.mood) - 50.0) * 0.008 + float(s.scout.rep) * 0.006
+	if has_perk("perk_3a"):
+		c += 0.1
 	match b.pers:
 		"stingy":
 			c -= 0.12
@@ -2523,6 +2554,8 @@ func board_mood_key() -> String:
 # ================================================================ sezon sonu
 
 func _season_end() -> void:
+	if s.has("hl_log"):
+		_star_headlines()
 	var summ := {"season": s.season, "rep_before": s.scout.rep, "evals": [], "champ": "", "promoted": [], "relegated": [], "promoted_youth": []}
 	var slo := sorted_table(top_league(my_country()))
 	summ.champ = slo[0]
@@ -3375,6 +3408,7 @@ func _ensure_v15() -> void:
 		s["museum"] = []
 	if not s.has("next_qid"):
 		s["next_qid"] = 1
+	_ensure_v21()
 
 func _fix_ints() -> void:
 	for k in ["season", "week", "next_pid", "next_aid", "next_rid"]:
@@ -3410,3 +3444,473 @@ func _fix_ints() -> void:
 func delete_save() -> void:
 	if has_save():
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(SAVE_PATH))
+
+
+# ================================================================ v0.21: ilk 10 dakika rehberi
+
+const TUT_STEPS := [["tab_week", "week"], ["plan", "week"], ["focus", "week"], ["watched", "home"], ["report", "players"], ["done", "tasks"]]
+
+func tut_on() -> bool:
+	return s.get("tut", {}).get("on", false)
+
+func tut_step() -> int:
+	return int(s.get("tut", {}).get("step", 0))
+
+func tut_tab() -> String:
+	return TUT_STEPS[clampi(tut_step(), 0, TUT_STEPS.size() - 1)][1] if tut_on() else ""
+
+func tut_event(ev: String) -> void:
+	if not tut_on():
+		return
+	var st := tut_step()
+	if st < TUT_STEPS.size() and TUT_STEPS[st][0] == ev:
+		s.tut.step = st + 1
+		changed.emit()
+	# rehberi takip etmeden ilerleyen oyuncuyu bekletme
+	elif ev == "report" and st < 4:
+		s.tut.step = 5
+
+func tut_skip() -> void:
+	if s.has("tut"):
+		s.tut.on = false
+		changed.emit()
+
+# ================================================================ v0.21: manşetler, keşif 11'i, olaylar
+
+func _ensure_v21() -> void:
+	if not s.has("headlines"):
+		s["headlines"] = []
+	if not s.has("hl_log"):
+		s["hl_log"] = []
+	if not s.has("events"):
+		s["events"] = []
+	var sc: Dictionary = s.scout
+	if not sc.has("integrity"):
+		sc["integrity"] = 50.0
+	if not sc.has("scandals"):
+		sc["scandals"] = []
+	if not sc.has("caps"):
+		sc["caps"] = {}
+	if not s.has("tut"):
+		s["tut"] = {"step": 5, "on": false}
+
+func is_my_find(pid: String) -> bool:
+	if not discovery(pid).is_empty():
+		return true
+	for r in s.scout.reports:
+		if r.pid == pid:
+			return true
+	return false
+
+func _headline(kind: String, pid: String, args: Array) -> void:
+	var d := discovery(pid)
+	var ago: int = int(s.season) - int(d.get("season", s.season))
+	for h in s.hl_log:
+		if h.pid == pid and h.kind == kind and int(h.season) == int(s.season):
+			return
+	var h := {"kind": kind, "pid": pid, "season": s.season, "week": s.week, "ago": ago, "args": args,
+		"age0": int(d.get("age", player(pid).get("age", 0))), "club0": d.get("club", "")}
+	s.hl_log.append(h)
+	if s.hl_log.size() > 80:
+		s.hl_log.pop_front()
+	if s.headlines.size() < 4:
+		s.headlines.append(h)
+	add_news("n_hl_" + kind, [pname(player(pid))] + args, true, "headline")
+	# manşet itibar getirir: herkes keşfi kimin yaptığını konuşur
+	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
+
+func pop_headline() -> Dictionary:
+	if s.get("headlines", []).is_empty():
+		return {}
+	return s.headlines.pop_front()
+
+func _hl_transfer(pid: String, to: String, fee: int) -> void:
+	if not s.has("hl_log") or to == s.scout.club_id or not is_my_find(pid):
+		return
+	var p := player(pid)
+	var from := club(p.get("club", ""))
+	var dest := club(to)
+	if fee >= 1500000 or int(dest.get("prestige", 0)) >= int(from.get("prestige", 0)) + 12:
+		_headline("transfer", pid, [dest.get("name", "?"), money_str(fee)])
+
+func _callups() -> void:
+	## Milli ara: keşiflerinden milli takıma çağrılan var mı (ülkesinin en iyi 23'ü)
+	var by_nat := {}
+	for d in s.scout.get("disc_log", []):
+		var p := player(d.pid)
+		if p.is_empty() or int(p.age) < 18 or s.scout.caps.has(d.pid):
+			continue
+		if not by_nat.has(p.nat):
+			by_nat[p.nat] = []
+		by_nat[p.nat].append(d.pid)
+	for nat in by_nat:
+		var ovrs := []
+		for pid in s.players:
+			var q = s.players[pid]
+			if q.nat == nat and int(q.age) >= 18 and q.club != "":
+				ovrs.append(int(q.ovr))
+		ovrs.sort()
+		ovrs.reverse()
+		if ovrs.size() < 23:
+			continue
+		var bar: int = ovrs[22]
+		for pid in by_nat[nat]:
+			var p := player(pid)
+			if int(p.ovr) >= bar:
+				s.scout.caps[pid] = s.season
+				_headline("callup", pid, [Data.country_name(nat)])
+
+func _star_headlines() -> void:
+	for d in s.scout.get("disc_log", []):
+		var p := player(d.pid)
+		if p.is_empty() or int(p.st.apps) < 15:
+			continue
+		var avg := float(p.st.rs) / float(p.st.apps)
+		if avg >= 7.35:
+			_headline("star", d.pid, [club(p.club).get("name", "?"), "%.1f" % avg])
+
+## Keşif 11'i: kariyer boyunca bulduğun oyunculardan en güçlü kadro (4-3-3)
+const XI_SLOTS := [["GK", ["GK"]], ["LB", ["LB"]], ["CB", ["CB"]], ["CB", ["CB"]], ["RB", ["RB"]],
+	["DM", ["DM", "CM"]], ["CM", ["CM", "AM", "DM"]], ["AM", ["AM", "CM"]], ["LW", ["LW", "ST", "AM"]], ["ST", ["ST"]], ["RW", ["RW", "ST", "AM"]]]
+
+func finds_xi() -> Array:
+	var pool := []
+	for d in s.scout.get("disc_log", []):
+		var p := player(d.pid)
+		if not p.is_empty():
+			pool.append(p)
+	for r in s.scout.reports:
+		var p := player(r.pid)
+		if not p.is_empty() and not pool.has(p):
+			pool.append(p)
+	pool.sort_custom(func(a, b): return int(a.ovr) > int(b.ovr))
+	var used := {}
+	var xi := []
+	for slot in XI_SLOTS:
+		var pick_p := {}
+		for want in slot[1]:
+			for p in pool:
+				if not used.has(p.id) and p.pos == want:
+					pick_p = p
+					break
+			if not pick_p.is_empty():
+				break
+		if not pick_p.is_empty():
+			used[pick_p.id] = true
+		xi.append({"slot": slot[0], "pid": pick_p.get("id", "")})
+	return xi
+
+func finds_value() -> int:
+	var t := 0
+	for d in s.scout.get("disc_log", []):
+		t += int(player(d.pid).get("value", 0))
+	return t
+
+# ---------------------------------------------------------------- etkileşimli olaylar
+
+func next_event() -> Dictionary:
+	if s.get("events", []).is_empty():
+		return {}
+	return s.events[0]
+
+func _push_event(e: Dictionary) -> void:
+	for x in s.events:
+		if x.kind == e.kind:
+			return
+	e["week"] = s.week
+	s.events.append(e)
+
+func _v21_week() -> void:
+	## Haftalık: son gün paniği, turnuva daveti, etik ikilem, skandal riski, manşetler
+	if not s.has("events") or s.scout.club_id == "":
+		return
+	# eski olaylar kendiliğinden düşer
+	s.events = s.events.filter(func(e): return s.week - int(e.week) <= 1)
+	if s.week == WINDOWS[0][1] or s.week == WINDOWS[1][1]:
+		var dl := _make_deadline()
+		if not dl.is_empty():
+			_push_event(dl)
+	if s.week == 1 or s.week == 18:
+		_push_event({"kind": "tournament", "cc": _tournament_cc(), "summer": s.week == 1})
+	elif s.week >= 3 and s.week <= WEEKS - 2 and rf() < 0.09:
+		var e := _make_dilemma()
+		if not e.is_empty():
+			_push_event(e)
+	if s.week == 9 or s.week == 21:
+		_callups()
+	_scandal_roll()
+
+func _tournament_cc() -> String:
+	var cands := ["NL", "DE", "ES", "FR", "PT", "BE", "HR", "RS", "IT", "GB-ENG"]
+	cands = cands.filter(func(cc): return Data.COUNTRIES.has(cc))
+	if cands.is_empty():
+		return my_country()
+	return pick(cands)
+
+func _make_deadline() -> Dictionary:
+	var me := my_club()
+	var calls := []
+	# 1) kulüp: takip listendeki bir oyuncu için hemen karar ister
+	var sl: Array = s.scout.shortlist.filter(func(pid): return not player(pid).is_empty() and player(pid).club != me.id)
+	if not sl.is_empty():
+		var pid: String = pick(sl)
+		calls.append({"type": "club_ask", "pid": pid, "fee": int(float(player(pid).value) * 1.25)})
+	# 2) menajer: tanımadığın bir oyuncuyu ballandırarak anlatır
+	var pool := []
+	for cid in s.clubs:
+		var c := club(cid)
+		if c.get("lazy", false) or cid == me.id or Data.is_scout_cc(club_country(cid)):
+			continue
+		for pid2 in c.squad:
+			var q := player(pid2)
+			if int(q.age) <= 26 and not s.scout.knowledge.has(pid2):
+				pool.append(pid2)
+		if pool.size() > 200:
+			break
+	if not pool.is_empty():
+		var ap: String = pick(pool)
+		calls.append({"type": "agent", "pid": ap, "fee": int(float(player(ap).value) * 1.1)})
+	# 3) rakip kulüp senin keşfine son dakika teklifi yaptı
+	var mine := []
+	for d in s.scout.get("disc_log", []):
+		var q := player(d.pid)
+		if not q.is_empty() and q.club != me.id and int(q.ovr) >= club_avg_ovr(me.id) - 2:
+			mine.append(d.pid)
+	if not mine.is_empty():
+		var rp: String = pick(mine)
+		var rivals := league_clubs(me.league).filter(func(cid): return cid != me.id and cid != player(rp).club)
+		if not rivals.is_empty():
+			calls.append({"type": "rival_bid", "pid": rp, "rival": pick(rivals), "fee": int(float(player(rp).value) * 1.3)})
+	if calls.is_empty():
+		return {}
+	return {"kind": "deadline", "calls": calls}
+
+func resolve_deadline_call(c: Dictionary, yes: bool) -> Dictionary:
+	## Dönüş: {"key": metin anahtarı, "args": [...], "good": bool}
+	var me := my_club()
+	var p := player(c.pid)
+	if p.is_empty():
+		return {"key": "dl_gone", "args": [], "good": false}
+	var fee := int(c.fee)
+	if not yes:
+		if c.type == "rival_bid":
+			_transfer(c.pid, c.rival, fee)
+			add_news("n_joined", [pname(p), club(c.rival).name], true, "bad")
+			return {"key": "dl_rival_lost", "args": [pname(p), club(c.rival).name], "good": false}
+		return {"key": "dl_passed", "args": [pname(p)], "good": true}
+	if fee > int(float(me.budget) * (1.25 if has_perk("perk_2b") else 1.0)):
+		s.scout.rep = maxf(0.0, s.scout.rep - 0.5)
+		return {"key": "dl_no_budget", "args": [pname(p), money_str(fee)], "good": false}
+	var bar := club_avg_ovr(me.id)
+	match c.type:
+		"club_ask", "agent":
+			_transfer(c.pid, me.id, fee)
+			s.scout.stats.signed += 1
+			var r := {"id": "r%d" % s.next_rid, "pid": c.pid, "aid": "", "cur": stars(float(p.ovr) + rng.randfn(0, 4)), "pot": stars(float(p.pa) + rng.randfn(0, 5)), "rec": "sign",
+				"season": s.season, "week": s.week, "status": "signed", "from_club": "", "age0": int(p.age), "lg0": me.league, "ovr0": p.ovr, "evals": 0, "tags": ["deadline"], "pot_hi": 0}
+			s.next_rid += 1
+			s.scout.reports.append(r)
+			log_discovery(c.pid, "deadline")
+			var good: bool = float(p.ovr) >= bar - 1.0 or (int(p.age) <= 21 and float(p.pa) >= bar + 6.0)
+			s.scout.rep = clampf(s.scout.rep + (1.5 if good else -2.5) * (1.4 if c.type == "agent" else 1.0), 0.0, 100.0)
+			add_news("n_joined", [pname(p), me.name], true, "good" if good else "bad")
+			return {"key": "dl_signed_good" if good else "dl_signed_bad", "args": [pname(p), money_str(fee)], "good": good}
+		"rival_bid":
+			var ch: float = 0.35 + float(s.scout.rep) / 200.0
+			if rf() < ch:
+				_transfer(c.pid, me.id, fee)
+				s.scout.stats.signed += 1
+				s.scout.rep = minf(100.0, s.scout.rep + 2.0)
+				add_news("n_joined", [pname(p), me.name], true, "good")
+				return {"key": "dl_hijack_ok", "args": [pname(p), club(c.rival).name], "good": true}
+			_transfer(c.pid, c.rival, fee)
+			s.scout.rep = maxf(0.0, s.scout.rep - 1.0)
+			return {"key": "dl_hijack_fail", "args": [pname(p), club(c.rival).name], "good": false}
+	return {}
+
+func tournament_matches(cc: String) -> Array:
+	## 4 maç, her birinde 3 çocuk (15-17 yaş). Oyuncu her maçtan birini seçer.
+	var out := []
+	var nats := [cc, my_country(), cc, my_country()]
+	for i in 4:
+		var kids := []
+		for k in 3:
+			var nat: String = nats[i]
+			if not Data.COUNTRIES.has(nat):
+				nat = cc
+			var pos: String = pick(Data.POSITIONS)
+			var pid := new_player(pos, ri(30, 46), ri(15, 17), nat, "", true)
+			var p := player(pid)
+			p["pa"] = clampi(int(p.pa) + ri(-4, 12), 40, 95)
+			p["tourn"] = true
+			kids.append(pid)
+		out.append({"kids": kids, "label": "%s U17" % Data.country_name(nats[i])})
+	return out
+
+func tournament_cost(cc: String) -> int:
+	return int(travel_info(trip_city(cc) if Data.COUNTRIES.has(cc) else my_club().city).cost) + 300
+
+func tournament_accept(cc: String) -> Array:
+	var cost := tournament_cost(cc)
+	if s.scout.money < cost:
+		return []
+	s.scout.money -= cost
+	_take_day("tournament", "")
+	_take_day("tournament", "")
+	return tournament_matches(cc)
+
+func tournament_pick(pid: String) -> void:
+	## Seçilen çocuk: yakından izlenir, bir altyapıya yerleşir ve keşif kaydına girer
+	var p := player(pid)
+	if p.is_empty():
+		return
+	var cc := String(p.nat)
+	var clubs := []
+	for cid in s.clubs:
+		if club_country(cid) == cc:
+			clubs.append(cid)
+	if clubs.is_empty():
+		clubs = [my_club().id]
+	var cid: String = pick(clubs)
+	ensure_squad(cid)
+	p.club = cid
+	if club(cid).has("u19"):
+		club(cid).u19.append(pid)
+	p.disc = true
+	s.scout.stats.disc += 1
+	observe(pid, 0.24, ["tec", "phy", "men"], 1.2)
+	log_discovery(pid, "tournament")
+	area_gain(Data.zone_of(cc), 2.0)
+	_gain_xp("eye", 1)
+
+func tournament_cleanup(all_kids: Array, picked: Array) -> void:
+	for pid in all_kids:
+		if not pid in picked:
+			s.players.erase(pid)
+
+func _make_dilemma() -> Dictionary:
+	var kinds := ["bribe", "hide_injury", "leak", "nephew"]
+	var k: String = pick(kinds)
+	var e := {"kind": "dilemma", "type": k}
+	match k:
+		"bribe":
+			var sl: Array = s.scout.shortlist.filter(func(pid): return not player(pid).is_empty())
+			if sl.is_empty():
+				return {}
+			e["pid"] = pick(sl)
+			e["money"] = ri(4, 12) * 500
+		"hide_injury":
+			var sl2: Array = s.scout.shortlist.filter(func(pid): return not player(pid).is_empty())
+			if sl2.is_empty():
+				return {}
+			e["pid"] = pick(sl2)
+		"leak":
+			e["money"] = ri(3, 8) * 500
+		"nephew":
+			e["name"] = "%s %s" % Data.name_pair(my_country())
+	return e
+
+func resolve_dilemma(e: Dictionary, accept: bool) -> Dictionary:
+	var sc: Dictionary = s.scout
+	var out := {"key": "", "args": []}
+	match e.type:
+		"bribe":
+			if accept:
+				sc.money += int(e.money)
+				sc.integrity = maxf(0.0, sc.integrity - 15.0)
+				sc.scandals.append({"kind": "bribe", "risk": 0.05, "weeks": 12, "pid": e.pid})
+				out.key = "dil_bribe_yes"
+			else:
+				sc.integrity = minf(100.0, sc.integrity + 6.0)
+				sc.rep = minf(100.0, sc.rep + 0.5)
+				out.key = "dil_bribe_no"
+		"hide_injury":
+			if accept:
+				sc.integrity = maxf(0.0, sc.integrity - 8.0)
+				_gain_xp("net", 2)
+				var p := player(e.pid)
+				p["hidden_inj"] = true
+				out.key = "dil_hide_yes"
+			else:
+				sc.integrity = minf(100.0, sc.integrity + 4.0)
+				out.key = "dil_hide_no"
+		"leak":
+			if accept:
+				sc.money += int(e.money)
+				sc.integrity = maxf(0.0, sc.integrity - 10.0)
+				board().mood = maxi(0, int(board().mood) - 6)
+				sc.scandals.append({"kind": "leak", "risk": 0.06, "weeks": 8})
+				out.key = "dil_leak_yes"
+			else:
+				sc.integrity = minf(100.0, sc.integrity + 4.0)
+				out.key = "dil_leak_no"
+		"nephew":
+			if accept:
+				board().mood = mini(100, int(board().mood) + 10)
+				sc.integrity = maxf(0.0, sc.integrity - 6.0)
+				out.key = "dil_nephew_yes"
+			else:
+				board().mood = maxi(0, int(board().mood) - 5)
+				sc.integrity = minf(100.0, sc.integrity + 5.0)
+				out.key = "dil_nephew_no"
+	s.events.erase(e)
+	changed.emit()
+	return out
+
+func _scandal_roll() -> void:
+	var sc: Dictionary = s.scout
+	for sd in sc.get("scandals", []).duplicate():
+		sd.weeks = int(sd.weeks) - 1
+		if rf() < float(sd.risk):
+			sc.scandals.erase(sd)
+			sc.rep = maxf(0.0, sc.rep - 10.0)
+			board().mood = maxi(0, int(board().mood) - 15)
+			add_news("n_scandal_" + String(sd.kind), [sc.name], true, "bad")
+			continue
+		if int(sd.weeks) <= 0:
+			sc.scandals.erase(sd)
+
+func integrity_key() -> String:
+	var v := float(s.scout.get("integrity", 50.0))
+	if v >= 70.0:
+		return "integ_hi"
+	if v <= 30.0:
+		return "integ_lo"
+	return "integ_mid"
+
+## Rakip scout karşılaşması: izlediğin maçta rakip kulüp odaktaki oyuncuna baktı
+func rival_encounters(data: Dictionary, focus: Array) -> Array:
+	var out := []
+	for pid in focus:
+		var p := player(pid)
+		if not p.is_empty() and p.get("rival", "") != "" and p.club != s.scout.club_id:
+			out.append({"pid": pid, "rival": p.rival})
+	return out
+
+func rush_report(pid: String) -> void:
+	## Acil rapor: rakibin önüne geç (rakip ilgisi bu hafta etkisiz) ama yorgunluk
+	var p := player(pid)
+	if p.is_empty():
+		return
+	p["rush"] = s.season * 100 + s.week
+	s.scout.fatigue = mini(100, int(s.scout.fatigue) + 8)
+
+## Kariyer yolu: unvana göre açılan yetkiler
+const PERKS := {
+	"title_0": ["perk_0"],
+	"title_1": ["perk_1a", "perk_1b"],
+	"title_2": ["perk_2a", "perk_2b"],
+	"title_3": ["perk_3a", "perk_3b"],
+	"title_4": ["perk_4"],
+}
+
+func title_index() -> int:
+	var k := title_key()
+	return int(k.substr(6))
+
+func has_perk(id: String) -> bool:
+	var ti := title_index()
+	for i in ti + 1:
+		if id in PERKS.get("title_%d" % i, []):
+			return true
+	return false

@@ -57,7 +57,7 @@ func setup(name: String, split := false) -> void:
 		cont.stretch = true
 		cont.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		cont.material = Watch.opaque_mat()
+		cont.material = Post.make("training" if name == "training" else ("video" if name == "video" else "office"))
 		hb.add_child(cont)
 		var sv := SubViewport.new()
 		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
@@ -184,16 +184,12 @@ func _env(bg: Color, amb: Color, amb_e := 0.6, sky := false) -> void:
 	var we := WorldEnvironment.new()
 	var e := Environment.new()
 	if sky:
-		e.background_mode = Environment.BG_SKY
-		var s := Sky.new()
-		var pm := ProceduralSkyMaterial.new()
-		pm.sky_top_color = Color("#5d8fc9")
-		pm.sky_horizon_color = Color("#c9dbe8")
-		pm.ground_horizon_color = Color("#9fb3a0")
-		pm.ground_bottom_color = Color("#4b5e48")
-		s.sky_material = pm
-		e.sky = s
-		e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+		# Sky kaynağı bazı Adreno sürücülerinde siyah ekran veriyordu: mesh kubbe
+		e.background_mode = Environment.BG_COLOR
+		e.background_color = Color("#9fb7cc")
+		e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		e.ambient_light_color = Color("#c6d4e6")
+		world.add_child(load("res://three/stadium.gd").sky_dome("day", "clear", 300.0))
 	else:
 		e.background_mode = Environment.BG_COLOR
 		e.background_color = bg
@@ -658,11 +654,21 @@ func _set_training() -> void:
 	var pm := ShaderMaterial.new()
 	var sh := Shader.new()
 	sh.code = """shader_type spatial;
-uniform vec3 a : source_color = vec3(0.17, 0.42, 0.16);
-uniform vec3 b : source_color = vec3(0.2, 0.48, 0.19);
+uniform sampler2D grass : source_color, filter_linear_mipmap, repeat_enable;
+uniform vec3 tint = vec3(0.62, 0.68, 0.58);
 varying vec3 wp;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
 void vertex(){ wp = (MODEL_MATRIX * vec4(VERTEX,1.0)).xyz; }
-void fragment(){ float s = step(0.5, fract(wp.x / 6.0)); ALBEDO = mix(a, b, s); ROUGHNESS = 0.95; }"""
+void fragment(){
+	vec3 g = texture(grass, vec2(wp.x / 42.0, wp.z / 21.0)).rgb * tint;
+	float n = noise(wp.xz * 0.3) * 0.6 + noise(wp.xz * 2.0) * 0.4;
+	// idman sahası: daha yıpranmış, yer yer kel
+	float bald = smoothstep(0.62, 0.8, noise(wp.xz * 0.18 + 3.0)) * 0.5;
+	g = mix(g * (0.88 + 0.2 * n), vec3(0.2, 0.16, 0.09), bald);
+	ALBEDO = g; ROUGHNESS = 0.9; }"""
+	pm.set_shader_parameter("grass", load("res://assets/tex/grass.jpg"))
 	pm.shader = sh
 	var pl := MeshInstance3D.new()
 	var pmesh := PlaneMesh.new()

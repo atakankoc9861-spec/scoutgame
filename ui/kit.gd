@@ -129,46 +129,85 @@ func _make_theme() -> Theme:
 
 # ================================================================ kâğıt dokuları (9-parça, prosedürel)
 
+var _photo_cache := {}
+
+func _photo_img(path: String, n: int) -> Image:
+	## Gemini kâğıt fotoğrafı: parlaklık dokusu olarak kullanılır (renk = taban rengi)
+	var key := "%s_%d" % [path, n]
+	if _photo_cache.has(key):
+		return _photo_cache[key]
+	var tex: Texture2D = load(path)
+	var img: Image = null
+	if tex:
+		img = tex.get_image()
+		if img:
+			if img.is_compressed():
+				img.decompress()
+			img = img.duplicate()
+			img.convert(Image.FORMAT_RGB8)
+			img.resize(n, n, Image.INTERPOLATE_BILINEAR)
+	_photo_cache[key] = img
+	return img
+
 func _paper_tex(base: Color, radius := 8, shadow := 7, grain := 0.05, fiber := true) -> Texture2D:
 	var key := "%s_%d_%d_%.2f_%s" % [base.to_html(), radius, shadow, grain, str(fiber)]
 	if _tex_cache.has(key):
 		return _tex_cache[key]
-	var n := 96
+	var n := 160
 	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(key)
+	var manila := base.h > 0.08 and base.h < 0.14 and base.s > 0.3
+	var photo := _photo_img("res://assets/tex/manila.jpg" if manila else "res://assets/tex/paper.jpg", n)
+	var mean := 0.0
+	if photo:
+		for i in 64:
+			mean += photo.get_pixel(rng.randi_range(0, n - 1), rng.randi_range(0, n - 1)).get_luminance()
+		mean /= 64.0
 	var inner := Rect2(shadow, shadow - 2, n - shadow * 2, n - shadow * 2)
 	for y in n:
 		for x in n:
 			var p := Vector2(x + 0.5, y + 0.5)
-			# yuvarlatılmış dikdörtgene mesafe
 			var cx := clampf(p.x, inner.position.x + radius, inner.end.x - radius)
 			var cy := clampf(p.y, inner.position.y + radius, inner.end.y - radius)
 			var d := p.distance_to(Vector2(cx, cy)) - radius
 			if d <= 0.0:
-				var v := rng.randf_range(-grain, grain)
-				var c := Color(base.r + v, base.g + v, base.b + v * 0.8, 1.0)
-				# kenarlara doğru hafif koyulaşma (eskimiş kâğıt)
+				var c: Color
+				if photo:
+					var k := photo.get_pixel(x, y).get_luminance() / maxf(mean, 0.01)
+					k = 1.0 + (k - 1.0) * 0.55
+					c = Color(base.r * k, base.g * k, base.b * k, 1.0)
+				else:
+					var v := rng.randf_range(-grain, grain)
+					c = Color(base.r + v, base.g + v, base.b + v * 0.8, 1.0)
 				var edge := minf(minf(p.x - inner.position.x, inner.end.x - p.x), minf(p.y - inner.position.y, inner.end.y - p.y))
-				if edge < 6.0:
-					c = c.darkened((6.0 - edge) / 6.0 * 0.06)
+				if edge < 8.0:
+					c = c.darkened((8.0 - edge) / 8.0 * 0.08)
 				c.a = clampf(-d + 0.5, 0.0, 1.0)
 				img.set_pixel(x, y, c)
 			else:
-				# gölge
 				var sh := pow(clampf(1.0 - d / float(shadow), 0.0, 1.0), 2.0) * 0.32
 				img.set_pixel(x, y, Color(0, 0, 0, sh))
-	if fiber:
-		for i in 26:
-			var x0 := rng.randi_range(shadow + 4, n - shadow - 14)
-			var y0 := rng.randi_range(shadow + 4, n - shadow - 6)
-			var c := img.get_pixel(x0, y0).darkened(0.05)
-			for k in rng.randi_range(3, 8):
-				if x0 + k < n - shadow:
-					img.set_pixel(x0 + k, y0, c)
 	var tex := ImageTexture.create_from_image(img)
 	_tex_cache[key] = tex
 	return tex
+
+func _leather_tex_style(tint := Color(0.62, 0.55, 0.5), pad_x := 16, pad_y := 12) -> StyleBoxTexture:
+	var st := StyleBoxTexture.new()
+	st.texture = load("res://assets/tex/leather.jpg")
+	st.modulate_color = tint
+	st.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
+	st.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE
+	st.content_margin_left = pad_x
+	st.content_margin_right = pad_x
+	st.content_margin_top = pad_y
+	st.content_margin_bottom = pad_y
+	return st
+
+## Kısa titreşim (ayarlardan kapatılabilir)
+func _haptic(ms := 12) -> void:
+	if Game.settings.get("haptic", true) and OS.has_feature("mobile"):
+		Input.vibrate_handheld(ms)
 
 func _paper_style(base: Color, pad := 18, radius := 8, shadow := 7) -> StyleBoxTexture:
 	var st := StyleBoxTexture.new()
@@ -245,6 +284,7 @@ func _press_fx(b: Control) -> void:
 	b.resized.connect(func(): b.pivot_offset = b.size / 2.0)
 	if b is BaseButton:
 		b.button_down.connect(func():
+			_haptic(8)
 			var tw := b.create_tween()
 			tw.tween_property(b, "scale", Vector2(0.96, 0.96), 0.07))
 		b.button_up.connect(func():
@@ -535,6 +575,9 @@ func _stamp_slam(st: Control) -> void:
 	var tw := st.create_tween().set_parallel(true)
 	tw.tween_property(st, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(st, "modulate:a", 1.0, 0.12)
+	tw.chain().tween_callback(func():
+		_haptic(35)
+		Sfx.play("stamp", -6.0))
 
 func _polaroid(p: Dictionary, w := 200.0, caption := "", deg := 0.0, tape := true) -> Control:
 	## Polaroid fotoğraf: avatar + el yazısı altyazı + bant

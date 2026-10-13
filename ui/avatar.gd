@@ -21,10 +21,48 @@ func setup(p: Dictionary, club: Dictionary, sz := 64.0) -> Control:
 		shirt2 = Color(club.c2)
 	custom_minimum_size = Vector2(sz, sz)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# büyük portrelerde 3D vesikalık (önbellekten ya da sırayla çizilir)
+	if sz >= 110.0 and not unknown and Portrait.enabled() and p.has("id"):
+		var t := Portrait.get_tex(p)
+		if t:
+			photo = t
+		else:
+			Portrait.request(p, func(tx):
+				if is_instance_valid(self):
+					photo = tx
+					_fade = 0.0
+					queue_redraw())
 	queue_redraw()
 	return self
 
+var photo: Texture2D
+var _fade := 1.0
+
+func _process(delta: float) -> void:
+	if photo and _fade < 1.0:
+		_fade = minf(1.0, _fade + delta * 3.0)
+		queue_redraw()
+
+func _draw_photo(c: Vector2, r: float) -> void:
+	var pts := PackedVector2Array()
+	var uvs := PackedVector2Array()
+	for i in 48:
+		var a := i * TAU / 48.0
+		pts.append(c + Vector2(cos(a), sin(a)) * r)
+		uvs.append(Vector2(0.5, 0.5) + Vector2(cos(a), sin(a)) * 0.5)
+	draw_polygon(pts, PackedColorArray([Color(1, 1, 1, _fade)]), uvs, photo)
+	draw_arc(c, r, 0, TAU, 48, ring, 2.0, true)
+
 func _draw() -> void:
+	var s := minf(size.x, size.y)
+	var c := Vector2(size.x / 2.0, size.y / 2.0)
+	var r := s / 2.0
+	if not photo or _fade < 1.0:
+		_draw_2d()
+	if photo:
+		_draw_photo(c, r)
+
+func _draw_2d() -> void:
 	var s := minf(size.x, size.y)
 	var c := Vector2(size.x / 2.0, size.y / 2.0)
 	var r := s / 2.0

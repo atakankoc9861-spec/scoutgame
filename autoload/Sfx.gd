@@ -18,6 +18,8 @@ const FILES := {
 	"catch": preload("res://audio/catch.wav"),
 	"cafe": preload("res://audio/cafe.wav"),
 	"field": preload("res://audio/field.wav"),
+	"stamp": preload("res://audio/stamp.wav"),
+	"page": preload("res://audio/page.wav"),
 }
 
 const MUSIC := preload("res://audio/menu.ogg")

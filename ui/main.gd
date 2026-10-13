@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.20.1"
+const VERSION := "v0.21-beta2"
 
 var bg: ColorRect
 var hub
@@ -148,11 +148,8 @@ func _process(delta: float) -> void:
 
 # ================================================================ iskelet
 
-func _leather_style(pad_x := 16, pad_y := 12) -> StyleBoxFlat:
-	var sb := _sb(C_LEATHER, 0, 0, C_LINE, pad_x)
-	sb.content_margin_top = pad_y
-	sb.content_margin_bottom = pad_y
-	return sb
+func _leather_style(pad_x := 16, pad_y := 12) -> StyleBox:
+	return _leather_tex_style(Color(0.55, 0.48, 0.44), pad_x, pad_y)
 
 func _stitch(panel: Control, top: bool) -> void:
 	## Deri üzerine dikiş çizgisi
@@ -182,6 +179,7 @@ func _build_shell() -> void:
 	hub = Hub3D.new()
 	add_child(hub)
 	hub.setup_font(F_HEAD)
+	_build_title_bg()
 	shade = TextureRect.new()
 	var g := Gradient.new()
 	g.set_color(0, Color(0, 0, 0, 0.0))
@@ -307,6 +305,23 @@ func _build_nav() -> void:
 		nav_row.add_child(b)
 
 func _refresh_nav(animate := true) -> void:
+	var tut_tab := Game.tut_tab() if not Game.s.is_empty() else ""
+	for b in nav_row.get_children():
+		var old := b.get_node_or_null("TutDot")
+		if old:
+			old.queue_free()
+		if tut_tab != "" and b.get_meta("tab") == tut_tab and cur_tab != tut_tab:
+			var dot := Control.new()
+			dot.name = "TutDot"
+			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			dot.draw.connect(func():
+				var c: Vector2 = b.size / 2.0 + Vector2(0, -6)
+				dot.draw_arc(c, 30.0, 0, TAU, 32, Color(C_HL, 0.9), 3.0, true))
+			b.add_child(dot)
+			dot.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			var tw := dot.create_tween().set_loops()
+			tw.tween_property(dot, "modulate:a", 0.25, 0.6)
+			tw.tween_property(dot, "modulate:a", 1.0, 0.6)
 	var open := 0
 	for a in Game.s.get("assign", []):
 		if a.status == "open":
@@ -578,6 +593,7 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 	Watch.bc("ekran " + str(screen))
 	if push:
 		stack.append([screen, arg])
+		Sfx.play("page", -16.0)
 	else:
 		stack = [[screen, arg]]
 	for c in outer.get_children():
@@ -589,6 +605,7 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 	navbar.visible = chrome
 	root.get_node("SafeTop").color = C_LEATHER if chrome else Color(0, 0, 0, 0)
 	shade.visible = screen != "title"
+	_title_bg(screen in ["title", "newgame"])
 	_hub_for(screen, arg)
 	if hub:
 		hub.set_pitch(15.0 if chrome else 4.0)
@@ -605,6 +622,8 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 	if chrome:
 		_refresh_topbar()
 		_refresh_nav()
+		if Game.tut_on():
+			_tut_card()
 	match screen:
 		"title": _scr_title()
 		"newgame": _scr_newgame()
@@ -689,6 +708,7 @@ func _back() -> void:
 func _goto_tab(tab: String) -> void:
 	cur_tab = tab
 	stack = []
+	Game.tut_event("tab_" + tab)
 	_show(tab)
 
 func _refresh() -> void:
@@ -746,10 +766,11 @@ func _hub_for(screen: String, arg) -> void:
 		return
 	match screen:
 		"title":
-			hub.goto("stadium_orbit" if Game.quality() != "low" else "office")
+			hub.goto("office")
 		"home", "newgame", "offers":
 			if not Game.s.is_empty() and Game.s.scout.club_id != "":
 				var c := Game.my_club()
+				hub.set_office_level(hub.office_level_for(Game.title_key()))
 				hub.set_club(Color(c.c1), Color(c.c2))
 				hub.set_trophies(int(Game.s.scout.stats.signed) + int(Game.s.scout.stats.finds))
 			hub.goto("office")
@@ -782,7 +803,7 @@ func _hub_for(screen: String, arg) -> void:
 				if p.is_empty():
 					continue
 				var c := Game.club(p.club)
-				cards.append({"name": Game.short_name(p), "c1": c.get("c1", "#888888"), "c2": c.get("c2", "#333333"), "stars": _star_txt(Game.ovr_range(pid))})
+				cards.append({"name": Game.short_name(p), "c1": c.get("c1", "#888888"), "c2": c.get("c2", "#333333"), "stars": _star_txt(Game.ovr_range(pid)), "p": p})
 			hub.set_board(cards)
 			hub.goto("board")
 		"player", "report":
@@ -831,6 +852,62 @@ func _my_tier() -> int:
 	return Game.tier(c.get("league", "SL")) if not c.is_empty() else 1
 
 # ================================================================ başlık / yeni oyun / teklifler
+
+var title_bg: Control
+var title_vid: VideoStreamPlayer
+
+func _build_title_bg() -> void:
+	## Açılış: döngü video (düşük kalitede sabit key art)
+	title_bg = Control.new()
+	title_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	title_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_bg.visible = false
+	add_child(title_bg)
+	var bg := ColorRect.new()
+	bg.color = Color(0.02, 0.025, 0.03)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_bg.add_child(bg)
+	var art := TextureRect.new()
+	art.texture = load("res://assets/tex/key_art.jpg")
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_bg.add_child(art)
+	var vs = load("res://assets/video/title_loop.ogv")
+	if vs != null and Game.quality() != "low":
+		title_vid = VideoStreamPlayer.new()
+		title_vid.stream = vs
+		title_vid.loop = true
+		title_vid.expand = true
+		title_vid.volume_db = -80.0
+		title_vid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		title_vid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		title_bg.add_child(title_vid)
+	var g := Gradient.new()
+	g.set_color(0, Color(0, 0, 0, 0.0))
+	g.set_color(1, Color(0.02, 0.015, 0.01, 0.75))
+	var gt := GradientTexture2D.new()
+	gt.gradient = g
+	gt.fill_from = Vector2(0, 0.2)
+	gt.fill_to = Vector2(0, 1)
+	var sh := TextureRect.new()
+	sh.texture = gt
+	sh.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sh.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	sh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_bg.add_child(sh)
+
+func _title_bg(on: bool) -> void:
+	if title_bg == null:
+		return
+	title_bg.visible = on
+	if title_vid:
+		if on and not title_vid.is_playing():
+			title_vid.play()
+		elif not on and title_vid.is_playing():
+			title_vid.stop()
 
 func _scr_title() -> void:
 	_gap(outer, 300)
@@ -889,10 +966,15 @@ func _scr_title() -> void:
 		Game.settings.sound = not Game.settings.sound
 		Game.save_settings()
 		_show("title", null, false), "dark", qh, "bell"))
-	_btn(T.t("music_on") if Game.settings.get("music", true) else T.t("music_off"), func():
+	var qh2 := _h(cv)
+	_expand(_btn(T.t("music_on") if Game.settings.get("music", true) else T.t("music_off"), func():
 		Game.settings.music = not Game.settings.get("music", true)
 		Game.save_settings()
-		_show("title", null, false), "dark", cv, "play")
+		_show("title", null, false), "dark", qh2, "play"))
+	_expand(_btn(T.t("haptic_on") if Game.settings.get("haptic", true) else T.t("haptic_off"), func():
+		Game.settings.haptic = not Game.settings.get("haptic", true)
+		Game.save_settings()
+		_show("title", null, false), "dark", qh2, "bell"))
 	_btn(T.t("crash_copy"), func():
 		DisplayServer.clipboard_set(_last_log(true))
 		_toast(T.t("crash_copied")), "dark", cv, "report")
@@ -1080,6 +1162,30 @@ func _scr_offers() -> void:
 
 # ================================================================ OFİS (ana)
 
+func _tut_card() -> void:
+	var st := Game.tut_step()
+	var v := _card(outer, "hl", 14)
+	var h := _h(v, 8)
+	h.add_child(Icon.new().setup("eye", C_RED, 28))
+	h.add_child(_lbl(T.t("tut_title"), 18, C_RED, false, F_HEAD))
+	var dots := ""
+	for i in Game.TUT_STEPS.size():
+		dots += "●" if i <= st else "○"
+	var dl := _lbl(dots, 14, C_INK2, false, F_BODY)
+	dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(dl)
+	v.add_child(_hand(T.t("tut_%d" % clampi(st, 0, 5)), 25, C_INK))
+	var bh := _h(v, 8)
+	if st >= 5:
+		_expand(_btn(T.t("tut_ok"), func():
+			Game.tut_skip()
+			_refresh(), "primary", bh))
+	else:
+		_btn(T.t("tut_skip"), func():
+			Game.tut_skip()
+			_refresh(), "ghost", bh).add_theme_font_size_override("font_size", 17)
+
 func _scr_home() -> void:
 	_sheet([["summary", T.t("st_summary")], ["board", T.t("st_board")], ["career", T.t("st_career")], ["archive", T.t("st_archive")], ["club", T.t("st_myclub")]], sub.home, _sub_cb("home"))
 	match sub.home:
@@ -1093,6 +1199,7 @@ func _scr_home() -> void:
 			_home_club()
 		_:
 			_home_summary()
+	_check_popups.call_deferred()
 
 func _home_summary() -> void:
 	var sc: Dictionary = Game.s.scout
@@ -1316,6 +1423,7 @@ func _home_career() -> void:
 	if nxt_key != "":
 		rv.add_child(_hand(T.t("next_title", [T.t(nxt_key), nxt]), 24, C_BLUE))
 	rh.add_child(rv)
+	_career_path_card()
 	_rep_card()
 	# istatistikler
 	var sv := _card()
@@ -1418,6 +1526,31 @@ func _home_career() -> void:
 	for hrow in hist:
 		_kv(hc, "%d/%02d  %s" % [int(hrow.season), (int(hrow.season) + 1) % 100, hrow.club], T.t("rep") + " %d" % int(hrow.rep))
 
+func _career_path_card() -> void:
+	var v := _card(null, "manila", 18)
+	_section(T.t("career_path"), v, "trophy")
+	var cur := Game.title_index()
+	for i in 5:
+		var on := i <= cur
+		var row := _h(v, 10)
+		var dot := Control.new()
+		dot.custom_minimum_size = Vector2(30, 30)
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var me := i == cur
+		dot.draw.connect(func():
+			dot.draw_circle(Vector2(15, 15), 13 if me else 10, C_RED if me else (C_INK if on else Color(C_INK, 0.2))))
+		row.add_child(dot)
+		var tv := VBoxContainer.new()
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tv.add_theme_constant_override("separation", -2)
+		row.add_child(tv)
+		tv.add_child(_lbl("%s  (%d+)" % [T.t("title_%d" % i), int(Game.TITLES[i][0])], 21, C_INK if on else C_INK2, false, F_HEAD))
+		for pk in Game.PERKS.get("title_%d" % i, []):
+			tv.add_child(_typed(("✓ " if on else "• ") + T.t(pk), 15, C_GREEN if on else C_INK2))
+	var ik := Game.integrity_key()
+	_kv(v, T.t("integrity"), "%d" % int(Game.s.scout.get("integrity", 50)), C_GREEN if ik == "integ_hi" else (C_RED if ik == "integ_lo" else C_INK))
+	v.add_child(_typed(T.t(ik), 15, C_INK2))
+
 func _rep_card() -> void:
 	## İtibar: bölge ağı + uzmanlık rozetleri + rapor isabeti
 	var sc: Dictionary = Game.s.scout
@@ -1458,8 +1591,94 @@ func _rep_card() -> void:
 		if not got:
 			_bar(tv, Game.badge_progress(id), C_BRASS, 8)
 
+const XI_POS := [Vector2(0.5, 0.9), Vector2(0.12, 0.7), Vector2(0.37, 0.74), Vector2(0.63, 0.74), Vector2(0.88, 0.7),
+	Vector2(0.5, 0.56), Vector2(0.24, 0.47), Vector2(0.76, 0.47), Vector2(0.15, 0.2), Vector2(0.5, 0.13), Vector2(0.85, 0.2)]
+
+func _finds_xi_card() -> void:
+	var v := _card(null, "card", 16)
+	_section(T.t("finds_xi"), v, "star")
+	v.add_child(_typed(T.t("finds_xi_hint"), 15, C_INK2))
+	var xi := Game.finds_xi()
+	var pitch := Control.new()
+	pitch.custom_minimum_size = Vector2(0, 640)
+	pitch.mouse_filter = Control.MOUSE_FILTER_PASS
+	pitch.draw.connect(func():
+		var r := Rect2(Vector2.ZERO, pitch.size)
+		pitch.draw_rect(r, Color("#2f6b3a"), true)
+		for i in 8:
+			if i % 2 == 0:
+				pitch.draw_rect(Rect2(0, r.size.y * i / 8.0, r.size.x, r.size.y / 8.0), Color(1, 1, 1, 0.04), true)
+		var lc := Color(1, 1, 1, 0.55)
+		pitch.draw_rect(r.grow(-8), lc, false, 2.0)
+		pitch.draw_line(Vector2(8, r.size.y / 2.0), Vector2(r.size.x - 8, r.size.y / 2.0), lc, 2.0)
+		pitch.draw_arc(r.size / 2.0, 60, 0, TAU, 40, lc, 2.0)
+		pitch.draw_rect(Rect2(r.size.x * 0.25, r.size.y - 8 - 90, r.size.x * 0.5, 90), lc, false, 2.0)
+		pitch.draw_rect(Rect2(r.size.x * 0.25, 8, r.size.x * 0.5, 90), lc, false, 2.0))
+	v.add_child(pitch)
+	for i in xi.size():
+		var x: Dictionary = xi[i]
+		var tok := VBoxContainer.new()
+		tok.add_theme_constant_override("separation", 0)
+		tok.mouse_filter = Control.MOUSE_FILTER_PASS
+		pitch.add_child(tok)
+		var p := Game.player(x.pid) if x.pid != "" else {}
+		if p.is_empty():
+			var e := _lbl("?", 30, Color(1, 1, 1, 0.5), false, F_HEAD)
+			e.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tok.add_child(e)
+		else:
+			var av := _avatar(p, 62)
+			av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			tok.add_child(av)
+			var nl := _lbl(String(p.last), 16, Color.WHITE, false, F_HEAD)
+			nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			nl.add_theme_constant_override("outline_size", 6)
+			nl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+			tok.add_child(nl)
+			var ol := _lbl("%s • %s" % [_pos_short(String(x.slot)), Game.club(p.club).get("short", "")], 13, Color(1, 1, 1, 0.8), false, F_BODY)
+			ol.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			tok.add_child(ol)
+			var id: String = p.id
+			tok.gui_input.connect(func(ev):
+				if (ev is InputEventMouseButton and not ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT) and not _dragged:
+					_show("player", id))
+		var pos: Vector2 = XI_POS[i]
+		tok.custom_minimum_size = Vector2(130, 0)
+		pitch.resized.connect(func(): tok.position = Vector2(pitch.size.x * pos.x - 65, pitch.size.y * pos.y - 50))
+	v.add_child(_hand(T.t("finds_value", [Game.money_str(Game.finds_value())]), 26, C_GREEN))
+
+func _headline_archive() -> void:
+	var log: Array = Game.s.get("hl_log", []).duplicate()
+	log.reverse()
+	var v := _card(null, "paper", 16)
+	_section(T.t("hl_archive"), v, "news")
+	if log.is_empty():
+		v.add_child(_hand(T.t("hl_archive_empty"), 25, C_INK2))
+		return
+	for h in log.slice(0, 12):
+		var p := Game.player(h.pid)
+		if p.is_empty():
+			continue
+		var rb := _row_button(v, 84)
+		var inner: HBoxContainer = rb[1]
+		inner.add_child(_avatar(p, 50))
+		var tv := VBoxContainer.new()
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tv.add_theme_constant_override("separation", -2)
+		inner.add_child(tv)
+		var hl := _lbl(T.t("hl_" + String(h.kind), [Game.pname(p)] + Array(h.args)), 18, C_INK, true, F_HEAD)
+		tv.add_child(hl)
+		tv.add_child(_typed("%d/%02d • %s" % [int(h.season), (int(h.season) + 1) % 100, T.t("week_n", [int(h.week)])], 13, C_INK2, false))
+		_ignore_all(inner)
+		var id: String = h.pid
+		(rb[0] as Button).pressed.connect(func():
+			if not _dragged:
+				_show("player", id))
+
 func _home_archive() -> void:
-	## Kaçanlar Müzesi + keşif tarihçesi
+	## Keşiflerim: keşif 11'i, manşetler, kaçanlar müzesi, keşif tarihçesi
+	_finds_xi_card()
+	_headline_archive()
 	var mus: Array = Game.s.get("museum", []).duplicate()
 	mus.reverse()
 	var mv := _card(null, "manila", 20)
@@ -1645,6 +1864,7 @@ func _play_weekend() -> void:
 		return
 	_busy = true
 	Game.save_game()
+	var encounters := []
 	if Game.s.week >= 1:
 		for day in ["sat", "sun"]:
 			var key := Game.play_day(day)
@@ -1652,11 +1872,15 @@ func _play_weekend() -> void:
 				_landscape(true)
 				var data := Game.watch_match_data(key)
 				data["moments"] = Game.watch_mode(day) == "moments"
+				var focus_now: Array = Game.s.plan["focus_" + day].duplicate()
 				var fe = await _run_viewer(data, Game.s.plan["focus_" + day])
 				Game.finish_live(data)
 				Game.apply_watch(data, fe)
+				encounters += Game.rival_encounters(data, focus_now)
 				Watch.bc("gozlem kaydedildi " + str(day))
 		_landscape(false)
+		if not encounters.is_empty():
+			await _rival_popup(encounters[0])
 	Watch.bc("finish_week")
 	pending_result = Game.finish_week()
 	Watch.bc("finish_week tamam")
@@ -1664,6 +1888,7 @@ func _play_weekend() -> void:
 		if r.get("ceremony", false):
 			r.erase("ceremony")
 			await _signing_scene(r)
+			await _story("first_signing")
 			break
 	_busy = false
 	_show("result", null, false)
@@ -1708,8 +1933,17 @@ class RotHolder extends Control:
 			if old != dir:
 				_fit()
 
+func _match_cond(data: Dictionary) -> Dictionary:
+	var m: Dictionary = data.m
+	var hc := Game.club(m.h)
+	var youth: bool = data.get("youth", false)
+	var lt := 3 if youth else Game.tier(hc.get("league", "SL"))
+	return load("res://three/stadium.gd").pick_cond(hash(str(data.get("key", "")) + str(Game.s.season)), lt, Game.s.week, Data.zone_of(Game.club_country(m.h)), youth)
+
 func _run_viewer(data: Dictionary, focus: Array):
 	Game.save_game()
+	if not data.has("cond"):
+		data["cond"] = _match_cond(data)
 	Watch.bc("mac basliyor youth=" + str(data.youth))
 	Sfx.music_off()
 	# CanvasLayer yerine ana ağaçta en üst kardeş (bazı GPU'larda CanvasLayer içindeki 3D çizilmiyor)
@@ -1821,6 +2055,14 @@ func _match_loading(data: Dictionary) -> Control:
 	bg.color = Color("#0b120e")
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	c.add_child(bg)
+	var art := TextureRect.new()
+	art.texture = load("res://assets/tex/key_art.jpg")
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	art.modulate = Color(0.45, 0.45, 0.45)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.add_child(art)
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -1840,6 +2082,11 @@ func _match_loading(data: Dictionary) -> Control:
 	var nm := _lbl("%s  vs  %s%s" % [hc.get("name", ""), ac.get("name", ""), "  (U19)" if data.youth else ""], 46, Color("#eef3ef"), false, F_HEAD)
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(nm)
+	if data.has("cond") and not data.get("video", false):
+		var cd: Dictionary = data.cond
+		var cl := _lbl("%s  •  %s  •  %s" % [T.t("stad_%d" % int(cd.stadium)), T.t("cond_" + cd.tod), T.t("w_" + cd.weather)], 26, Color("#e8c547"), false, F_HEAD)
+		cl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_child(cl)
 	var from_c: String = Game.my_club().get("city", "")
 	var to_c: String = hc.get("city", "")
 	if data.get("video", false):
@@ -4512,6 +4759,7 @@ func _scr_season() -> void:
 		fc.add_child(st)
 		fc.add_child(_head(T.t("fired_title"), 28, C_RED))
 		_btn(T.t("offers"), func(): _show("offers", null, false), "primary", page, "arrow")
+		_story.call_deferred("fired")
 		return
 	if not Game.s.offers.is_empty():
 		var oc := _card()
@@ -4534,3 +4782,413 @@ func _scr_season() -> void:
 	_btn(T.t("stay"), func():
 		Game.dismiss_summary()
 		_goto_tab("home"), "primary", page, "home")
+
+# ================================================================ v0.21: manşet, olaylar, son gün, turnuva
+
+signal _choice_done(v)
+var _popups_busy := false
+
+func _modal_layer(top := 0.12, bottom := 0.9) -> Array:
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.62)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _paper_style(C_PAPER, 24, 8, 8))
+	card.anchor_left = 0.0
+	card.anchor_right = 1.0
+	card.anchor_top = top
+	card.anchor_bottom = bottom
+	card.offset_left = 26
+	card.offset_right = -26
+	layer.add_child(card)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.scroll_deadzone = 100000
+	card.add_child(sc)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 12)
+	sc.add_child(v)
+	_modal_scroll = sc
+	card.modulate.a = 0.0
+	card.scale = Vector2(0.96, 0.96)
+	card.pivot_offset = Vector2(get_viewport_rect().size.x / 2.0, 300)
+	var tw := card.create_tween().set_parallel(true)
+	tw.tween_property(card, "modulate:a", 1.0, 0.18)
+	tw.tween_property(card, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	return [layer, v]
+
+func _close_modal(layer: CanvasLayer) -> void:
+	_modal_scroll = null
+	layer.queue_free()
+
+func _check_popups() -> void:
+	## Ofise dönünce: önce manşetler, sonra bekleyen olaylar (birer birer)
+	if _popups_busy or Game.s.is_empty() or Game.s.scout.club_id == "" or viewer != null:
+		return
+	_popups_busy = true
+	await get_tree().process_frame
+	var shown := false
+	await _story("first_job")
+	var ti := Game.title_index()
+	if ti > int(Game.s.get("last_title", 0)):
+		Game.s["last_title"] = ti
+		await _story("promoted")
+	elif not Game.s.has("last_title"):
+		Game.s["last_title"] = ti
+	var h := Game.pop_headline()
+	while not h.is_empty():
+		await _story("first_headline")
+		await _show_headline(h)
+		shown = true
+		h = Game.pop_headline()
+	var e := Game.next_event()
+	if not e.is_empty() and not _busy:
+		await _run_event(e)
+		shown = true
+	_popups_busy = false
+	if shown:
+		Game.save_game()
+		_refresh()
+
+func _show_headline(h: Dictionary) -> void:
+	var p := Game.player(h.pid)
+	if p.is_empty():
+		return
+	var lv: Array = _modal_layer(0.08, 0.92)
+	var v: VBoxContainer = lv[1]
+	var mast := _lbl(T.t("paper_name"), 46, C_INK, true, F_HEAD)
+	mast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(mast)
+	var dt := _typed(T.t("hl_dateline", [int(h.season), (int(h.season) + 1) % 100, int(h.week)]), 15, C_INK2)
+	dt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(dt)
+	v.add_child(_dash_rule(Color(C_INK, 0.5)))
+	var big := _lbl(T.t("hl_" + String(h.kind), [Game.pname(p)] + Array(h.args)).to_upper(), 44, C_INK, true, F_DISP)
+	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(big)
+	var row := _h(v, 14)
+	var pol := _polaroid(p, 230, "", -3.0)
+	pol.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(pol)
+	var tv := VBoxContainer.new()
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.add_theme_constant_override("separation", 6)
+	row.add_child(tv)
+	var c0: Dictionary = Game.club(String(h.get("club0", "")))
+	var ago := int(h.ago)
+	var line := T.t("hl_you_found", [ago, int(h.age0), c0.get("name", "?")]) if ago > 0 else T.t("hl_you_found_now", [c0.get("name", "?")])
+	tv.add_child(_hand(line, 30, C_BLUE))
+	tv.add_child(_typed(T.t("hl_body_" + String(h.kind), [Game.pname(p)] + Array(h.args)), 17, C_INK))
+	var st := _stamp(T.t("hl_stamp"), C_RED, -8.0, 30)
+	st.size_flags_horizontal = Control.SIZE_SHRINK_END
+	v.add_child(st)
+	_stamp_slam(st)
+	Sfx.play("page", -8.0)
+	var was := _busy
+	_busy = false
+	_btn(T.t("hl_fold"), func(): _choice_done.emit(true), "primary", v, "check")
+	await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+
+func _run_event(e: Dictionary) -> void:
+	match e.kind:
+		"deadline":
+			await _ev_deadline(e)
+		"tournament":
+			await _ev_tournament(e)
+		"dilemma":
+			await _ev_dilemma(e)
+	Game.s.events.erase(e)
+
+func _countdown_bar(parent: Control, secs: float, on_end: Callable) -> Control:
+	var bar := Control.new()
+	bar.custom_minimum_size = Vector2(0, 14)
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var st := {"t": secs}
+	bar.draw.connect(func():
+		bar.draw_rect(Rect2(Vector2.ZERO, bar.size), Color(C_INK, 0.12), true)
+		var f: float = clampf(st.t / secs, 0.0, 1.0)
+		bar.draw_rect(Rect2(Vector2.ZERO, Vector2(bar.size.x * f, bar.size.y)), C_RED if f < 0.3 else C_INK, true))
+	parent.add_child(bar)
+	var tm := Timer.new()
+	tm.wait_time = 0.05
+	tm.autostart = true
+	bar.add_child(tm)
+	tm.timeout.connect(func():
+		st.t -= 0.05
+		bar.queue_redraw()
+		if st.t <= 0.0:
+			tm.stop()
+			on_end.call())
+	return bar
+
+func _ev_deadline(e: Dictionary) -> void:
+	var lv: Array = _modal_layer(0.06, 0.94)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("bell", C_RED, 36))
+	hh.add_child(_lbl(T.t("dl_title"), 34, C_RED, true, F_HEAD))
+	v.add_child(_typed(T.t("dl_intro"), 17, C_INK2))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	v.add_child(box)
+	var results := []
+	var i := 0
+	for c in e.calls:
+		i += 1
+		for ch in box.get_children():
+			ch.queue_free()
+		var p := Game.player(c.pid)
+		if p.is_empty():
+			continue
+		_haptic(60)
+		Sfx.play("ring", -10.0)
+		var card := _card(box, "card", 16)
+		card.add_child(_lbl(T.t("dl_call_n", [i, e.calls.size()]), 16, C_INK2, false, F_TYPEB))
+		var row := _h(card, 12)
+		row.add_child(_avatar(p, 120))
+		var tv := VBoxContainer.new()
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(tv)
+		tv.add_child(_head(Game.pname(p), 26))
+		tv.add_child(_typed("%s • %d • %s" % [_pos_short(p.pos), int(p.age), Game.club(p.club).get("name", "-")], 16, C_INK2))
+		var stars_known: String = _star_txt(Game.ovr_range(c.pid)) if Game.s.scout.knowledge.has(c.pid) else "?"
+		tv.add_child(_typed(T.t("dl_your_read", [stars_known]), 16, C_BLUE))
+		var who: String = Game.club(c.get("rival", "")).get("name", "") if c.type == "rival_bid" else Game.my_club().name
+		card.add_child(_hand(T.t("dl_" + String(c.type), [Game.pname(p), Game.money_str(int(c.fee)), who]), 27, C_INK))
+		var bh := _h(card, 10)
+		var decided := [false]
+		var decide := func(yes: bool):
+			if decided[0]:
+				return
+			decided[0] = true
+			_choice_done.emit(yes)
+		_expand(_btn(T.t("dl_yes_" + String(c.type)), func(): decide.call(true), "primary", bh, "check"))
+		_expand(_btn(T.t("dl_no_" + String(c.type)), func(): decide.call(false), "ghost", bh, "cross"))
+		_countdown_bar(card, 12.0, func(): decide.call(false))
+		var yes: bool = await _choice_done
+		var r := Game.resolve_deadline_call(c, yes)
+		results.append(r)
+		var res := _card(box, "memo", 14)
+		res.add_child(_hand(T.t(r.key, r.args), 26, C_GREEN if r.good else C_RED))
+		await get_tree().create_timer(1.4).timeout
+	for ch in box.get_children():
+		ch.queue_free()
+	var sum := _card(box, "manila", 16)
+	sum.add_child(_head(T.t("dl_over"), 26))
+	for r in results:
+		sum.add_child(_typed("• " + T.t(r.key, r.args), 16, C_GREEN if r.good else C_RED))
+	_btn(T.t("close"), func(): _choice_done.emit(true), "primary", v, "check")
+	await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+
+func _kid_hint(p: Dictionary) -> String:
+	var a: Dictionary = p.get("attrs", {})
+	var best := ""
+	var bv := -1
+	for k in a:
+		if int(a[k]) > bv:
+			bv = int(a[k])
+			best = k
+	return T.t("kid_" + best) if T.has_key("kid_" + best) else T.t("kid_any")
+
+func _ev_tournament(e: Dictionary) -> void:
+	var cc: String = e.cc
+	var lv: Array = _modal_layer(0.08, 0.92)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("youth", C_GREEN, 36))
+	hh.add_child(_lbl(T.t("tour_title"), 32, C_INK, true, F_HEAD))
+	var cost := Game.tournament_cost(cc)
+	v.add_child(_hand(T.t("tour_invite_summer" if e.get("summer", true) else "tour_invite_winter", [Data.country_name(cc)]), 28, C_BLUE))
+	v.add_child(_typed(T.t("tour_terms", [Game.money_str(cost)]), 17, C_INK2))
+	var bh := _h(v, 10)
+	var can: bool = Game.s.scout.money >= cost and Game.free_days() >= 2
+	var b1 := _expand(_btn(T.t("tour_go"), func(): _choice_done.emit(true), "primary", bh, "plane"))
+	b1.disabled = not can
+	_expand(_btn(T.t("tour_skip"), func(): _choice_done.emit(false), "ghost", bh, "cross"))
+	if not can:
+		v.add_child(_typed(T.t("tour_cant"), 15, C_RED))
+	var go: bool = await _choice_done
+	if not go:
+		_busy = was
+		_close_modal(lv[0])
+		return
+	var ms := Game.tournament_accept(cc)
+	var all := []
+	var picked := []
+	for mi in ms.size():
+		for ch in v.get_children():
+			ch.queue_free()
+		var m: Dictionary = ms[mi]
+		all += m.kids
+		v.add_child(_lbl(T.t("tour_match_n", [mi + 1, ms.size(), m.label]), 26, C_INK, true, F_HEAD))
+		v.add_child(_typed(T.t("tour_pick_hint"), 16, C_INK2))
+		var decided := [false]
+		var choose := func(pid: String):
+			if decided[0]:
+				return
+			decided[0] = true
+			_choice_done.emit(pid)
+		for pid in m.kids:
+			var p := Game.player(pid)
+			var c := _card(v, "card", 12)
+			var row := _h(c, 10)
+			row.add_child(_avatar(p, 64))
+			var tv := VBoxContainer.new()
+			tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			tv.add_theme_constant_override("separation", -2)
+			row.add_child(tv)
+			tv.add_child(_head(Game.short_name(p), 22))
+			tv.add_child(_typed("%s • %d • %s" % [_pos_short(p.pos), int(p.age), Data.country_name(p.nat)], 15, C_INK2))
+			tv.add_child(_hand(_kid_hint(p), 24, C_BLUE))
+			var id: String = pid
+			var bt := _btn(T.t("tour_take"), func(): choose.call(id), "small", row, "eye")
+			bt.custom_minimum_size = Vector2(150, 54)
+		_countdown_bar(v, 15.0, func(): choose.call(m.kids[0]))
+		var chosen: String = await _choice_done
+		picked.append(chosen)
+		Game.tournament_pick(chosen)
+		Sfx.play("pen", -8.0)
+	Game.tournament_cleanup(all, picked)
+	for ch in v.get_children():
+		ch.queue_free()
+	v.add_child(_lbl(T.t("tour_done"), 30, C_INK, true, F_HEAD))
+	for pid in picked:
+		var p := Game.player(pid)
+		if p.is_empty():
+			continue
+		var rb := _row_button(v, 80)
+		var inner: HBoxContainer = rb[1]
+		inner.add_child(_avatar(p, 50))
+		var nl := _lbl("%s  •  %s  •  %s" % [Game.short_name(p), _pos_short(p.pos), Game.club(p.club).get("short", "-")], 19, C_INK, false, F_SEMI)
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		inner.add_child(nl)
+		_ignore_all(inner)
+	_btn(T.t("close"), func(): _choice_done.emit(true), "primary", v, "check")
+	await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+
+func _ev_dilemma(e: Dictionary) -> void:
+	var lv: Array = _modal_layer(0.2, 0.86)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("report", C_RED, 34))
+	hh.add_child(_lbl(T.t("dil_title"), 30, C_INK, true, F_HEAD))
+	var pn := ""
+	if e.has("pid"):
+		pn = Game.pname(Game.player(e.pid))
+	var args := [pn, Game.money_str(int(e.get("money", 0))), String(e.get("name", "")), Game.board().name]
+	v.add_child(_hand(T.t("dil_" + String(e.type), args), 28, C_INK))
+	_btn(T.t("dil_" + String(e.type) + "_a"), func(): _choice_done.emit(true), "small", v)
+	_btn(T.t("dil_" + String(e.type) + "_b"), func(): _choice_done.emit(false), "primary", v)
+	var acc: bool = await _choice_done
+	var r := Game.resolve_dilemma(e, acc)
+	for ch in v.get_children():
+		ch.queue_free()
+	v.add_child(_hand(T.t(r.key, args), 28, C_BLUE))
+	v.add_child(_typed(T.t(Game.integrity_key()), 16, C_INK2))
+	_btn(T.t("close"), func(): _choice_done.emit(true), "primary", v, "check")
+	await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+
+func _rival_popup(enc: Dictionary) -> void:
+	var p := Game.player(enc.pid)
+	if p.is_empty():
+		return
+	var lv: Array = _modal_layer(0.22, 0.84)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("eye", C_RED, 34))
+	hh.add_child(_lbl(T.t("riv_title"), 30, C_INK, true, F_HEAD))
+	v.add_child(_hand(T.t("riv_text", [Game.club(enc.rival).get("name", "?"), Game.pname(p)]), 28, C_INK))
+	_btn(T.t("riv_rush"), func(): _choice_done.emit("rush"), "primary", v, "report")
+	_btn(T.t("riv_trick"), func(): _choice_done.emit("trick"), "small", v, "cross")
+	_btn(T.t("riv_ignore"), func(): _choice_done.emit("none"), "ghost", v)
+	var c: String = await _choice_done
+	match c:
+		"rush":
+			Game.rush_report(enc.pid)
+			_toast(T.t("riv_rush_done"))
+		"trick":
+			Game.s.scout.integrity = maxf(0.0, float(Game.s.scout.integrity) - 3.0)
+			if randf() < 0.4:
+				p.rival = ""
+				_toast(T.t("riv_trick_ok"))
+			else:
+				_toast(T.t("riv_trick_fail"))
+	_busy = was
+	_close_modal(lv[0])
+
+
+# ================================================================ v0.21: kariyer anları (çizgi roman paneli)
+## Görsel varsa (res://assets/story/<id>.jpg) bir kez tam ekran gösterilir.
+const STORY_IDS := ["first_job", "first_signing", "first_headline", "promoted", "fired"]
+
+func _story(id: String) -> void:
+	if Game.s.is_empty():
+		return
+	var seen: Dictionary = Game.s.get("story_seen", {})
+	if seen.has(id):
+		return
+	var path := "res://assets/story/%s.jpg" % id
+	if not ResourceLoader.exists(path):
+		return
+	seen[id] = true
+	Game.s["story_seen"] = seen
+	var layer := CanvasLayer.new()
+	layer.layer = 25
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 1)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var img := TextureRect.new()
+	img.texture = load(path)
+	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	img.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	img.offset_bottom = -260
+	layer.add_child(img)
+	var cap := PanelContainer.new()
+	cap.add_theme_stylebox_override("panel", _paper_style(C_PAPER, 22, 6, 6))
+	cap.anchor_left = 0.0
+	cap.anchor_right = 1.0
+	cap.anchor_top = 1.0
+	cap.anchor_bottom = 1.0
+	cap.offset_left = 24
+	cap.offset_right = -24
+	cap.offset_top = -250
+	cap.offset_bottom = -30
+	layer.add_child(cap)
+	var v := VBoxContainer.new()
+	cap.add_child(v)
+	v.add_child(_hand(T.t("story_" + id, [Game.s.scout.name, Game.my_club().get("name", "")]), 30, C_INK))
+	var was := _busy
+	_busy = false
+	_btn(T.t("story_next"), func(): _choice_done.emit(true), "primary", v, "check")
+	layer.layer = 25
+	img.modulate.a = 0.0
+	var tw := img.create_tween()
+	tw.tween_property(img, "modulate:a", 1.0, 0.8)
+	await _choice_done
+	_busy = was
+	layer.queue_free()

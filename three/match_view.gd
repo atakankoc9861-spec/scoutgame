@@ -41,6 +41,8 @@ var font_body: Font
 
 # 3D
 var svc: SubViewportContainer
+var post_mat: ShaderMaterial
+var cond := {}
 var sv: SubViewport
 var world: Node3D
 var stadium
@@ -669,6 +671,8 @@ func _push_ticker(text: String, col := C_TEXT) -> void:
 
 func _update_score() -> void:
 	lbl_score.text = " %d - %d " % [score[0], score[1]]
+	if stadium:
+		stadium.set_board("%s  %d - %d  %s" % [Game.club(m.h).get("short", "EV"), score[0], score[1], Game.club(m.a).get("short", "DEP")], Game.club(m.h).get("name", ""))
 
 func _draw_minimap() -> void:
 	var w := minimap.size.x
@@ -722,6 +726,12 @@ func _set_letterbox(on: bool) -> void:
 		else:
 			tw.tween_property(lb, "offset_top", -90.0 if on else 0.0, 0.3)
 	replay_badge.visible = on
+	if post_mat:
+		# tekrar: yayın görüntüsü hafif soluk, kenarlar koyu
+		var base_p: Dictionary = Post.PRESETS.get("video" if data.get("video", false) else stadium.post_preset(), {})
+		var tw2 := create_tween().set_parallel(true)
+		tw2.tween_method(func(v): post_mat.set_shader_parameter("sat", v), post_mat.get_shader_parameter("sat"), (base_p.get("sat", 1.0) * 0.82) if on else base_p.get("sat", 1.0), 0.3)
+		tw2.tween_method(func(v): post_mat.set_shader_parameter("vignette", v), post_mat.get_shader_parameter("vignette"), (base_p.get("vignette", 0.4) + 0.25) if on else base_p.get("vignette", 0.4), 0.3)
 	bottom_left.visible = not on
 	minimap.visible = not on
 	chips.visible = not on
@@ -776,7 +786,19 @@ func _build_world() -> void:
 	world.add_child(stadium)
 	var hc: Dictionary = Game.club(m.h)
 	var ac: Dictionary = Game.club(m.a)
+	cond = data.get("cond", {})
+	if cond.is_empty():
+		var lt := Game.tier(hc.get("league", "SL")) if not data.get("youth", false) else 3
+		cond = Stadium.pick_cond(hash(str(data.get("key", "")) + str(Game.s.season)), lt, Game.s.week, Data.zone_of(Game.club_country(m.h)), data.get("youth", false))
+	stadium.configure(cond.stadium, cond.tod, cond.weather)
 	stadium.build(Color(hc.c1), Color(hc.c2), Color(ac.c1), true, Game.quality() == "high")
+	post_mat = Post.make(stadium.post_preset())
+	Post.weather(post_mat, cond.weather)
+	if data.get("video", false):
+		# arşiv görüntüsü: soluk renk, gren, vinyet
+		Post.apply(post_mat, "video")
+	svc.material = post_mat
+	Watch.bc("mac kosul %s" % str(cond))
 	# seyirci yoğunluğu: lig seviyesi (BAL ligi neredeyse boş, Süper Lig dolu)
 	var tl := Game.tier(hc.get("league", "SL"))
 	var fill: float = [0.92, 0.92, 0.62, 0.4, 0.24, 0.12][clampi(tl, 0, 5)]
@@ -799,7 +821,8 @@ func _build_world() -> void:
 	for x in 64:
 		for y in 32:
 			var pent := (int(x / 8) + int(y / 8)) % 2 == 0 and (x % 8 > 2 and y % 8 > 2)
-			img.set_pixel(x, y, Color(0.08, 0.08, 0.1) if pent else Color(0.97, 0.97, 0.97))
+			var base := Color(1.0, 0.5, 0.08) if cond.get("weather", "") == "snow" else Color(0.97, 0.97, 0.97)
+			img.set_pixel(x, y, Color(0.08, 0.08, 0.1) if pent else base)
 	bmat.albedo_texture = ImageTexture.create_from_image(img)
 	bmat.roughness = 0.35
 	bmat.emission_enabled = true
@@ -1164,7 +1187,11 @@ var eye_hits := {}
 var eye_per := {}             # oyuncu -> bu maçta kaç kez soruldu
 var eye_last := {}            # oyuncu -> son sorulduğu maç saati
 var eye_intro_done := false
+var eye_kind := "best"        # best | predict | defend
+var eye_def_log := {}         # savunmacı -> [[iyi mi, p, eğim]]
+var eye_carrier := ""
 const EYE_TIME := 12.0
+const DEF_OPTS := ["press", "lane", "drop", "track"]
 
 func _eye_tick(delta: float) -> void:
 	match eye_state:
@@ -1174,6 +1201,10 @@ func _eye_tick(delta: float) -> void:
 				eye_prev_owner = oid
 				if oid != "" and oid in focus and _eye_can(eng.owner):
 					_eye_start(eng.owner)
+				elif oid != "":
+					var dfn = _eye_def_candidate(eng.owner)
+					if dfn != null:
+						_eye_def_start(dfn, eng.owner)
 		"choose":
 			eye_t += delta
 			eye_bar.scale.x = clampf(1.0 - eye_t / EYE_TIME, 0.0, 1.0)
@@ -1183,7 +1214,10 @@ func _eye_tick(delta: float) -> void:
 		"wait":
 			eye_t += delta
 			_eye_pulse()
-			if not eng.eye_res.is_empty():
+			if eye_kind == "defend":
+				if eye_t > 3.2:
+					_eye_def_verdict()
+			elif not eng.eye_res.is_empty():
 				_eye_verdict()
 			elif eng.owner == null and eng.flight.is_empty() or (eng.owner != null and eng.owner.id != eye_owner) or eye_t > 5.0 or eng.phase != "play":
 				_eye_verdict()
@@ -1252,6 +1286,8 @@ func _eye_start(o) -> void:
 	eye_guess = -1
 	eye_per[o.id] = int(eye_per.get(o.id, 0)) + 1
 	eye_last[o.id] = eng.clock
+	# soru çeşidi: ikinci ve sonraki sorularda bazen "şimdi ne yapacak?"
+	eye_kind = "predict" if int(eye_per[o.id]) >= 2 and randf() < 0.5 else "best"
 	eng.eye_pid = o.id
 	eng.eye_res = {}
 	var picked := _eye_pick(eng.eye_preview(o), o)
@@ -1379,7 +1415,8 @@ func _eye_ui() -> void:
 	minimap.visible = false
 	eye_title.text = T.t("eye_title") + "  (%d)" % eye_left
 	var nm := Game.short_name(Game.player(eye_owner))
-	eye_sub.text = T.t("eye_ask2", [nm]) + ("" if eye_intro_done else "\n" + T.t("eye_howto"))
+	var ask_k: String = {"best": "eye_ask2", "predict": "eye_ask_predict", "defend": "eye_ask_def"}.get(eye_kind, "eye_ask2")
+	eye_sub.text = T.t(ask_k, [nm]) + ("" if eye_intro_done else "\n" + T.t("eye_howto"))
 	eye_intro_done = true
 	for c in eye_btns.get_children():
 		c.queue_free()
@@ -1403,12 +1440,16 @@ func _eye_ui() -> void:
 	eye_bar.scale.x = 1.0
 
 func _eye_risk_col(op: Dictionary) -> Color:
+	if op.k == "def":
+		return Color("#c77dff")
 	if op.k != "pass":
 		return Color("#6ad7ff")
 	var r := float(op.risk)
 	return Color("#4be37a") if r < 0.3 else (Color("#f2d024") if r < 0.6 else Color("#ff5a4a"))
 
 func _eye_tap(p: Vector2) -> void:
+	if eye_kind == "defend":
+		return
 	var scale_f := Vector2(sv.size) / svc.size
 	var best := -1
 	var bd := 110.0
@@ -1440,6 +1481,8 @@ func _eye_choose(i: int) -> void:
 	Sfx.play("blip", -8.0)
 
 func _eye_opt_name(op: Dictionary) -> String:
+	if op.k == "def":
+		return T.t("eye_def_" + String(op.to))
 	if op.k == "pass":
 		var r := float(op.get("risk", 0.0))
 		var tag := T.t("eye_r_safe") if r < 0.3 else (T.t("eye_r_mid") if r < 0.6 else T.t("eye_r_high"))
@@ -1466,7 +1509,15 @@ func _eye_verdict() -> void:
 		ranked.sort_custom(func(a, b): return float(a.v) > float(b.v))
 		var rank := ranked.find(g)
 		hit = eye_guess == eye_best or float(g.v) >= best_v - LiveEngine.EYE_GOOD
-		if hit:
+		if eye_kind == "predict":
+			hit = not res.is_empty() and g.k == res.k and (g.k != "pass" or g.to == res.to)
+			if hit:
+				eye_hits[eye_owner] = int(eye_hits.get(eye_owner, 0)) + 1
+				Sfx.play("catch", -4.0)
+				lines.append("✓ " + T.t("eye_pred_hit"))
+			else:
+				lines.append("✗ " + T.t("eye_pred_miss"))
+		elif hit:
 			eye_hits[eye_owner] = int(eye_hits.get(eye_owner, 0)) + 1
 			Sfx.play("catch", -4.0)
 			lines.append("✓ " + T.t("eye_you_best"))
@@ -1499,6 +1550,125 @@ func _eye_verdict() -> void:
 	for n in eye_nodes:
 		if is_instance_valid(n) and n is MeshInstance3D:
 			(n as MeshInstance3D).transparency = 0.0 if int(n.get_meta("opt", -1)) == eye_best else 0.8
+
+func _eye_def_candidate(carrier):
+	## Rakip topu aldı: odaktaki bir savunmacı/orta saha 9 m içinde mi?
+	if eye_left <= 0 or skipping or done or mode != "live" or eng.phase != "play":
+		return null
+	if highlights and not moments:
+		return null
+	if eng.clock - eye_cd < 90.0:
+		return null
+	var best = null
+	var bd := 9.0
+	for pid in focus:
+		if not eng.pl.has(pid):
+			continue
+		var q = eng.pl[pid]
+		if q.side == carrier.side or q.gk:
+			continue
+		if int(eye_per.get(pid, 0)) >= (3 if moments else 2):
+			continue
+		if eng.clock - float(eye_last.get(pid, -9999.0)) < (240.0 if moments else 420.0):
+			continue
+		var dd: float = q.pos.distance_to(carrier.pos)
+		if dd < bd:
+			bd = dd
+			best = q
+	# savunma sorusu daha seyrek: her uygun anda değil
+	if best != null and randf() < 0.35:
+		return best
+	return null
+
+func _eye_def_start(dfn, carrier) -> void:
+	eye_kind = "defend"
+	eye_state = "choose"
+	eye_owner = dfn.id
+	eye_carrier = carrier.id
+	eye_t = 0.0
+	eye_guess = -1
+	eye_per[dfn.id] = int(eye_per.get(dfn.id, 0)) + 1
+	eye_last[dfn.id] = eng.clock
+	# sezgisel doğru cevap: mesafe, kale yönü, yakındaki koşucu
+	var dist: float = dfn.pos.distance_to(carrier.pos)
+	var goal_dir: float = -carrier.d
+	var carrier_fwd: float = carrier.pos.x * carrier.d
+	var runner := false
+	for mt in eng.team[carrier.side]:
+		if mt != carrier and not mt.gk and mt.pos.distance_to(dfn.pos) < 7.0 and mt.pos.x * carrier.d > carrier_fwd:
+			runner = true
+	var vals := {"press": 0.0, "lane": 0.0, "drop": 0.0, "track": 0.0}
+	vals.press = 0.6 if dist < 4.5 else 0.25
+	vals.lane = 0.45 + (0.2 if dist >= 4.5 and dist < 8.0 else 0.0)
+	vals.drop = 0.5 if carrier_fwd > 20.0 and dist > 5.0 else 0.2
+	vals.track = 0.7 if runner else 0.15
+	if carrier_fwd < -10.0:
+		vals.press += 0.25
+	var opts := []
+	for k in DEF_OPTS:
+		opts.append({"k": "def", "to": k, "v": vals[k], "risk": 0.0, "tp": dfn.pos})
+	var best_op = opts[0]
+	for op in opts:
+		if float(op.v) > float(best_op.v):
+			best_op = op
+	opts.shuffle()
+	eye_opts = opts
+	eye_best = eye_opts.find(best_op)
+	# halkalar: top taşıyan ve savunmacı
+	for who in [dfn, carrier]:
+		var ring := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.8
+		tm.outer_radius = 1.05
+		ring.mesh = tm
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.no_depth_test = true
+		sm.albedo_color = Color("#c77dff") if who == dfn else Color("#ff5a4a")
+		ring.material_override = sm
+		world.add_child(ring)
+		ring.position = Vector3(who.pos.x, 0.05, who.pos.y)
+		ring.scale = Vector3(1, 0.1, 1)
+		ring.set_meta("opt", -1)
+		eye_nodes.append(ring)
+	_eye_ui()
+	Sfx.play("spark", -6.0)
+	Input.vibrate_handheld(40)
+	_push_ticker(T.t("eye_title") + " — " + Game.short_name(Game.player(dfn.id)), C_ACCENT)
+
+func _eye_def_verdict() -> void:
+	eye_state = "verdict"
+	eye_t = 0.0
+	eye_cd = eng.clock
+	eye_left -= 1
+	var nm := Game.short_name(Game.player(eye_owner))
+	var best: Dictionary = eye_opts[eye_best]
+	var lines := []
+	var hit := eye_guess == eye_best
+	if eye_guess >= 0 and not hit and float(eye_opts[eye_guess].v) >= float(best.v) - 0.08:
+		hit = true
+	if hit:
+		eye_hits[eye_owner] = int(eye_hits.get(eye_owner, 0)) + 1
+		Sfx.play("catch", -4.0)
+		lines.append("✓ " + T.t("eye_you_best"))
+	elif eye_guess >= 0:
+		lines.append("✗ " + T.t("eye_you_miss", [_eye_opt_name(best)]))
+	else:
+		lines.append(T.t("eye_best", [_eye_opt_name(best)]))
+	# savunmacının gerçek tepkisi: kendi özelliklerine göre
+	var q = eng.pl.get(eye_owner)
+	var good := false
+	if q != null:
+		var skill: float = (eng.at(q, "positioning") + eng.at(q, "tackling") + eng.at(q, "decisions")) / 3.0
+		var pgood := clampf(0.5 + (skill - 10.0) * 0.06, 0.1, 0.92)
+		good = randf() < pgood
+		if not eye_def_log.has(eye_owner):
+			eye_def_log[eye_owner] = []
+		eye_def_log[eye_owner].append([good, 0.5, 0.02])
+	lines.append(T.t("eye_def_good" if good else "eye_def_bad", [nm, _eye_opt_name(best)]))
+	lines.append(T.t("eye_gain_def"))
+	eye_title.text = T.t("eye_title_ok") if hit else T.t("eye_title")
+	eye_sub.text = "\n".join(lines)
 
 func _eye_clear() -> void:
 	for n in eye_nodes:
@@ -1827,6 +1997,9 @@ func _on_goal(e: Dictionary) -> void:
 	var gx := 52.5 * (1.0 if home else -1.0)
 	stadium.net_hit(gx, Vector3(0, ball.position.y, ball.position.z))
 	stadium.goal_fx(gx, home)
+	if post_mat and not skipping:
+		var tw3 := create_tween()
+		tw3.tween_method(func(v): post_mat.set_shader_parameter("flash", v), 0.35, 0.0, 0.6)
 	stadium.set_excite(1.0)
 	Sfx.play("net", -6.0)
 	Sfx.play("roar", 0.0)
@@ -2116,4 +2289,5 @@ func _finish() -> void:
 		focus_events["_sparks"] = spark_caught
 		focus_events["_eye"] = eye_log
 		focus_events["_eye_hits"] = eye_hits
+		focus_events["_eye_def"] = eye_def_log
 		finished.emit(focus_events))

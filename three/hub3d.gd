@@ -244,6 +244,7 @@ func _ready() -> void:
 	stretch = true
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	material = Post.make("office")
 	sv = SubViewport.new()
 	sv.own_world_3d = true
 	sv.msaa_3d = Viewport.MSAA_2X if Game.quality() == "high" and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
@@ -258,7 +259,7 @@ func _ready() -> void:
 	cam.far = 600
 	world.add_child(cam)
 	_env()
-	_build_office()
+	_build_office(0)
 	_build_map()
 	_build_pedestal()
 	Watch.check_vp(sv, "hub", func():
@@ -367,52 +368,272 @@ func _env() -> void:
 
 # ================================================================ ofis
 
-func _build_office() -> void:
+## Ofis kariyerle büyür: 0 = dar bölge ofisi, 1 = kulüp scout odası, 2 = direktör ofisi
+var office_node: Node3D
+var office_level := -1
+var clock_h: Node3D
+var clock_m: Node3D
+
+const PHOTO_WINDOW := """
+shader_type spatial;
+render_mode unshaded;
+uniform sampler2D city : source_color, filter_linear;
+uniform float day = 0.0;
+uniform float dusk = 0.0;
+uniform float rain = 0.0;
+uniform vec2 crop_x = vec2(0.0, 1.0);
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void fragment() {
+	vec2 uv = vec2(mix(crop_x.x, crop_x.y, UV.x), UV.y);
+	if (rain > 0.0) {
+		// camdaki damlalar görüntüyü kırar
+		vec2 g = uv * vec2(38.0, 22.0);
+		vec2 c = floor(g);
+		float d = hash(c);
+		vec2 f = fract(g) - 0.5;
+		float drop = step(0.82, d) * (1.0 - smoothstep(0.12, 0.28, length(f * vec2(1.0, 0.7))));
+		uv += f * drop * 0.02;
+	}
+	vec3 p = texture(city, uv).rgb;
+	float lum = dot(p, vec3(0.3, 0.59, 0.11));
+	float warm = clamp((p.r - p.b) * 2.0, 0.0, 1.0);
+	float lights = smoothstep(0.42, 0.75, lum) * warm * smoothstep(0.42, 0.5, uv.y);
+	float skyw = 1.0 - smoothstep(0.38, 0.55, uv.y);
+	// gece: gökyüzü koyu lacivert, şehir ışıkları parlak
+	vec3 night = p * vec3(0.28, 0.32, 0.5) * (1.0 - skyw * 0.4) + p * lights * 1.6;
+	night += vec3(0.01, 0.015, 0.04) * skyw;
+	// gündüz: mavi gök, ışıklar sönük, binalar aydınlık
+	vec3 skyd = mix(vec3(0.62, 0.76, 0.92), vec3(0.32, 0.52, 0.86), 1.0 - uv.y * 1.8);
+	vec3 bld = mix(vec3(lum), p, 0.45) * 1.7 * (1.0 - lights * 0.5);
+	vec3 dayc = mix(bld, skyd, skyw);
+	vec3 col = mix(night, dayc, day);
+	col = mix(col, p * 1.15, dusk);
+	if (rain > 0.0) {
+		col = mix(col, vec3(0.32, 0.35, 0.4) * (0.35 + day * 0.65), rain * 0.4);
+		vec2 r = UV * vec2(60.0, 7.0);
+		float cx = floor(r.x);
+		float yy = fract(r.y - TIME * (0.5 + hash(vec2(cx, 1.0))) + hash(vec2(cx, 2.0)) * 10.0);
+		float streak = step(0.86, hash(vec2(cx, 3.0))) * smoothstep(0.0, 0.06, yy) * (1.0 - smoothstep(0.06, 0.45, yy)) * step(abs(fract(r.x) - 0.5), 0.07);
+		col += vec3(0.55, 0.6, 0.66) * streak * rain;
+	}
+	ALBEDO = col;
+}
+"""
+
+const AO_SHADER := """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled;
+uniform float strength = 0.55;
+uniform vec2 shape = vec2(1.0, 1.0);
+void fragment() {
+	vec2 q = (UV - 0.5) * 2.0;
+	float d = length(q * shape);
+	ALBEDO = vec3(0.0);
+	ALPHA = (1.0 - smoothstep(0.2, 1.0, d)) * strength;
+}
+"""
+
+const TILE_SHADER := """
+shader_type spatial;
+uniform vec3 a = vec3(0.32, 0.33, 0.31);
+uniform vec3 b = vec3(0.27, 0.28, 0.27);
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void fragment() {
+	vec2 g = UV * vec2(24.0, 20.0);
+	vec2 c = floor(g);
+	float chk = mod(c.x + c.y, 2.0);
+	vec3 col = mix(a, b, chk) * (0.92 + 0.12 * hash(c));
+	float grout = step(0.96, fract(g.x)) + step(0.96, fract(g.y));
+	col *= 1.0 - clamp(grout, 0.0, 1.0) * 0.35;
+	// eski: lekeler
+	col *= 0.9 + 0.1 * hash(floor(UV * 7.0));
+	ALBEDO = col;
+	ROUGHNESS = 0.45;
+}
+"""
+
+const PAINT_SHADER := """
+shader_type spatial;
+uniform vec3 col = vec3(0.5, 0.55, 0.48);
+uniform vec3 panel = vec3(0.22, 0.13, 0.07);
+uniform float wainscot = 0.0;   // alt duvar ahşap kaplama yüksekliği (UV.y oranı)
+uniform float stains = 0.0;
+uniform float slats = 0.0;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
+void fragment() {
+	vec3 c = col * (0.94 + 0.08 * noise(UV * vec2(80.0, 30.0)));
+	c *= 1.0 - stains * smoothstep(0.55, 0.85, noise(UV * vec2(6.0, 3.0))) * 0.25;
+	if (slats > 0.0) {
+		float s = fract(UV.x * 90.0);
+		c *= 0.82 + 0.18 * smoothstep(0.0, 0.12, s) * (1.0 - smoothstep(0.88, 1.0, s));
+	}
+	float y = 1.0 - UV.y;
+	if (y < wainscot) {
+		float pv = fract(UV.x * 14.0);
+		vec3 w = panel * (0.85 + 0.15 * noise(UV * vec2(4.0, 60.0)));
+		w *= 1.0 - (step(pv, 0.03) + step(0.97, pv)) * 0.4;
+		w *= 1.0 - step(wainscot - 0.015, y) * 0.3;
+		c = w;
+	}
+	// köşelere doğru kararma (pişmiş ortam gölgesi taklidi)
+	float edge = min(min(UV.x, 1.0 - UV.x) * 6.0, 1.0) * min(y * 5.0 + 0.4, 1.0) * min((1.0 - y) * 8.0 + 0.3, 1.0);
+	c *= 0.6 + 0.4 * edge;
+	ALBEDO = c;
+	ROUGHNESS = 0.85;
+}
+"""
+
+func _tex_mat(path: String, tint := Color.WHITE, scale := Vector2.ONE, rough := 0.8) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(path)
+	m.albedo_color = tint
+	m.uv1_scale = Vector3(scale.x, scale.y, 1)
+	m.roughness = rough
+	return m
+
+func _ao(parent: Node3D, pos: Vector3, size: Vector2, strength := 0.5, rot := Vector3(-90, 0, 0)) -> void:
+	var mi := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = size
+	mi.mesh = q
+	var m := _shader(AO_SHADER)
+	m.set_shader_parameter("strength", strength)
+	mi.material_override = m
+	mi.position = pos
+	mi.rotation_degrees = rot
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+
+func office_level_for(title_k: String) -> int:
+	match title_k:
+		"title_0", "title_1":
+			return 0
+		"title_2":
+			return 1
+		_:
+			return 2
+
+func set_office_level(lv: int) -> void:
+	if lv == office_level:
+		return
+	if office_node:
+		office_node.queue_free()
+		office_node = null
+	tv_lines.clear()
+	_build_office(lv)
+	set_club(_club_c1, _club_c2)
+	set_trophies(_trophy_n)
+
+var _club_c1 := Color("#e8c547")
+var _club_c2 := Color("#123524")
+var _trophy_n := 0
+
+func _build_office(lv := 0) -> void:
+	office_level = lv
 	var o := Node3D.new()
 	o.position = OFFICE
 	world.add_child(o)
-	var floor_m := _shader(WOOD_SHADER)
+	office_node = o
+	# ---------------- zemin
 	var fl := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(12, 10)
 	fl.mesh = pm
-	fl.material_override = floor_m
+	if lv == 0:
+		fl.material_override = _shader(TILE_SHADER)
+	else:
+		var wood := _shader(WOOD_SHADER)
+		if lv == 2:
+			wood.set_shader_parameter("c1", Vector3(0.1, 0.055, 0.03))
+			wood.set_shader_parameter("c2", Vector3(0.17, 0.095, 0.05))
+			wood.set_shader_parameter("scale", 9.0)
+		fl.material_override = wood
 	fl.position = Vector3(0, 0, -1)
 	o.add_child(fl)
-	var wall := _shader(WALL_SHADER)
+	# ---------------- duvarlar
+	var wall := _shader(PAINT_SHADER)
+	match lv:
+		0:
+			wall.set_shader_parameter("col", Vector3(0.42, 0.46, 0.4))
+			wall.set_shader_parameter("stains", 1.0)
+		1:
+			wall.set_shader_parameter("col", Vector3(0.1, 0.2, 0.15))
+			wall.set_shader_parameter("wainscot", 0.32)
+		2:
+			wall.set_shader_parameter("col", Vector3(0.1, 0.12, 0.17))
+			wall.set_shader_parameter("panel", Vector3(0.16, 0.09, 0.05))
+			wall.set_shader_parameter("wainscot", 0.24)
+			wall.set_shader_parameter("slats", 1.0)
 	_box(o, Vector3(12, 4.2, 0.2), Vector3(0, 2.1, -4.0), wall)
-	_box(o, Vector3(0.2, 4.2, 10), Vector3(-5.1, 2.1, -1), wall)
+	_box(o, Vector3(0.2, 4.2, 10), Vector3(-5.1, 2.1, -1), wall, Vector3(0, 90, 0) * 0.0)
 	_box(o, Vector3(0.2, 4.2, 10), Vector3(5.1, 2.1, -1), wall)
-	_box(o, Vector3(12, 0.2, 10), Vector3(0, 4.2, -1), _mat(Color(0.05, 0.06, 0.06)))
-	# süpürgelik
+	var ceil_c := Color(0.5, 0.5, 0.48) if lv == 0 else Color(0.06, 0.065, 0.07)
+	_box(o, Vector3(12, 0.2, 10), Vector3(0, 4.2, -1), _mat(ceil_c))
 	_box(o, Vector3(12, 0.15, 0.05), Vector3(0, 0.075, -3.88), _mat(Color(0.12, 0.08, 0.05)))
-	# pencere (gece şehir manzarası)
+	if lv == 0:
+		# tavan karoları ve floresan
+		for x in [-1.5, 1.5]:
+			_box(o, Vector3(1.2, 0.04, 0.3), Vector3(x, 4.08, -1.6), _mat(Color(0.95, 0.97, 1.0), 0.3, 0.0, 3.0))
+	# ---------------- pencere (gerçek şehir fotoğrafı)
+	var ww: float = [1.6, 2.6, 3.4][lv]
+	var wh: float = [1.2, 1.6, 2.4][lv]
+	var wx: float = [2.6, 2.4, 2.6][lv]
+	var wy: float = [2.3, 2.2, 2.0][lv]
 	var win := MeshInstance3D.new()
 	var q := QuadMesh.new()
-	q.size = Vector2(2.6, 1.6)
+	q.size = Vector2(ww, wh)
 	win.mesh = q
-	city_mat = _shader(CITY_SHADER)
+	city_mat = _shader(PHOTO_WINDOW)
+	city_mat.set_shader_parameter("city", load("res://assets/tex/city_night.jpg"))
+	var span := clampf(ww / wh * 0.97 / 1.03, 0.3, 1.0)
+	city_mat.set_shader_parameter("crop_x", Vector2(0.5 - span / 2.0, 0.5 + span / 2.0))
 	win.material_override = city_mat
-	win.position = Vector3(2.4, 2.2, -3.88)
+	win.position = Vector3(wx, wy, -3.88)
 	o.add_child(win)
 	var frame := _mat(Color(0.1, 0.1, 0.11), 0.4, 0.5)
-	_box(o, Vector3(2.8, 0.08, 0.1), Vector3(2.4, 3.04, -3.86), frame)
-	_box(o, Vector3(2.8, 0.08, 0.1), Vector3(2.4, 1.36, -3.86), frame)
-	_box(o, Vector3(0.08, 1.7, 0.1), Vector3(1.06, 2.2, -3.86), frame)
-	_box(o, Vector3(0.08, 1.7, 0.1), Vector3(3.74, 2.2, -3.86), frame)
-	_box(o, Vector3(0.05, 1.6, 0.06), Vector3(2.4, 2.2, -3.86), frame)
+	if lv == 0:
+		frame = _mat(Color(0.75, 0.75, 0.72), 0.5, 0.1)
+	var fx0: float = wx - ww / 2.0
+	var fx1: float = wx + ww / 2.0
+	_box(o, Vector3(ww + 0.2, 0.08, 0.1), Vector3(wx, wy + wh / 2.0 + 0.04, -3.86), frame)
+	_box(o, Vector3(ww + 0.2, 0.12, 0.25), Vector3(wx, wy - wh / 2.0 - 0.05, -3.8), frame)
+	_box(o, Vector3(0.08, wh + 0.1, 0.1), Vector3(fx0 - 0.04, wy, -3.86), frame)
+	_box(o, Vector3(0.08, wh + 0.1, 0.1), Vector3(fx1 + 0.04, wy, -3.86), frame)
+	var mull := 1 if lv < 2 else 2
+	for i in mull:
+		_box(o, Vector3(0.05, wh, 0.06), Vector3(fx0 + ww * (i + 1) / (mull + 1), wy, -3.86), frame)
+	if lv == 1:
+		# yarı açık jaluzi
+		var slat := _mat(Color(0.82, 0.8, 0.74), 0.6)
+		for i in 7:
+			_box(o, Vector3(ww + 0.1, 0.02, 0.07), Vector3(wx, wy + wh / 2.0 - 0.06 - i * 0.07, -3.8), slat, Vector3(35, 0, 0))
+		_box(o, Vector3(ww + 0.16, 0.06, 0.1), Vector3(wx, wy + wh / 2.0 + 0.02, -3.78), slat)
 	var moon := OmniLight3D.new()
-	moon.position = Vector3(2.4, 2.2, -3.3)
+	moon.position = Vector3(wx, wy, -3.2)
 	moon.light_color = Color(0.55, 0.65, 1.0)
-	moon.light_energy = 0.5
+	moon.light_energy = 0.5 + lv * 0.15
 	moon.omni_range = 5.0
 	o.add_child(moon)
-	# masa
-	var desk_m := _mat(Color(0.16, 0.09, 0.05), 0.35)
-	_box(o, Vector3(2.6, 0.07, 1.2), Vector3(0, 0.78, -2.3), desk_m)
-	for x in [-1.2, 1.2]:
+	window_light = moon
+	# ---------------- masa
+	var desk_m: Material
+	match lv:
+		0:
+			desk_m = _mat(Color(0.36, 0.37, 0.38), 0.4, 0.6)
+		1:
+			desk_m = _mat(Color(0.16, 0.09, 0.05), 0.35)
+		_:
+			desk_m = _mat(Color(0.09, 0.05, 0.03), 0.25)
+	var dw: float = [2.0, 2.6, 3.0][lv]
+	_box(o, Vector3(dw, 0.07, 1.2), Vector3(0, 0.78, -2.3), desk_m)
+	for x in [-dw / 2.0 + 0.1, dw / 2.0 - 0.1]:
 		_box(o, Vector3(0.07, 0.78, 1.1), Vector3(x, 0.39, -2.3), desk_m)
-	_box(o, Vector3(2.4, 0.5, 0.04), Vector3(0, 0.5, -2.85), desk_m)
+	_box(o, Vector3(dw - 0.2, 0.5, 0.04), Vector3(0, 0.5, -2.85), desk_m)
+	if lv == 2:
+		_box(o, Vector3(dw * 0.5, 0.012, 0.6), Vector3(0, 0.82, -2.3), _tex_mat("res://assets/tex/leather.jpg", Color(0.7, 0.6, 0.55), Vector2.ONE, 0.5))
+	_ao(o, Vector3(0, 0.012, -2.35), Vector2(dw + 1.0, 1.9), 0.6)
 	# laptop
 	var metal := _mat(Color(0.55, 0.57, 0.6), 0.3, 0.8)
 	_box(o, Vector3(0.62, 0.025, 0.42), Vector3(-0.15, 0.825, -2.5), metal)
@@ -435,12 +656,20 @@ func _build_office() -> void:
 	glow.light_energy = 0.35
 	glow.omni_range = 1.4
 	o.add_child(glow)
-	# defter ve kalem
-	var paper := _mat(Color(0.93, 0.9, 0.82), 0.9)
+	# dosyalar, defter, kalem
+	var manila := _tex_mat("res://assets/tex/manila.jpg", Color.WHITE, Vector2.ONE, 0.9)
+	var paper := _tex_mat("res://assets/tex/paper.jpg", Color.WHITE, Vector2.ONE, 0.9)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11 + lv
+	var stack_n: int = [5, 3, 2][lv]
+	for i in stack_n:
+		_box(o, Vector3(0.34, 0.012, 0.25), Vector3(0.62 + rng.randf_range(-0.03, 0.03), 0.82 + i * 0.013, -2.45), manila, Vector3(0, rng.randf_range(-14, 14), 0))
 	_box(o, Vector3(0.32, 0.02, 0.23), Vector3(0.55, 0.825, -2.05), paper, Vector3(0, -12, 0))
 	_box(o, Vector3(0.33, 0.012, 0.24), Vector3(0.55, 0.818, -2.05), _mat(Color(0.25, 0.1, 0.08)), Vector3(0, -12, 0))
 	_cyl(o, 0.008, 0.008, 0.15, Vector3(0.62, 0.84, -2.0), _mat(Color(0.1, 0.2, 0.5), 0.3, 0.4), Vector3(0, 0, 90), 8)
-	# kupa
+	for i in [0, 1]:
+		_box(o, Vector3(0.21, 0.004, 0.3), Vector3(-0.75 + i * 0.12, 0.818 + i * 0.002, -2.05), paper, Vector3(0, rng.randf_range(-25, 25), 0))
+	# kupa (dumanı tüten)
 	var mug := _mat(Color(0.92, 0.92, 0.9), 0.25)
 	_cyl(o, 0.045, 0.04, 0.11, Vector3(0.95, 0.87, -2.35), mug)
 	var handle := MeshInstance3D.new()
@@ -453,11 +682,49 @@ func _build_office() -> void:
 	handle.rotation_degrees = Vector3(90, 0, 0)
 	o.add_child(handle)
 	_cyl(o, 0.04, 0.04, 0.005, Vector3(0.95, 0.92, -2.35), _mat(Color(0.18, 0.09, 0.04)))
+	if Game.quality() != "low":
+		var steam := CPUParticles3D.new()
+		steam.amount = 10
+		steam.lifetime = 2.2
+		steam.position = Vector3(0.95, 0.93, -2.35)
+		steam.direction = Vector3.UP
+		steam.spread = 8.0
+		steam.initial_velocity_min = 0.05
+		steam.initial_velocity_max = 0.09
+		steam.gravity = Vector3(0.01, 0.02, 0)
+		steam.scale_amount_min = 0.5
+		steam.scale_amount_max = 1.0
+		var sqm := QuadMesh.new()
+		sqm.size = Vector2(0.06, 0.06)
+		var smat := StandardMaterial3D.new()
+		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		smat.vertex_color_use_as_albedo = true
+		var gt := GradientTexture2D.new()
+		var gg := Gradient.new()
+		gg.set_color(0, Color(1, 1, 1, 0.25))
+		gg.set_color(1, Color(1, 1, 1, 0.0))
+		gt.gradient = gg
+		gt.fill = GradientTexture2D.FILL_RADIAL
+		gt.fill_from = Vector2(0.5, 0.5)
+		gt.fill_to = Vector2(1.0, 0.5)
+		smat.albedo_texture = gt
+		sqm.material = smat
+		steam.mesh = sqm
+		var cr := Gradient.new()
+		cr.set_color(0, Color(1, 1, 1, 0.0))
+		cr.add_point(0.2, Color(1, 1, 1, 0.5))
+		cr.set_color(1, Color(1, 1, 1, 0.0))
+		steam.color_ramp = cr
+		o.add_child(steam)
 	# masa lambası
 	var lamp_m := _mat(Color(0.08, 0.08, 0.09), 0.35, 0.6)
+	if lv == 2:
+		lamp_m = _mat(Color(0.75, 0.6, 0.3), 0.25, 1.0)
 	_cyl(o, 0.09, 0.1, 0.03, Vector3(-0.95, 0.83, -2.55), lamp_m)
 	_box(o, Vector3(0.025, 0.5, 0.025), Vector3(-0.95, 1.07, -2.5), lamp_m, Vector3(15, 0, 0))
-	var head := _cyl(o, 0.03, 0.11, 0.14, Vector3(-0.85, 1.3, -2.38), lamp_m, Vector3(60, 0, -40))
+	_cyl(o, 0.03, 0.11, 0.14, Vector3(-0.85, 1.3, -2.38), lamp_m, Vector3(60, 0, -40))
 	var spot := SpotLight3D.new()
 	spot.position = Vector3(-0.82, 1.27, -2.36)
 	spot.rotation_degrees = Vector3(-75, -20, 0)
@@ -467,12 +734,12 @@ func _build_office() -> void:
 	spot.spot_angle = 42.0
 	spot.shadow_enabled = Game.quality() == "high"
 	o.add_child(spot)
-	var bulb := _sphere(o, 0.03, Vector3(-0.83, 1.26, -2.37), _mat(Color(1.0, 0.85, 0.6), 0.2, 0.0, 6.0))
-	# tavan lambası (loş)
+	_sphere(o, 0.03, Vector3(-0.83, 1.26, -2.37), _mat(Color(1.0, 0.85, 0.6), 0.2, 0.0, 6.0))
+	# ---------------- tavan ışığı
 	var ceil_l := OmniLight3D.new()
 	ceil_l.position = Vector3(0, 3.8, -1.0)
-	ceil_l.light_color = Color(1.0, 0.9, 0.75)
-	ceil_l.light_energy = 1.4
+	ceil_l.light_color = Color(0.95, 0.97, 1.0) if lv == 0 else Color(1.0, 0.9, 0.75)
+	ceil_l.light_energy = [1.7, 1.7, 1.6][lv]
 	ceil_l.omni_range = 10.0
 	var fill_l := OmniLight3D.new()
 	fill_l.position = Vector3(1.5, 2.2, 0.5)
@@ -481,7 +748,13 @@ func _build_office() -> void:
 	fill_l.omni_range = 7.0
 	o.add_child(fill_l)
 	o.add_child(ceil_l)
-	# flama
+	if lv >= 1:
+		# sarkıt lamba
+		var pend := _mat(Color(0.1, 0.1, 0.1), 0.4, 0.7)
+		_cyl(o, 0.006, 0.006, 0.9, Vector3(0.3, 3.65, -2.3), pend)
+		_cyl(o, 0.06, 0.3, 0.22, Vector3(0.3, 3.1, -2.3), pend)
+		_sphere(o, 0.06, Vector3(0.3, 3.0, -2.3), _mat(Color(1.0, 0.85, 0.6), 0.2, 0.0, 5.0))
+	# ---------------- flama
 	var pen := Node3D.new()
 	pen.position = Vector3(-2.3, 3.0, -3.88)
 	pen.scale = Vector3(0.6, 0.6, 0.6)
@@ -511,17 +784,73 @@ func _build_office() -> void:
 	smi.material_override = pennant_mat2
 	pen.add_child(smi)
 	_box(o, Vector3(0.8, 0.02, 0.02), Vector3(-2.3, 3.16, -3.86), _mat(Color(0.4, 0.3, 0.15), 0.4, 0.5))
-	# raf ve kupalar
-	_box(o, Vector3(1.6, 0.05, 0.3), Vector3(-2.6, 1.9, -3.75), desk_m)
+	# ---------------- raf ve kupalar
+	var shelf_w: float = [1.0, 1.6, 2.2][lv]
+	_box(o, Vector3(shelf_w, 0.05, 0.3), Vector3(-2.6, 1.9, -3.75), desk_m)
+	if lv == 2:
+		# camlı kupa dolabı
+		var glass := StandardMaterial3D.new()
+		glass.albedo_color = Color(0.7, 0.85, 1.0, 0.12)
+		glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		glass.roughness = 0.05
+		_box(o, Vector3(shelf_w + 0.1, 1.0, 0.04), Vector3(-2.6, 2.4, -3.58), glass)
+		_box(o, Vector3(shelf_w, 0.05, 0.3), Vector3(-2.6, 2.9, -3.75), desk_m)
+		var cab_l := OmniLight3D.new()
+		cab_l.position = Vector3(-2.6, 2.8, -3.6)
+		cab_l.light_color = Color(1.0, 0.9, 0.7)
+		cab_l.light_energy = 0.6
+		cab_l.omni_range = 1.4
+		o.add_child(cab_l)
 	trophy_root = Node3D.new()
 	trophy_root.position = Vector3(-2.6, 1.925, -3.75)
 	o.add_child(trophy_root)
-	# dedektif panosu (sol duvar)
-	_box(o, Vector3(0.06, 1.7, 3.2), Vector3(-4.97, 1.75, -1.2), _shader(CORK_SHADER))
-	_box(o, Vector3(0.08, 1.8, 0.08), Vector3(-4.95, 1.75, 0.42), frame)
-	_box(o, Vector3(0.08, 1.8, 0.08), Vector3(-4.95, 1.75, -2.82), frame)
-	_box(o, Vector3(0.08, 0.08, 3.3), Vector3(-4.95, 2.62, -1.2), frame)
-	_box(o, Vector3(0.08, 0.08, 3.3), Vector3(-4.95, 0.88, -1.2), frame)
+	# ---------------- dolaplar, kitaplık, bitki
+	_bookcase(o, Vector3(-4.15, 0, -3.72), lv, rng)
+	_cabinet(o, Vector3(-1.45, 0, -3.62), lv)
+	if lv >= 1:
+		_plant(o, Vector3(4.35, 0, -3.35), 1.0 + lv * 0.2)
+	if lv == 0:
+		# karton kutular
+		var card := _mat(Color(0.55, 0.4, 0.25), 0.95)
+		_box(o, Vector3(0.6, 0.45, 0.45), Vector3(3.6, 0.225, -3.5), card, Vector3(0, 8, 0))
+		_box(o, Vector3(0.5, 0.35, 0.4), Vector3(3.62, 0.62, -3.48), card, Vector3(0, -6, 0))
+		_ao(o, Vector3(3.6, 0.012, -3.5), Vector2(1.2, 1.0), 0.5)
+	if lv == 2:
+		_sofa(o, Vector3(3.6, 0, 0.2))
+		_framed_shirt(o, Vector3(5.0, 2.3, -1.6))
+	# ---------------- duvar saati (gerçek saat)
+	var ck := Node3D.new()
+	ck.position = Vector3(0.0, 3.25, -3.87)
+	o.add_child(ck)
+	_cyl(ck, 0.24, 0.24, 0.04, Vector3.ZERO, _mat(Color(0.1, 0.1, 0.1), 0.4, 0.6), Vector3(90, 0, 0), 28)
+	_cyl(ck, 0.21, 0.21, 0.045, Vector3(0, 0, 0.003), _mat(Color(0.93, 0.91, 0.85), 0.8), Vector3(90, 0, 0), 28)
+	for i in 12:
+		var a := i * TAU / 12.0
+		_box(ck, Vector3(0.012, 0.035 if i % 3 else 0.05, 0.005), Vector3(sin(a) * 0.17, cos(a) * 0.17, 0.028), _mat(Color(0.1, 0.1, 0.1)), Vector3(0, 0, -rad_to_deg(a)))
+	clock_h = Node3D.new()
+	clock_h.position = Vector3(0, 0, 0.032)
+	ck.add_child(clock_h)
+	_box(clock_h, Vector3(0.016, 0.1, 0.005), Vector3(0, 0.045, 0), _mat(Color(0.08, 0.08, 0.08)))
+	clock_m = Node3D.new()
+	clock_m.position = Vector3(0, 0, 0.036)
+	ck.add_child(clock_m)
+	_box(clock_m, Vector3(0.01, 0.15, 0.005), Vector3(0, 0.07, 0), _mat(Color(0.08, 0.08, 0.08)))
+	_update_clock()
+	_update_sky()
+	# ---------------- çerçeveler (sertifika, eski fotoğraf)
+	var fr_m := _mat(Color(0.15, 0.1, 0.06), 0.5) if lv < 2 else _mat(Color(0.7, 0.55, 0.25), 0.3, 0.9)
+	for i in [0, 1] if lv > 0 else [0]:
+		var fp := Vector3(-3.6 + i * 0.6, 2.75 + (0.1 if i else 0.0), -3.88)
+		_box(o, Vector3(0.42, 0.32, 0.03), fp, fr_m)
+		_box(o, Vector3(0.36, 0.26, 0.032), fp + Vector3(0, 0, 0.002), paper)
+	# ---------------- dedektif panosu (sol duvar) — gerçek mantar dokusu
+	var cork := _tex_mat("res://assets/tex/cork.jpg", Color(0.95, 0.9, 0.85), Vector2(2.0, 1.0), 1.0)
+	var bw: float = [2.6, 3.2, 3.6][lv]
+	_box(o, Vector3(0.06, 1.7, bw), Vector3(-4.97, 1.75, -1.2), cork)
+	_box(o, Vector3(0.08, 1.8, 0.08), Vector3(-4.95, 1.75, -1.2 + bw / 2.0 + 0.02), frame)
+	_box(o, Vector3(0.08, 1.8, 0.08), Vector3(-4.95, 1.75, -1.2 - bw / 2.0 - 0.02), frame)
+	_box(o, Vector3(0.08, 0.08, bw + 0.1), Vector3(-4.95, 2.62, -1.2), frame)
+	_box(o, Vector3(0.08, 0.08, bw + 0.1), Vector3(-4.95, 0.88, -1.2), frame)
 	board_root = Node3D.new()
 	board_root.position = Vector3(-4.92, 1.75, -1.2)
 	board_root.rotation_degrees.y = 90
@@ -534,9 +863,102 @@ func _build_office() -> void:
 	bl.spot_range = 5.0
 	bl.spot_angle = 45
 	o.add_child(bl)
-	# halı
-	_box(o, Vector3(3.2, 0.01, 2.2), Vector3(0, 0.005, -1.2), _mat(Color(0.12, 0.05, 0.05), 1.0))
+	# ---------------- halı
+	var rug_c: Color = [Color(0.2, 0.2, 0.22), Color(0.12, 0.05, 0.05), Color(0.08, 0.1, 0.14)][lv]
+	_box(o, Vector3(3.2 + lv * 0.6, 0.01, 2.2 + lv * 0.4), Vector3(0, 0.005, -1.2), _mat(rug_c, 1.0))
+	# köşe ve duvar dibi gölgeleri
+	_ao(o, Vector3(0, 0.011, -3.75), Vector2(11.5, 0.8), 0.45)
+	_ao(o, Vector3(-4.85, 0.011, -1.0), Vector2(0.8, 9.0), 0.4)
+	_ao(o, Vector3(4.85, 0.011, -1.0), Vector2(0.8, 9.0), 0.4)
 	_office_life(o, desk_m, frame)
+
+func _update_clock() -> void:
+	if clock_h == null:
+		return
+	var t := Time.get_time_dict_from_system()
+	var h := float(t.hour % 12) + float(t.minute) / 60.0
+	clock_h.rotation.z = -h / 12.0 * TAU
+	clock_m.rotation.z = -float(t.minute) / 60.0 * TAU
+
+func _bookcase(o: Node3D, pos: Vector3, lv: int, rng: RandomNumberGenerator) -> void:
+	var wood := _mat(Color(0.14, 0.08, 0.045), 0.6) if lv > 0 else _mat(Color(0.4, 0.41, 0.42), 0.5, 0.5)
+	var w := 1.0
+	var h: float = [1.8, 2.2, 2.6][lv]
+	var n := Node3D.new()
+	n.position = pos
+	o.add_child(n)
+	_box(n, Vector3(w, h, 0.04), Vector3(0, h / 2.0, -0.17), wood)
+	for sx in [-1.0, 1.0]:
+		_box(n, Vector3(0.04, h, 0.36), Vector3(sx * w / 2.0, h / 2.0, 0), wood)
+	var shelves := int(h / 0.42)
+	var cols := [Color("#8a2a22"), Color("#24426a"), Color("#2f5a3a"), Color("#c9a24a"), Color("#3a3a3a"), Color("#d8d2c2"), Color("#5a3a6a")]
+	for si in shelves + 1:
+		var y := 0.05 + si * (h - 0.1) / shelves
+		_box(n, Vector3(w, 0.03, 0.34), Vector3(0, y, 0), wood)
+		if si == shelves:
+			break
+		var x := -w / 2.0 + 0.05
+		while x < w / 2.0 - 0.1:
+			var bwid := rng.randf_range(0.04, 0.09)
+			var bh := rng.randf_range(0.22, 0.34)
+			if rng.randf() < 0.12:
+				x += 0.08
+				continue
+			_box(n, Vector3(bwid, bh, 0.24), Vector3(x + bwid / 2.0, y + 0.015 + bh / 2.0, 0.02), _mat(cols[rng.randi() % cols.size()] * rng.randf_range(0.7, 1.1), 0.8))
+			x += bwid + 0.004
+	_ao(o, pos + Vector3(0, 0.011, 0.1), Vector2(1.4, 0.9), 0.5)
+
+func _cabinet(o: Node3D, pos: Vector3, lv: int) -> void:
+	var m := _mat(Color(0.32, 0.34, 0.33), 0.45, 0.6) if lv < 2 else _mat(Color(0.12, 0.07, 0.04), 0.4)
+	_box(o, Vector3(1.5, 0.7, 0.45), pos + Vector3(0, 0.35, 0), m)
+	for i in 3:
+		_box(o, Vector3(0.005, 0.62, 0.01), pos + Vector3(-0.75 + 0.375 * (i + 1), 0.35, 0.226), _mat(Color(0.08, 0.08, 0.08)))
+	for i in 4:
+		_box(o, Vector3(0.025, 0.12, 0.03), pos + Vector3(-0.6 + i * 0.4, 0.45, 0.235), _mat(Color(0.7, 0.7, 0.72), 0.3, 0.9))
+	# üstünde dosya kutuları
+	var bc := [Color("#24426a"), Color("#8a2a22"), Color("#c9a24a")]
+	for i in 3:
+		_box(o, Vector3(0.09, 0.3, 0.26), pos + Vector3(0.35 + i * 0.1, 0.85, 0), _mat(bc[i], 0.8))
+	_ao(o, pos + Vector3(0, 0.011, 0.1), Vector2(2.0, 0.9), 0.5)
+
+func _plant(o: Node3D, pos: Vector3, s: float) -> void:
+	var pot := _mat(Color(0.55, 0.3, 0.18), 0.8)
+	_cyl(o, 0.2 * s, 0.15 * s, 0.38 * s, pos + Vector3(0, 0.19 * s, 0), pot, Vector3.ZERO, 12)
+	var leaf := _mat(Color(0.12, 0.3, 0.12), 0.7)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	for i in 9:
+		var a := i * TAU / 9.0
+		var lm := _sphere(o, 0.14 * s, pos + Vector3(cos(a) * 0.16 * s, (0.6 + rng.randf() * 0.5) * s, sin(a) * 0.16 * s), _mat(Color(0.1, 0.26 + rng.randf() * 0.1, 0.1), 0.7))
+		lm.scale = Vector3(1.0, 1.9, 0.45)
+		lm.rotation = Vector3(rng.randf_range(-0.5, 0.5), a, rng.randf_range(-0.4, 0.4))
+	_ao(o, pos + Vector3(0, 0.011, 0), Vector2(0.8, 0.8), 0.5)
+
+func _sofa(o: Node3D, pos: Vector3) -> void:
+	var lth := _tex_mat("res://assets/tex/leather.jpg", Color(0.55, 0.32, 0.2), Vector2(2, 1), 0.45)
+	var n := Node3D.new()
+	n.position = pos
+	n.rotation_degrees.y = -90
+	o.add_child(n)
+	_box(n, Vector3(2.0, 0.42, 0.85), Vector3(0, 0.21, 0), lth)
+	_box(n, Vector3(2.0, 0.55, 0.22), Vector3(0, 0.62, -0.32), lth)
+	for sx in [-1.0, 1.0]:
+		_box(n, Vector3(0.22, 0.58, 0.85), Vector3(sx * 0.95, 0.35, 0), lth)
+	_ao(o, pos + Vector3(0, 0.011, 0), Vector2(1.3, 2.4), 0.55)
+
+func _framed_shirt(o: Node3D, pos: Vector3) -> void:
+	var n := Node3D.new()
+	n.position = pos
+	n.rotation_degrees.y = -90
+	o.add_child(n)
+	_box(n, Vector3(0.9, 1.0, 0.04), Vector3.ZERO, _mat(Color(0.05, 0.05, 0.05), 0.4))
+	_box(n, Vector3(0.82, 0.92, 0.042), Vector3(0, 0, 0.002), _mat(Color(0.85, 0.83, 0.78), 0.9))
+	shirt_mat = _mat(_club_c1, 0.8)
+	_box(n, Vector3(0.36, 0.5, 0.05), Vector3(0, -0.04, 0.004), shirt_mat)
+	_box(n, Vector3(0.6, 0.14, 0.05), Vector3(0, 0.16, 0.004), shirt_mat)
+
+var shirt_mat: StandardMaterial3D
+var window_light: OmniLight3D
 
 ## Masada çalışan scout, duvarda TV, masada telefon; pencerede gerçek saate göre gün ışığı
 func _office_life(o: Node3D, desk_m: Material, frame: Material) -> void:
@@ -598,6 +1020,10 @@ func _update_sky() -> void:
 	city_mat.set_shader_parameter("day", day)
 	city_mat.set_shader_parameter("dusk", dusk)
 	city_mat.set_shader_parameter("rain", rain)
+	if window_light:
+		window_light.light_energy = 0.5 + day * 1.6 + dusk * 0.5
+		window_light.light_color = Color(0.55, 0.65, 1.0).lerp(Color(1.0, 0.97, 0.92), day).lerp(Color(1.0, 0.7, 0.45), dusk * 0.6)
+		window_light.omni_range = 5.0 + day * 2.0
 
 func _update_tv() -> void:
 	if tv_lines.is_empty() or Game.s.is_empty() or Game.s.scout.club_id == "":
@@ -629,10 +1055,15 @@ func notify_news() -> void:
 	news_seen = n
 
 func set_club(c1: Color, c2: Color) -> void:
+	_club_c1 = c1
+	_club_c2 = c2
 	pennant_mat.albedo_color = c1
 	pennant_mat2.albedo_color = c2
+	if shirt_mat and office_level == 2:
+		shirt_mat.albedo_color = c1
 
 func set_trophies(n: int) -> void:
+	_trophy_n = n
 	for c in trophy_root.get_children():
 		c.queue_free()
 	var gold := _mat(Color(0.95, 0.75, 0.25), 0.25, 1.0)
@@ -650,7 +1081,7 @@ func set_board(cards: Array) -> void:
 		c.queue_free()
 	var pin := _mat(Color(0.85, 0.1, 0.1), 0.3, 0.2)
 	var string_m := _mat(Color(0.75, 0.08, 0.08), 0.8)
-	var paper := _mat(Color(0.95, 0.93, 0.88), 0.9)
+	var paper := _tex_mat("res://assets/tex/paper.jpg", Color(1, 1, 1), Vector2.ONE, 0.9)
 	var pts := []
 	var n := mini(cards.size(), 9)
 	for i in n:
@@ -665,7 +1096,18 @@ func set_board(cards: Array) -> void:
 		_box(card, Vector3(0.62, 0.42, 0.01), Vector3.ZERO, paper)
 		_box(card, Vector3(0.62, 0.1, 0.012), Vector3(0, 0.16, 0.001), _mat(Color(cd.c1), 0.8))
 		_box(card, Vector3(0.12, 0.1, 0.013), Vector3(0.25, 0.16, 0.002), _mat(Color(cd.c2), 0.8))
-		_box(card, Vector3(0.16, 0.2, 0.012), Vector3(-0.2, -0.04, 0.002), _mat(Color(0.3, 0.3, 0.32), 0.9))
+		var ph_m := _mat(Color(0.3, 0.3, 0.32), 0.9)
+		var phq := MeshInstance3D.new()
+		var pq := QuadMesh.new()
+		pq.size = Vector2(0.17, 0.2)
+		phq.mesh = pq
+		phq.material_override = ph_m
+		phq.position = Vector3(-0.2, -0.04, 0.0075)
+		card.add_child(phq)
+		if cd.has("p"):
+			Portrait.request(cd.p, func(t):
+				ph_m.albedo_texture = t
+				ph_m.albedo_color = Color.WHITE)
 		var l := _label(card, cd.name, Vector3(0.07, -0.0, 0.01), 0.0016, Color(0.1, 0.1, 0.12))
 		l.outline_size = 0
 		l.width = 300
@@ -1046,9 +1488,10 @@ func _process(delta: float) -> void:
 			tv_i += 1
 			_update_tv()
 		clock_t += delta
-		if clock_t > 60.0:
+		if clock_t > 30.0:
 			clock_t = 0.0
 			_update_sky()
+			_update_clock()
 		if ring_t >= 0.0:
 			ring_t += delta
 			if ring_t < 1.6:

@@ -11,6 +11,7 @@ func _ready() -> void:
 	stretch = true
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	material = Post.make("night")
 	sv = SubViewport.new()
 	sv.own_world_3d = true
 	sv.msaa_3d = Viewport.MSAA_2X
