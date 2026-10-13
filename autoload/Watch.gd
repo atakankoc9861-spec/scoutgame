@@ -32,6 +32,9 @@ func _ready() -> void:
 		if last.find("arka plana alindi") >= 0:
 			bg_exit = true
 			parts.append("=== NOT: uygulama arka plandayken kapandi (Android kapatti ya da donuste takildi) ===")
+	var why := _exit_reason()
+	if why != "":
+		parts.append("=== ANDROID CIKIS NEDENI ===\n" + why)
 	prev_report = "\n".join(parts)
 	if prev_report != "":
 		var f := FileAccess.open(PREV_FILE, FileAccess.WRITE)
@@ -196,3 +199,34 @@ func _loop() -> void:
 			if f:
 				f.store_string(txt)
 				f.close()
+
+
+## Android 11+: önceki oturum neden bitti? (bellek, çökme, kullanıcı kapattı...)
+const EXIT_REASONS := {0: "BILINMIYOR", 1: "UYGULAMA KENDI CIKTI", 2: "SINYAL (sistem oldurdu)", 3: "DUSUK BELLEK (Android kapatti)", 4: "COKME (Java)", 5: "COKME (yerel/native)",
+	6: "ANR (yanit vermiyor)", 7: "BASLATMA HATASI", 8: "IZIN DEGISTI", 9: "ASIRI KAYNAK KULLANIMI", 10: "KULLANICI KAPATTI (son uygulamalardan)", 11: "KULLANICI DURDURDU",
+	12: "BAGIMLILIK OLDU", 13: "DIGER", 14: "DONDURUCU", 15: "PAKET DURUMU", 16: "GUNCELLEME"}
+
+func _exit_reason() -> String:
+	if OS.get_name() != "Android" or not Engine.has_singleton("AndroidRuntime"):
+		return ""
+	var rt = Engine.get_singleton("AndroidRuntime")
+	if rt == null:
+		return ""
+	var act = rt.getActivity()
+	if act == null:
+		return ""
+	var am = act.getSystemService("activity")
+	if am == null:
+		return ""
+	var lst = am.getHistoricalProcessExitReasons(act.getPackageName(), 0, 1)
+	if lst == null or int(lst.size()) == 0:
+		return ""
+	var info = lst.get(0)
+	if info == null:
+		return ""
+	var code := int(info.getReason())
+	var desc = info.getDescription()
+	var pss := int(info.getPss()) / 1024
+	var rss := int(info.getRss()) / 1024
+	var imp := int(info.getImportance())
+	return "neden=%d %s | onem=%d | bellek pss=%dMB rss=%dMB | %s" % [code, EXIT_REASONS.get(code, "?"), imp, pss, rss, str(desc) if desc != null else ""]
