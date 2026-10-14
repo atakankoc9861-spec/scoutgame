@@ -510,7 +510,11 @@ func _set_training() -> void:
 	var cl := Game.my_club()
 	st.build(Color(cl.get("c1", "#2f6b3a")), Color(cl.get("c2", "#ffffff")), Color("#888888"), false, shadows)
 	train_stadium = st
+	_training_panorama(cond)
 	var white := Color("#f2f2ee")
+	# yıpranmış çim lekeleri: kale ağzı ve koni slalomu
+	_worn_patch(Vector3(10.6, 0, 4.0), Vector2(5.0, 6.5))
+	_worn_patch(Vector3(-2.5, 0, 4.0), Vector2(14.0, 4.0))
 	# tesis binası: iki katlı, camlı, kulüp renginde şerit
 	var win_m = st._shader_mat(StadS.WINDOW_SHADER)
 	win_m.set_shader_parameter("night", 0.0 if cond.tod == "day" else 1.0)
@@ -1815,3 +1819,83 @@ void fragment() {
 	_sun(Vector3(-40, 30, 0), Color("#a8b8e0"), 0.25)
 	_chair(Vector3(0, 0, 0.1), PI, Color("#222222"))
 	cam_target["wide0"] = {"pos": Vector3(0.9, 1.5, 2.4), "look": Vector3(0, 1.3, -1.6)}
+
+# ---- tesis panoraması (Gemini) ve yıpranmış çim ----
+func _training_panorama(cond: Dictionary) -> void:
+	if not _has("res://assets/tex/bg_training_panorama.jpg"):
+		return
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 230.0
+	cm.bottom_radius = 230.0
+	cm.height = 120.0
+	cm.radial_segments = 48
+	cm.rings = 1
+	cm.cap_top = false
+	cm.cap_bottom = false
+	mi.mesh = cm
+	mi.position = Vector3(0, 57.0, 0)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var m := _shm("""shader_type spatial;
+render_mode unshaded, cull_disabled, fog_disabled, shadows_disabled;
+uniform sampler2D pano : source_color, filter_linear_mipmap, repeat_disable;
+uniform vec3 tint = vec3(1.0);
+uniform vec3 haze = vec3(0.7, 0.78, 0.88);
+uniform float haze_k = 0.25;
+uniform float sat = 1.0;
+void fragment() {
+	float t = UV.x * 3.0;
+	float u = 1.0 - abs(mod(t, 2.0) - 1.0);
+	vec3 c = texture(pano, vec2(u, UV.y)).rgb;
+	float l = dot(c, vec3(0.299, 0.587, 0.114));
+	c = mix(vec3(l), c, sat) * tint;
+	// ufka yakın kısım sisle karışsın, sahne ile uyumlu dursun
+	float h = smoothstep(0.35, 1.0, UV.y);
+	c = mix(c, haze, haze_k * (0.4 + 0.6 * h));
+	ALBEDO = c;
+}""")
+	m.set_shader_parameter("pano", load("res://assets/tex/bg_training_panorama.jpg"))
+	var tod: String = cond.get("tod", "day")
+	var w: String = cond.get("weather", "clear")
+	var tint: Vector3 = {"day": Vector3(1.0, 1.0, 1.0), "dusk": Vector3(0.95, 0.78, 0.7), "night": Vector3(0.1, 0.12, 0.18)}.get(tod, Vector3.ONE)
+	var haze: Vector3 = {"day": Vector3(0.7, 0.78, 0.88), "dusk": Vector3(0.55, 0.45, 0.45), "night": Vector3(0.05, 0.06, 0.09)}.get(tod, Vector3(0.7, 0.78, 0.88))
+	var hk := 0.22
+	var sat := 1.0
+	if w == "rain":
+		tint *= 0.75
+		hk = 0.5
+		sat = 0.55
+		haze = haze.lerp(Vector3(0.5, 0.52, 0.56) if tod == "day" else Vector3(0.12, 0.13, 0.15), 0.6)
+	m.set_shader_parameter("tint", tint)
+	m.set_shader_parameter("haze", haze)
+	m.set_shader_parameter("haze_k", hk)
+	m.set_shader_parameter("sat", sat)
+	mi.material_override = m
+	world.add_child(mi)
+
+func _worn_patch(pos: Vector3, size: Vector2) -> void:
+	if not _has("res://assets/tex/tex_turf_worn.jpg"):
+		return
+	var mi := MeshInstance3D.new()
+	var q := PlaneMesh.new()
+	q.size = size
+	mi.mesh = q
+	mi.position = pos + Vector3(0, 0.015, 0)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var m := _shm("""shader_type spatial;
+render_mode blend_mix, depth_draw_never, cull_disabled;
+uniform sampler2D turf : source_color, filter_linear_mipmap, repeat_enable;
+uniform vec2 rep = vec2(1.0);
+void fragment() {
+	vec3 c = texture(turf, UV * rep).rgb;
+	vec2 d = abs(UV - 0.5) * 2.0;
+	float edge = 1.0 - smoothstep(0.45, 1.0, max(d.x * d.x + d.y * d.y, 0.0));
+	float n = texture(turf, UV * rep * 0.37 + 0.21).g;
+	ALBEDO = c * 0.95;
+	ROUGHNESS = 0.95;
+	ALPHA = clamp(edge * (0.55 + n * 0.6), 0.0, 0.85);
+}""")
+	m.set_shader_parameter("turf", load("res://assets/tex/tex_turf_worn.jpg"))
+	m.set_shader_parameter("rep", size / 6.0)
+	mi.material_override = m
+	world.add_child(mi)
