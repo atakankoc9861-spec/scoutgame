@@ -359,7 +359,7 @@ func _env() -> void:
 	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.0
-	env.glow_enabled = true
+	env.glow_enabled = not OS.has_feature("mobile")
 	env.glow_intensity = 0.7
 	env.glow_bloom = 0.04
 	env.glow_hdr_threshold = 1.0

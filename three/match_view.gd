@@ -173,6 +173,8 @@ func _ready() -> void:
 	if lg.x > 0 and ph.x > 0:
 		ratio = clampf(minf(ph.x / lg.x, ph.y / lg.y), 0.3, 1.0)
 	sv.scaling_3d_scale = clampf(Game.q_scale() * ratio * 0.92, 0.3, 1.0)
+	if OS.has_feature("mobile"):
+		sv.scaling_3d_scale = 1.0
 	print("[BC] viewer olcek ", sv.scaling_3d_scale, " mantiksal ", lg, " fiziksel ", ph)
 	sv.audio_listener_enable_3d = false
 	svc.add_child(sv)

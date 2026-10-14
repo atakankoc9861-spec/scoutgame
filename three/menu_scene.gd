@@ -15,7 +15,7 @@ func _ready() -> void:
 	sv = SubViewport.new()
 	sv.own_world_3d = true
 	sv.msaa_3d = Viewport.MSAA_2X
-	sv.scaling_3d_scale = 0.8
+	sv.scaling_3d_scale = 1.0 if OS.has_feature("mobile") else 0.8
 	add_child(sv)
 	var w := Node3D.new()
 	sv.add_child(w)

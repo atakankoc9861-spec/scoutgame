@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta9"
+const VERSION := "v0.21-beta10"
 
 var bg: ColorRect
 var hub
@@ -2015,6 +2015,7 @@ func _run_viewer(data: Dictionary, focus: Array):
 	if hub:
 		hub.set_active(true)
 	Watch.bc("viewer kapandi")
+	_after_close_test("mac sonrasi")
 	return fe
 
 ## İmza töreni: başkan ve oyuncu el sıkışır, atkıyla basın fotoğrafı
@@ -3594,7 +3595,18 @@ func _choose(opts: Array, prompt := "") -> String:
 		c.queue_free()
 	return str(val)
 
+func _after_close_test(tag: String) -> void:
+	for i in 10:
+		await get_tree().process_frame
+	var r: String = await Watch.selftest(tag)
+	if r.contains("BOS") and not _gpu_warned:
+		_gpu_warned = true
+		_toast(T.t("gpu_stuck"))
+
+var _gpu_warned := false
+
 func _scene_close(back_to_menu := true) -> void:
+	_after_close_test.call_deferred("sahne sonrasi")
 	Watch.bc("sahne kapandi")
 	Sfx.amb_off()
 	if dlg_layer:

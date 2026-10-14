@@ -68,6 +68,9 @@ func quality() -> String:
 	return settings.quality
 
 func q_scale() -> float:
+	# v0.21-b10: mobilde 3B ölçekleme ara tamponu yok (Adreno sürücüsünde görünüm kapanınca GPU bozuluyordu)
+	if OS.has_feature("mobile"):
+		return 1.0
 	return {"high": 0.85, "medium": 0.7, "low": 0.55}.get(quality(), 0.7)
 
 # ================================================================ yardımcılar

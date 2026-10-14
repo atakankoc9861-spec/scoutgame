@@ -383,7 +383,7 @@ func dbc(msg: String) -> void:
 var _st_count := 0
 func selftest(tag: String) -> String:
 	_st_count += 1
-	if _st_count > 8:
+	if _st_count > 14:
 		return ""
 	var holder := Node.new()
 	add_child(holder)

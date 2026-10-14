@@ -130,6 +130,7 @@ const TR := {
 	"other_lang": "Diğer diller…",
 	# genel
 	"title": "GÖZCÜ", "subtitle": "Scout Kariyeri",
+	"gpu_stuck": "Grafik sürücüsü takıldı. 3B görüntü gelmezse oyunu kapatıp yeniden aç; ilerlemen kayıtlı.",
 	"rw_day": "Reklam izle: +1 iş günü",
 	"rw_rest": "Reklam izle: yorgunluk -30",
 	"rw_day_ok": "Fazla mesai: bu hafta bir iş günün daha var.",
@@ -1164,6 +1165,7 @@ const EN := {
 	"no_moves": "This country has a single tier.",
 	"other_lang": "Other languages…",
 	"title": "GÖZCÜ", "subtitle": "Scout Career",
+	"gpu_stuck": "The graphics driver got stuck. If 3D stays blank, close and reopen the game; your progress is saved.",
 	"rw_day": "Watch an ad: +1 work day",
 	"rw_rest": "Watch an ad: fatigue -30",
 	"rw_day_ok": "Overtime: one more work day this week.",
