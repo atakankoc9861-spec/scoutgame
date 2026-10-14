@@ -31,7 +31,7 @@ func _ready() -> void:
 		cam.far = 900
 		sv.add_child(cam)
 		var tag := "%d_%s_%s" % c
-		for v in [["tv", Vector3(0, 30, 39), Vector3(0, 0, 4), 28.0], ["wide", Vector3(-26, 30, 39), Vector3(-34, 0, -2), 40.0], ["low", Vector3(25, 6.5, 39), Vector3(35, 0.6, 0), 40.0], ["orbit", Vector3(95, 42, 95), Vector3(0, 0, 0), 50.0]]:
+		for v in [["tv", Vector3(0, 30, 39), Vector3(0, 0, 4), 28.0], ["wide", Vector3(-26, 30, 39), Vector3(-34, 0, -2), 40.0], ["low", Vector3(25, 6.5, 39), Vector3(35, 0.6, 0), 40.0], ["orbit", Vector3(95, 42, 95), Vector3(0, 0, 0), 50.0], ["board", Vector3(0, 1.4, 31.5), Vector3(12, 0.6, 37.2), 50.0]]:
 			cam.fov = v[3]
 			cam.position = v[1]
 			cam.look_at(v[2])

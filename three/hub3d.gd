@@ -1425,7 +1425,8 @@ func _ensure_stadium() -> void:
 	st.set_excite(0.25)
 	var kit := FB.kit_mats(Color("#e8c547"), Color("#123524"), Color("#e8c547"))
 	var kit2 := FB.kit_mats(Color("#f2f2f2"), Color("#b5121b"), Color("#f2f2f2"))
-	for i in 12:
+	# menü arka planı: koşan oyuncu yok (ekran kartını ve pili yormasın)
+	for i in 0:
 		var f = FB.new()
 		stadium_node.add_child(f)
 		f.lod = true
@@ -1466,7 +1467,25 @@ func goto(name: String, instant := false) -> void:
 	tween.tween_method(func(v):
 		cam_look = v, cam_look, to_look, dur)
 
+## Menüde 3D'yi seyrek çiz: kamera dururken saniyede ~20 kare yeter
+var _thr_t := 0.0
+func _throttle(delta: float) -> void:
+	if not active:
+		return
+	var moving := (tween != null and tween.is_running()) or orbit or station == "pedestal" or absf(cam.fov - fov_target) > 0.2
+	if moving or Game.quality() == "high":
+		if sv.render_target_update_mode != SubViewport.UPDATE_ALWAYS:
+			sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		return
+	_thr_t += delta
+	if _thr_t >= 0.05:
+		_thr_t = 0.0
+		sv.render_target_update_mode = SubViewport.UPDATE_ONCE
+	elif sv.render_target_update_mode == SubViewport.UPDATE_ALWAYS:
+		sv.render_target_update_mode = SubViewport.UPDATE_ONCE
+
 func _process(delta: float) -> void:
+	_throttle(delta)
 	if orbit:
 		orbit_t += delta * 0.06
 		cam.position = STAD + Vector3(sin(orbit_t) * 85.0, 32.0 + sin(orbit_t * 0.7) * 6.0, cos(orbit_t) * 85.0)

@@ -15,6 +15,8 @@ func _ready() -> void:
 	Game.s.offers = []
 	Game.take_job(Game.job_offers_start()[1])
 	Game.finish_week()
+	Game.s.events = []
+	Game.tut_skip()
 	var sl = Game.search({"lg": "SL"})
 	for i in 6:
 		Game.toggle_shortlist(sl[i])

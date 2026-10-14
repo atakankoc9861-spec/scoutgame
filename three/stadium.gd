@@ -29,7 +29,7 @@ var board2: Label3D
 const T_GRASS := preload("res://assets/tex/grass.jpg")
 const T_CROWD := preload("res://assets/tex/crowd.jpg")
 const T_SKY := preload("res://assets/tex/sky_day.jpg")
-const T_ADS := preload("res://assets/tex/ads.png")
+const T_ADS := preload("res://assets/ads/atlas.png")
 
 const PITCH_SHADER := """
 shader_type spatial;
@@ -144,22 +144,29 @@ void fragment() {
 const LED_SHADER := """
 shader_type spatial;
 render_mode unshaded;
-uniform sampler2D ads : source_color, filter_linear, repeat_enable;
+uniform sampler2D ads : source_color, filter_linear_mipmap, repeat_enable;
 uniform vec3 c1 = vec3(0.9, 0.7, 0.1);
 uniform float pulse = 0.0;
 uniform float led = 1.0;
 uniform float panels = 3.0;
 uniform float bright = 1.6;
+uniform float n_ads = 14.0;
+uniform float seed = 0.0;
+float pick(float k, float pi) { return mod(floor(k * 5.0 + pi * 3.0 + seed * 7.0), n_ads); }
 void fragment() {
-	// her 7 saniyede bir sonraki reklama kayarak geç
-	float t = TIME / 7.0;
+	float pi = floor(UV.x * panels);
+	vec2 lu = vec2(fract(UV.x * panels), UV.y);
+	// her pano kendi temposunda: 6 sn'de bir sonraki tasarım aşağıdan yukarı kayarak gelir
+	float t = led > 0.5 ? TIME / 6.0 + seed * 0.37 + pi * 0.11 : seed;
 	float k = floor(t);
-	float f = smoothstep(0.88, 1.0, fract(t));
-	float u = fract(UV.x * panels) / 8.0 + (k + f) / 8.0 * led;
-	vec3 col = texture(ads, vec2(u, UV.y)).rgb;
+	float f = led > 0.5 ? smoothstep(0.86, 1.0, fract(t)) : 0.0;
+	float y = lu.y + f;
+	float d = y < 1.0 ? pick(k, pi) : pick(k + 1.0, pi);
+	float yy = fract(y);
+	vec3 col = texture(ads, vec2(lu.x, (d + clamp(yy, 0.004, 0.996)) / n_ads)).rgb;
 	if (led > 0.5) {
-		float px = step(0.18, fract(UV.x * 900.0)) * step(0.18, fract(UV.y * 14.0));
-		col *= 0.6 + 0.4 * px;
+		float px = step(0.18, fract(UV.x * panels * 260.0)) * step(0.18, fract(UV.y * 32.0));
+		col *= 0.62 + 0.38 * px;
 		col = mix(col, c1, pulse * step(0.5, fract(TIME * 4.0)));
 	}
 	ALBEDO = col * bright;
@@ -800,6 +807,7 @@ func set_board(score: String, sub: String) -> void:
 func _make_led() -> ShaderMaterial:
 	led_mat = _shader_mat(LED_SHADER)
 	led_mat.set_shader_parameter("ads", T_ADS)
+	led_mat.set_shader_parameter("n_ads", float(T_ADS.get_height()) / 128.0)
 	led_mat.set_shader_parameter("c1", Vector3(home_c1.r, home_c1.g, home_c1.b))
 	led_mat.set_shader_parameter("led", 1.0 if tier <= 1 else 0.0)
 	led_mat.set_shader_parameter("bright", 1.6 if is_night() else 1.1)
@@ -923,7 +931,7 @@ func _lights() -> void:
 func _led_boards() -> void:
 	var back := _mat(Color(0.05, 0.05, 0.06))
 	var L := 96.0 if tier <= 1 else 70.0
-	var panels := L / 12.0
+	var panels := L / 7.6
 	for sz in [-1.0, 1.0]:
 		var mi := _box(Vector3(L, 0.95, 0.15), Vector3(0, 0.48, sz * 37.2), led_mat)
 		_board_uv(mi, panels)
@@ -932,11 +940,12 @@ func _led_boards() -> void:
 		for sx in [-1.0, 1.0]:
 			for z in [-22.0, 22.0]:
 				var mi2 := _box(Vector3(0.15, 0.95, 26), Vector3(sx * 56.0, 0.48, z), led_mat)
-				_board_uv(mi2, 26.0 / 12.0)
+				_board_uv(mi2, 26.0 / 7.6)
 
 func _board_uv(mi: MeshInstance3D, panels: float) -> void:
 	var m: ShaderMaterial = led_mat.duplicate()
 	m.set_shader_parameter("panels", maxf(1.0, round(panels)))
+	m.set_shader_parameter("seed", float(led_mats.size()) * 1.7 + 0.3)
 	mi.material_override = m
 	led_mats.append(m)
 

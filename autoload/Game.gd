@@ -49,6 +49,9 @@ func _ready() -> void:
 		settings.sound = cf.get_value("g", "sound", true)
 		settings.music = cf.get_value("g", "music", true)
 		settings.haptic = cf.get_value("g", "haptic", true)
+		for k in ["theme", "themes", "theme_ads", "supporter", "ad_free"]:
+			if cf.has_section_key("g", k):
+				settings[k] = cf.get_value("g", k)
 
 func save_settings() -> void:
 	var cf := ConfigFile.new()
@@ -56,6 +59,9 @@ func save_settings() -> void:
 	cf.set_value("g", "sound", settings.sound)
 	cf.set_value("g", "music", settings.music)
 	cf.set_value("g", "haptic", settings.get("haptic", true))
+	for k in ["theme", "themes", "theme_ads", "supporter", "ad_free"]:
+		if settings.has(k):
+			cf.set_value("g", k, settings[k])
 	cf.save(SETTINGS_PATH)
 
 func quality() -> String:
@@ -726,7 +732,7 @@ func _spend_travel(city: String) -> Dictionary:
 	return info
 
 func free_days() -> int:
-	return WORK_DAYS - s.cal.size()
+	return WORK_DAYS + int(s.get("bonus_days", 0)) - s.cal.size()
 
 func wed_free() -> bool:
 	return not s.cal.has(str(WED))
@@ -742,6 +748,12 @@ func _take_day(act: String, pid: String, wed_only := false) -> int:
 		if not s.cal.has(str(d)):
 			s.cal[str(d)] = {"act": act, "pid": pid}
 			return d
+	# fazla mesai (ödüllü reklamdan)
+	for b in int(s.get("bonus_days", 0)):
+		var k := "x%d" % b
+		if not s.cal.has(k):
+			s.cal[k] = {"act": act, "pid": pid}
+			return 10 + b
 	return -1
 
 func match_abroad(key: String) -> bool:
@@ -1938,6 +1950,7 @@ func finish_week() -> Dictionary:
 	s.scout.money += s.scout.salary
 	s.scout.fatigue = max(0, s.scout.fatigue - 22)
 	s.cal = {}
+	s["bonus_days"] = 0
 	s.plan = {"sat": "", "sun": "", "focus_sat": [], "focus_sun": [], "travel_sat": "", "travel_sun": ""}
 	_staff_week()
 	s.week += 1
@@ -3959,3 +3972,59 @@ func _other_groups(groups: Array) -> Array:
 		if not g in groups:
 			out.append(g)
 	return out
+
+
+# ================================================================ v0.21: gelir katmanı (ödüllü reklam, kozmetik)
+## Para verip güçlenme yok: reklam yalnızca zaman/yorgunluk kolaylığı verir, haftada birer kez.
+const REWARDS := {"day": "rw_day", "rest": "rw_rest"}
+
+func reward_ready(kind: String) -> bool:
+	var used: Dictionary = s.get("rw_used", {})
+	return int(used.get(kind, -1)) != s.season * 100 + s.week
+
+func reward_grant(kind: String) -> void:
+	if not s.has("rw_used"):
+		s["rw_used"] = {}
+	s.rw_used[kind] = s.season * 100 + s.week
+	match kind:
+		"day":
+			s["bonus_days"] = int(s.get("bonus_days", 0)) + 1
+		"rest":
+			s.scout.fatigue = maxi(0, int(s.scout.fatigue) - 30)
+	changed.emit()
+
+const THEMES := {
+	"classic": {"tint": Color(0.55, 0.48, 0.44), "price": 0},
+	"navy": {"tint": Color(0.32, 0.38, 0.55), "price": 3},
+	"bordeaux": {"tint": Color(0.62, 0.3, 0.3), "price": 3},
+	"forest": {"tint": Color(0.32, 0.46, 0.34), "price": 3},
+	"kraft": {"tint": Color(0.78, 0.62, 0.44), "price": 5},
+	"midnight": {"tint": Color(0.25, 0.25, 0.28), "price": 5},
+}
+
+func theme_owned(id: String) -> bool:
+	return id == "classic" or id in settings.get("themes", []) or settings.get("supporter", false)
+
+func theme_tint() -> Color:
+	var id: String = settings.get("theme", "classic")
+	if not theme_owned(id):
+		id = "classic"
+	return THEMES.get(id, THEMES.classic).tint
+
+## Tema kilidi: reklam izleyerek ilerler (price = gereken reklam sayısı)
+func theme_progress(id: String) -> int:
+	return int(settings.get("theme_ads", {}).get(id, 0))
+
+func theme_add_ad(id: String) -> bool:
+	var ta: Dictionary = settings.get("theme_ads", {})
+	ta[id] = int(ta.get(id, 0)) + 1
+	settings["theme_ads"] = ta
+	if int(ta[id]) >= int(THEMES[id].price):
+		var own: Array = settings.get("themes", [])
+		if not id in own:
+			own.append(id)
+		settings["themes"] = own
+		save_settings()
+		return true
+	save_settings()
+	return false

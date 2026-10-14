@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta6"
+const VERSION := "v0.21-beta7"
 
 var bg: ColorRect
 var hub
@@ -156,7 +156,7 @@ func _process(delta: float) -> void:
 # ================================================================ iskelet
 
 func _leather_style(pad_x := 16, pad_y := 12) -> StyleBox:
-	return _leather_tex_style(Color(0.55, 0.48, 0.44), pad_x, pad_y)
+	return _leather_tex_style(Game.theme_tint(), pad_x, pad_y)
 
 func _stitch(panel: Control, top: bool) -> void:
 	## Deri üzerine dikiş çizgisi
@@ -982,6 +982,7 @@ func _scr_title() -> void:
 		Game.settings.haptic = not Game.settings.get("haptic", true)
 		Game.save_settings()
 		_show("title", null, false), "dark", qh2, "bell"))
+	_btn(T.t("shop_btn"), func(): _shop(), "dark", cv, "star")
 	_btn(T.t("crash_copy"), func():
 		DisplayServer.clipboard_set(_last_log(true))
 		_toast(T.t("crash_copied")), "dark", cv, "report")
@@ -2229,6 +2230,20 @@ func _week_this() -> void:
 			_refresh(), "ghost", page, "moon")
 	if Game.s.week >= 1:
 		_btn(T.t("trip_btn"), _trip_flow, "small", page, "plane")
+		# ödüllü reklam: haftada bir fazla mesai / dinlenme (para verip güçlenme yok)
+		var rh := _h(page, 8)
+		if Game.free_days() <= 0 and Game.reward_ready("day"):
+			_expand(_btn(T.t("rw_day"), func():
+				if await _rewarded("day"):
+					Game.reward_grant("day")
+					_toast(T.t("rw_day_ok"))
+					_refresh(), "brass", rh, "play"))
+		if int(Game.s.scout.fatigue) >= 40 and Game.reward_ready("rest"):
+			_expand(_btn(T.t("rw_rest"), func():
+				if await _rewarded("rest"):
+					Game.reward_grant("rest")
+					_toast(T.t("rw_rest_ok"))
+					_refresh(), "brass", rh, "play"))
 	# planlanan maçlar
 	_section(T.t("weekend_plan"), null, "ball")
 	for day in ["sat", "sun"]:
@@ -3282,6 +3297,7 @@ func _scene_open(set_name: String, place: String) -> void:
 	stage = Stage3D.new()
 	dlg_layer.add_child(stage)
 	stage.setup(set_name, set_name == "phone")
+	scene_ready = false
 	dlg_root = Control.new()
 	dlg_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	dlg_root.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -3426,6 +3442,7 @@ func _scene_open(set_name: String, place: String) -> void:
 	dlg_root.modulate.a = 0.0
 	create_tween().tween_property(dlg_root, "modulate:a", 1.0, 0.35)
 	set_process(true)
+	_scene_cover(place)
 
 func _dlg_input(e: InputEvent) -> void:
 	if not (e is InputEventMouseButton and e.pressed):
@@ -3495,6 +3512,7 @@ func _wait_tap() -> void:
 
 ## Karakter konuşur: kamera ona keser, balon başının üstünde
 func _line(id: String, name: String, text: String, listener := "", vp := 0, emo := "") -> void:
+	await _scene_gate()
 	caption_box.visible = false
 	choice_box.visible = false
 	if stage:
@@ -3521,6 +3539,7 @@ func _line(id: String, name: String, text: String, listener := "", vp := 0, emo 
 
 ## Anlatım kutusu (üstte)
 func _caption(text: String) -> void:
+	await _scene_gate()
 	bubble.visible = false
 	choice_box.visible = false
 	caption_box.visible = true
@@ -3532,6 +3551,7 @@ func _caption(text: String) -> void:
 
 ## Not defterine el yazısıyla not
 func _note(text: String, col := C_BLUE) -> void:
+	await _scene_gate()
 	bubble.visible = false
 	choice_box.visible = false
 	note_box.visible = true
@@ -3544,6 +3564,7 @@ func _note(text: String, col := C_BLUE) -> void:
 	await _wait_tap()
 
 func _choose(opts: Array, prompt := "") -> String:
+	await _scene_gate()
 	## opts: [[anahtar, etiket], ...]
 	bubble.visible = false
 	caption_box.visible = false
@@ -3652,6 +3673,7 @@ func _spark_pop(caught: bool) -> void:
 
 ## Gözlem aşaması: oyuncu çalışır, kıvılcımlar belirir; yakalanan sayısını döndürür
 func _observe_phase(dur: float, n: int, vcr := false, focus := "all") -> int:
+	await _scene_gate()
 	_spark_ui_build(vcr)
 	stage.spark_shown.connect(func(_i):
 		Sfx.play("spark", -6.0)
@@ -4875,6 +4897,9 @@ func _check_popups() -> void:
 		shown = true
 		h = Game.pop_headline()
 	var e := Game.next_event()
+	# rehber sürerken olaylarla bölme
+	if Game.tut_on() and Game.tut_step() < 5:
+		e = {}
 	if not e.is_empty() and not _busy:
 		await _run_event(e)
 		shown = true
@@ -5257,3 +5282,192 @@ func _bg_resume() -> void:
 	await RenderingServer.frame_post_draw
 	Watch.bc("donus: 3B acildi")
 	Watch.check_screen("donus")
+
+
+# ================================================================ sahne yükleme perdesi (siyah ekran koruması)
+var scene_ready := true
+var _scene_cover_node: Control
+
+func _scene_gate() -> void:
+	while not scene_ready and dlg_layer != null and is_instance_valid(dlg_layer):
+		await get_tree().process_frame
+
+func _scene_cover(place: String) -> void:
+	var c := Control.new()
+	c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_STOP
+	dlg_layer.add_child(c)
+	_scene_cover_node = c
+	var bg := ColorRect.new()
+	bg.color = Color("#0b0a08")
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	c.add_child(bg)
+	var art := TextureRect.new()
+	art.texture = load("res://assets/tex/key_art.jpg")
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	art.modulate = Color(0.32, 0.3, 0.28)
+	c.add_child(art)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 14)
+	c.add_child(v)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _paper_style(C_MANILA, 22, 6, 7))
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var cv := VBoxContainer.new()
+	card.add_child(cv)
+	var l := _lbl(place.to_upper(), 30, C_INK, false, F_HEAD)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cv.add_child(l)
+	var d := _typed(T.t("scene_loading"), 16, C_INK2, false)
+	d.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cv.add_child(d)
+	v.add_child(_tilt(card, -2.0))
+	_scene_reveal.call_deferred()
+
+func _vp_lum(sv: SubViewport) -> float:
+	var img := sv.get_texture().get_image()
+	if img == null or img.is_empty():
+		return -1.0
+	var w := img.get_width()
+	var h := img.get_height()
+	var lum := 0.0
+	for yi in range(1, 6):
+		for xi in range(1, 6):
+			lum += img.get_pixel(w * xi / 6, h * yi / 6).get_luminance()
+	return lum / 25.0
+
+func _scene_reveal() -> void:
+	## Menü 3D'si kapanır, sahne arkada birkaç kare çizilir, görüntü doğrulanınca perde açılır
+	var t0 := Time.get_ticks_msec()
+	if root:
+		root.visible = false
+	for i in 4:
+		await get_tree().process_frame
+	if stage == null or not is_instance_valid(stage):
+		scene_ready = true
+		return
+	Watch.bc("sahne perde: menu kapandi " + Watch._mon())
+	var ok := false
+	for attempt in 3:
+		for i in 6:
+			await RenderingServer.frame_post_draw
+		if stage == null or not is_instance_valid(stage) or stage.views.is_empty():
+			break
+		var lum := _vp_lum(stage.views[0].sv)
+		Watch.bc("sahne perde: deneme %d lum=%.3f" % [attempt, lum])
+		if lum > 0.02:
+			ok = true
+			break
+		# siyah: güvenli moda geç ve tekrar dene
+		for vw in stage.views:
+			var sv: SubViewport = vw.sv
+			sv.msaa_3d = Viewport.MSAA_DISABLED
+			sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+			sv.render_target_clear_mode = SubViewport.CLEAR_MODE_ALWAYS
+		for we in stage.find_children("*", "WorldEnvironment", true, false):
+			(we as WorldEnvironment).environment.glow_enabled = false
+		Game.settings["safe3d"] = true
+	if not ok:
+		Watch.bc("sahne perde: goruntu dogrulanamadi, yine de aciliyor")
+	while Time.get_ticks_msec() - t0 < 700:
+		await get_tree().process_frame
+	if _scene_cover_node and is_instance_valid(_scene_cover_node):
+		var c := _scene_cover_node
+		var tw := create_tween()
+		tw.tween_property(c, "modulate:a", 0.0, 0.3)
+		tw.tween_callback(c.queue_free)
+	scene_ready = true
+
+
+# ================================================================ v0.21: sponsor arası (ödüllü reklam yeri) ve dükkân
+## Gerçek reklam SDK'sı (AdMob) bağlanana kadar oyunun kendi sponsor kartı gösterilir.
+func _rewarded(kind: String) -> bool:
+	var lv: Array = _modal_layer(0.25, 0.75)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	v.add_child(_lbl(T.t("rw_title"), 26, C_INK2, true, F_TYPEB))
+	# atlastan rastgele bir pano tasarımı
+	var atlas: Texture2D = load("res://assets/ads/atlas.png")
+	var n := int(atlas.get_height() / 128)
+	var at := AtlasTexture.new()
+	at.atlas = atlas
+	at.region = Rect2(0, 128 * (randi() % maxi(1, n)), 1024, 128)
+	var tr := TextureRect.new()
+	tr.texture = at
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	tr.custom_minimum_size = Vector2(0, 86)
+	v.add_child(tr)
+	v.add_child(_typed(T.t("rw_note"), 15, C_INK2))
+	var b := _btn(T.t("rw_wait", [5]), func(): _choice_done.emit(true), "primary", v, "check")
+	b.disabled = true
+	_btn(T.t("close"), func(): _choice_done.emit(false), "ghost", v, "cross")
+	for i in range(5, 0, -1):
+		b.text = T.t("rw_wait", [i])
+		await get_tree().create_timer(1.0).timeout
+	b.disabled = false
+	b.text = T.t("rw_claim")
+	var ok: bool = await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+	return ok
+
+func _shop() -> void:
+	var lv: Array = _modal_layer(0.06, 0.94)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("star", C_BRASS, 34))
+	hh.add_child(_lbl(T.t("shop_title"), 32, C_INK, true, F_HEAD))
+	v.add_child(_typed(T.t("shop_hint"), 15, C_INK2))
+	_section(T.t("shop_themes"), v, "eye")
+	var cur: String = Game.settings.get("theme", "classic")
+	for id in Game.THEMES:
+		var th: Dictionary = Game.THEMES[id]
+		var c := _card(v, "card", 12)
+		var row := _h(c, 10)
+		var sw := Panel.new()
+		sw.custom_minimum_size = Vector2(90, 54)
+		sw.add_theme_stylebox_override("panel", _leather_tex_style(th.tint, 4, 4))
+		row.add_child(sw)
+		var tv := VBoxContainer.new()
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tv.add_theme_constant_override("separation", -2)
+		row.add_child(tv)
+		tv.add_child(_head(T.t("theme_" + id), 22))
+		var tid: String = id
+		if Game.theme_owned(id):
+			tv.add_child(_typed(T.t("shop_owned") if id != cur else T.t("shop_using"), 14, C_GREEN))
+			if id != cur:
+				_btn(T.t("shop_use"), func():
+					Game.settings["theme"] = tid
+					Game.save_settings()
+					_choice_done.emit("apply"), "small", row)
+		else:
+			tv.add_child(_typed(T.t("shop_progress", [Game.theme_progress(id), int(th.price)]), 14, C_INK2))
+			_btn(T.t("shop_watch"), func():
+				if await _rewarded("theme"):
+					if Game.theme_add_ad(tid):
+						_toast(T.t("shop_unlocked"))
+					_choice_done.emit("reopen"), "brass", row, "play")
+	_section(T.t("shop_support"), v, "trophy")
+	var sc := _card(v, "hl", 14)
+	sc.add_child(_hand(T.t("shop_support_d"), 24, C_INK))
+	var sb := _btn(T.t("shop_soon"), func(): pass, "dark", sc)
+	sb.disabled = true
+	_btn(T.t("close"), func(): _choice_done.emit("close"), "primary", v, "check")
+	var r = await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+	if r is String and r == "apply":
+		topbar.add_theme_stylebox_override("panel", _leather_style(18, 12))
+		navbar.add_theme_stylebox_override("panel", _leather_style(6, 6))
+		_show("title", null, false)
+	elif r is String and r == "reopen":
+		_shop()

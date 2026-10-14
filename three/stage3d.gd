@@ -411,7 +411,8 @@ func _build(name: String) -> void:
 		"office": _set_office()
 		"phone": _set_phone()
 		"home": _set_home()
-		"training", "video": _set_training()
+		"training": _set_training()
+		"video": _set_video()
 	_extras(name)
 
 ## ---------------------------------------------------------------- figüranlar ve ortam sesi
@@ -472,33 +473,6 @@ func _walk_tick(delta: float) -> void:
 		n.rotation.y = lerp_angle(n.rotation.y, atan2(d.x, d.z), minf(1.0, delta * 6.0))
 		n.tick(delta, float(w.spd))
 
-## Ev ziyareti: oturma odası (genç oyuncunun ailesi)
-func _set_home() -> void:
-	_env(Color("#120e0b"), Color("#8a7058"), 0.55)
-	_box(Vector3(10, 0.1, 9), Vector3(0, -0.05, 0), Color("#6b4a30"), 0.7)
-	_box(Vector3(10, 3.4, 0.2), Vector3(0, 1.7, -2.6), Color("#d9c9a8"))
-	_box(Vector3(0.2, 3.4, 9), Vector3(-3.6, 1.7, 0), Color("#cbb995"))
-	# halı, sehpa
-	_box(Vector3(3.0, 0.02, 2.2), Vector3(0, 0.01, 0), Color("#7a2a2a"), 1.0)
-	_box(Vector3(1.0, 0.06, 0.55), Vector3(0, 0.4, 0), Color("#3a2416"), 0.4)
-	_cyl(0.05, 0.1, Vector3(-0.2, 0.48, 0.05), Color("#c84a2a"))
-	_cyl(0.05, 0.1, Vector3(0.2, 0.48, -0.05), Color("#c84a2a"))
-	_box(Vector3(0.5, 0.03, 0.35), Vector3(0.05, 0.445, 0.1), Color("#c9b98a"))
-	# kanepe (aile) - oyuncunun yanında
-	_box(Vector3(0.7, 0.42, 1.9), Vector3(1.55, 0.21, 0.0), Color("#5a6a3a"), 0.9)
-	_box(Vector3(0.2, 0.55, 1.9), Vector3(1.95, 0.6, 0.0), Color("#4e5d32"), 0.9)
-	# TV ünitesi, aile fotoğrafları, kupa/forma
-	_box(Vector3(1.6, 0.5, 0.4), Vector3(-1.6, 0.25, -2.3), Color("#3a2416"))
-	_box(Vector3(1.1, 0.62, 0.05), Vector3(-1.6, 0.85, -2.35), Color("#0a0a0a"), 0.2)
-	for i in 4:
-		_box(Vector3(0.28, 0.36, 0.03), Vector3(0.4 + i * 0.42, 1.9 + (0.12 if i % 2 == 0 else -0.06), -2.48), [Color("#e8dcc0"), Color("#c8b88a"), Color("#dcd0b4"), Color("#b8a87a")][i])
-	_box(Vector3(0.6, 0.7, 0.02), Vector3(2.6, 1.8, -2.48), Color("#b5121b"))
-	_lamp(Vector3(-0.5, 2.6, 0.8), Color("#ffd9a0"), 1.5, 6.0)
-	_lamp(Vector3(2.4, 1.4, -1.6), Color("#ffcf8a"), 0.8, 3.0)
-	_sun(Vector3(-35, -150, 0), Color("#ffe8c8"), 0.5)
-	_chair(Vector3(-1.0, 0, 0.0), PI / 2.0, Color("#6b3a22"), true)
-	cam_target["wide0"] = {"pos": Vector3(0.3, 1.7, 3.6), "look": Vector3(0.3, 0.85, -0.2)}
-
 ## İmza anı: atkı iki elin arasında
 func attach_scarf(id: String, c1: Color, c2: Color) -> void:
 	if not actors.has(id):
@@ -527,166 +501,46 @@ func flash() -> void:
 	tw.tween_callback(cr.queue_free)
 	Sfx.play("blip", -6.0)
 
-func _set_cafe() -> void:
-	_env(Color("#1b120c"), Color("#7a5a40"), 0.55)
-	_box(Vector3(10, 0.1, 8), Vector3(0, -0.05, 0), Color("#4a3020"), 0.6)
-	_box(Vector3(10, 4, 0.2), Vector3(0, 2, -2.6), Color("#cdb48f"))
-	_box(Vector3(0.2, 4, 8), Vector3(-3.4, 2, 0), Color("#b89c76"))
-	_box(Vector3(10, 1.0, 0.25), Vector3(0, 0.5, -2.45), Color("#5e3b24"))
-	# pencere
-	_glow_quad(Vector2(3.4, 1.7), Vector3(0.6, 1.95, -2.48), 0.0, Color("#dfe9f2"), 1.3)
-	for x in [-1.1, 0.0, 1.1, 2.3]:
-		_box(Vector3(0.06, 1.75, 0.08), Vector3(x + 0.0, 1.95, -2.44), Color("#3a2416"))
-	_box(Vector3(3.5, 0.08, 0.1), Vector3(0.6, 1.95, -2.44), Color("#3a2416"))
-	# tezgâh ve şişeler
-	_box(Vector3(2.2, 1.05, 0.6), Vector3(-2.2, 0.52, -1.6), Color("#6b4428"), 0.5)
-	_box(Vector3(2.2, 0.06, 0.66), Vector3(-2.2, 1.07, -1.6), Color("#2a1a10"), 0.3)
-	var cols := [Color("#7d1d1d"), Color("#1d5c3a"), Color("#c49a2c"), Color("#2e4d7d"), Color("#a8c8d0")]
-	for i in 9:
-		_cyl(0.035, 0.26, Vector3(-3.1 + i * 0.2, 1.23, -2.3), cols[i % cols.size()])
-	_box(Vector3(2.4, 0.04, 0.25), Vector3(-2.2, 1.1, -2.35), Color("#3a2416"))
-	# masa
-	_cyl(0.48, 0.04, Vector3(0, 0.74, 0), Color("#2b1b10"), -1.0)
-	_cyl(0.05, 0.72, Vector3(0, 0.36, 0), Color("#1a1a1a"))
-	_cyl(0.25, 0.03, Vector3(0, 0.015, 0), Color("#1a1a1a"))
-	_cyl(0.045, 0.08, Vector3(-0.18, 0.8, 0.08), Color("#f2efe6"))
-	_cyl(0.045, 0.08, Vector3(0.2, 0.8, -0.06), Color("#f2efe6"))
-	_cyl(0.07, 0.01, Vector3(0.2, 0.765, -0.06), Color("#e8e2d4"))
-	_box(Vector3(0.16, 0.012, 0.22), Vector3(-0.05, 0.765, 0.18), Color("#e9dfc6"))
-	# lambalar
-	for lx in [-1.6, 0.0, 1.6]:
-		_cyl(0.18, 0.16, Vector3(lx, 2.55, 0.0), Color("#2a2a2a"), 0.06)
-		_sphere(0.06, Vector3(lx, 2.45, 0.0), Color("#fff2c8"))
-		_lamp(Vector3(lx, 2.35, 0.0), Color("#ffcf8a"), 1.6, 4.0)
-	_sun(Vector3(-35, -150, 0), Color("#dfe9ff"), 0.6)
-	# arka masalar
-	for bx in [2.6, -1.0]:
-		_cyl(0.42, 0.04, Vector3(bx, 0.74, -1.5), Color("#2b1b10"))
-		_cyl(0.05, 0.72, Vector3(bx, 0.36, -1.5), Color("#1a1a1a"))
-	_chair(Vector3(-0.98, 0, 0.0), PI / 2.0, Color("#5a3a22"))
-	_chair(Vector3(0.98, 0, 0.0), -PI / 2.0, Color("#5a3a22"))
-	cam_target["wide0"] = {"pos": Vector3(0.2, 1.5, 2.7), "look": Vector3(0, 0.95, -0.2)}
-
-func _set_lobby() -> void:
-	_env(Color("#140f0c"), Color("#806650"), 0.55)
-	_box(Vector3(12, 0.1, 10), Vector3(0, -0.05, 0), Color("#5c2424"), 0.9)
-	_box(Vector3(12, 4.5, 0.2), Vector3(0, 2.25, -3.0), Color("#e6d8bd"))
-	_box(Vector3(12, 1.1, 0.24), Vector3(0, 0.55, -2.88), Color("#4a2c1a"), 0.5)
-	_glow_quad(Vector2(2.2, 2.6), Vector3(-2.3, 2.1, -2.88), 0.0, Color("#e8eef5"), 1.25)
-	_glow_quad(Vector2(2.2, 2.6), Vector3(2.3, 2.1, -2.88), 0.0, Color("#e8eef5"), 1.25)
-	# halı, sehpa, saksı, lamba
-	_box(Vector3(3.2, 0.02, 2.4), Vector3(0, 0.01, 0), Color("#8a6a3a"), 1.0)
-	_box(Vector3(0.9, 0.06, 0.55), Vector3(0, 0.42, 0), Color("#2a1a10"), 0.3)
-	_box(Vector3(0.06, 0.4, 0.06), Vector3(0, 0.2, 0), Color("#d4af37"), 0.3)
-	_cyl(0.2, 0.45, Vector3(-1.9, 0.22, -2.2), Color("#3a2a20"), 0.16)
-	_sphere(0.5, Vector3(-1.9, 1.0, -2.2), Color("#2e5a2e"))
-	_sphere(0.35, Vector3(-1.75, 1.4, -2.1), Color("#386b36"))
-	_cyl(0.02, 1.5, Vector3(1.9, 0.75, -2.3), Color("#c8a040"))
-	_cyl(0.22, 0.3, Vector3(1.9, 1.6, -2.3), Color("#f5e6c0"), 0.14)
-	_lamp(Vector3(1.9, 1.55, -2.1), Color("#ffd9a0"), 1.4, 4.0)
-	_lamp(Vector3(0, 3.2, 0.5), Color("#ffe8c8"), 1.1, 6.0)
-	_sun(Vector3(-40, -160, 0), Color("#f0f4ff"), 0.55)
-	_chair(Vector3(-1.0, 0, 0.0), PI / 2.0, Color("#6b3a22"), true)
-	_chair(Vector3(1.0, 0, 0.0), -PI / 2.0, Color("#6b3a22"), true)
-	cam_target["wide0"] = {"pos": Vector3(0.2, 1.75, 3.7), "look": Vector3(0, 0.85, -0.2)}
-
-func _set_office() -> void:
-	_env(Color("#120d09"), Color("#6e5642"), 0.5)
-	_box(Vector3(10, 0.1, 9), Vector3(0, -0.05, 0), Color("#3b2416"), 0.5)
-	_box(Vector3(10, 4.2, 0.2), Vector3(0, 2.1, -2.4), Color("#5a3a24"), 0.6)
-	# kitaplık
-	for row in 4:
-		_box(Vector3(3.0, 0.04, 0.35), Vector3(-2.4, 0.5 + row * 0.5, -2.2), Color("#2a1a10"))
-		for b in 14:
-			var bc: Color = [Color("#7d1d1d"), Color("#1d3c5c"), Color("#c49a2c"), Color("#2e5a3a"), Color("#d8cbb0")][(b * 3 + row) % 5]
-			_box(Vector3(0.16, 0.38, 0.26), Vector3(-3.7 + b * 0.19, 0.71 + row * 0.5, -2.2), bc)
-	# kulüp bayrağı
-	var cl := Game.my_club()
-	var c1 := Color(cl.get("c1", "#b5121b"))
-	var c2 := Color(cl.get("c2", "#ffffff"))
-	_box(Vector3(1.2, 0.7, 0.02), Vector3(1.4, 2.2, -2.28), c1, 0.9)
-	_box(Vector3(1.2, 0.23, 0.025), Vector3(1.4, 2.2, -2.27), c2, 0.9)
-	# kupa
-	_cyl(0.12, 0.08, Vector3(2.6, 1.09, -2.0), Color("#d4af37"), -1.0)
-	_cyl(0.04, 0.2, Vector3(2.6, 1.23, -2.0), Color("#d4af37"))
-	_cyl(0.07, 0.18, Vector3(2.6, 1.42, -2.0), Color("#e8c547"), 0.13)
-	_box(Vector3(0.8, 1.05, 0.5), Vector3(2.6, 0.52, -2.0), Color("#2a1a10"))
-	# masa
-	_box(Vector3(0.95, 0.07, 1.9), Vector3(0.5, 0.76, 0), Color("#4a2a16"), 0.35)
-	_box(Vector3(0.06, 0.72, 1.85), Vector3(0.05, 0.38, 0), Color("#3a2010"), 0.5)
-	_box(Vector3(0.22, 0.02, 0.3), Vector3(0.35, 0.8, -0.3), Color("#f0e8d8"))
-	_box(Vector3(0.22, 0.02, 0.3), Vector3(0.37, 0.81, -0.27), Color("#e8dcc0"))
-	_cyl(0.03, 0.12, Vector3(0.75, 0.86, 0.55), Color("#1a1a1a"))
-	_cyl(0.1, 0.02, Vector3(0.7, 0.8, -0.6), Color("#d4af37"))
-	_lamp(Vector3(0.3, 2.6, 0.6), Color("#ffd9a0"), 1.6, 5.0)
-	_glow_quad(Vector2(1.6, 2.0), Vector3(-0.3, 2.1, -2.28), 0.0, Color("#cfdcea"), 0.9)
-	_sun(Vector3(-40, 30, 0), Color("#ffe8c8"), 0.5)
-	_chair(Vector3(1.75, 0, 0.0), -PI / 2.0, Color("#2a1810"), true)
-	_chair(Vector3(-0.85, 0, 0.0), PI / 2.0, Color("#5a3a22"))
-	cam_target["wide0"] = {"pos": Vector3(0.4, 1.6, 2.9), "look": Vector3(0.4, 1.0, -0.3)}
-
-func _set_phone() -> void:
-	# sol (0): scout ofiste; sağ (1): arayan kişinin yeri (x=40)
-	_env(Color("#141414"), Color("#6a6a70"), 0.6, true)
-	_box(Vector3(6, 0.1, 6), Vector3(0, -0.05, 0), Color("#3b2a1e"), 0.6)
-	_box(Vector3(6, 3.5, 0.2), Vector3(0, 1.75, -1.8), Color("#a89880"))
-	_box(Vector3(1.4, 0.06, 0.7), Vector3(0, 0.75, -0.6), Color("#4a2a16"), 0.35)
-	_box(Vector3(1.35, 0.7, 0.05), Vector3(0, 0.37, -0.92), Color("#3a2010"))
-	_box(Vector3(0.5, 0.32, 0.03), Vector3(-0.3, 1.0, -0.85), Color("#111111"), 0.2)
-	_glow_quad(Vector2(0.46, 0.28), Vector3(-0.3, 1.0, -0.83), 0.0, Color("#6fa0c8"), 1.0)
-	_box(Vector3(0.25, 0.02, 0.32), Vector3(0.3, 0.79, -0.5), Color("#efe6cf"))
-	_lamp(Vector3(0.4, 2.2, 0.3), Color("#ffd9a0"), 1.3, 4.0)
-	_chair(Vector3(0, 0, 0.05), PI, Color("#3a2416"))
-	# arayan: antrenman sahası kenarı
-	_box(Vector3(30, 0.1, 30), Vector3(40, -0.05, 0), Color("#2f6b2f"), 0.95)
-	for i in 6:
-		_box(Vector3(30, 0.012, 2.4), Vector3(40, 0.002, -12 + i * 4.8), Color("#367a35"), 0.95)
-	_box(Vector3(30, 1.2, 0.06), Vector3(40, 0.6, -4), Color("#2a3a2a"), 0.5)
-	for i in 8:
-		_cyl(0.04, 1.3, Vector3(33 + i * 2, 0.65, -4), Color("#777777"))
-	_box(Vector3(2.4, 0.9, 0.6), Vector3(37.5, 0.45, -3.2), Color("#d0d0d0"), 0.4)
-	_sun(Vector3(-50, -30, 0), Color("#fff4e0"), 1.1)
-	cam_target["wide0"] = {"pos": Vector3(0.55, 1.4, -1.45), "look": Vector3(0, 1.15, -0.25)}
-	cam_target["wide1"] = {"pos": Vector3(41.0, 1.6, 2.2), "look": Vector3(40, 1.3, 0)}
-
 func _set_training() -> void:
-	_env(Color("#000000"), Color("#ffffff"), 0.7, true)
-	var pm := ShaderMaterial.new()
-	var sh := Shader.new()
-	sh.code = """shader_type spatial;
-uniform sampler2D grass : source_color, filter_linear_mipmap, repeat_enable;
-uniform vec3 tint = vec3(0.62, 0.68, 0.58);
-varying vec3 wp;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-float noise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
-void vertex(){ wp = (MODEL_MATRIX * vec4(VERTEX,1.0)).xyz; }
-void fragment(){
-	vec3 g = texture(grass, vec2(wp.x / 42.0, wp.z / 21.0)).rgb * tint;
-	float n = noise(wp.xz * 0.3) * 0.6 + noise(wp.xz * 2.0) * 0.4;
-	// idman sahası: daha yıpranmış, yer yer kel
-	float bald = smoothstep(0.62, 0.8, noise(wp.xz * 0.18 + 3.0)) * 0.5;
-	g = mix(g * (0.88 + 0.2 * n), vec3(0.2, 0.16, 0.09), bald);
-	ALBEDO = g; ROUGHNESS = 0.9; }"""
-	pm.set_shader_parameter("grass", load("res://assets/tex/grass.jpg"))
-	pm.shader = sh
-	var pl := MeshInstance3D.new()
-	var pmesh := PlaneMesh.new()
-	pmesh.size = Vector2(90, 70)
-	pl.mesh = pmesh
-	pl.material_override = pm
-	world.add_child(pl)
+	# tesis sahası: stadyum sisteminin küçük sahası (çit, ağaçlar, direkler, gökyüzü, hava)
+	var cond := StadS.pick_cond(hash(str(Game.s.get("season", 0)) + str(Game.s.get("week", 0)) + set_name), 3, int(Game.s.get("week", 1)), "tr", true)
+	var st = StadS.new()
+	world.add_child(st)
+	st.configure(3, cond.tod, cond.weather if cond.weather != "snow" else "clear")
+	var cl := Game.my_club()
+	st.build(Color(cl.get("c1", "#2f6b3a")), Color(cl.get("c2", "#ffffff")), Color("#888888"), false, shadows)
+	train_stadium = st
 	var white := Color("#f2f2ee")
-	for z in [-20.0, 20.0]:
-		_box(Vector3(60, 0.01, 0.1), Vector3(0, 0.006, z), white)
-	for x in [-30.0, 0.0, 30.0]:
-		_box(Vector3(0.1, 0.01, 40), Vector3(x, 0.006, 0), white)
-	# çit, bank, binalar
-	_box(Vector3(90, 1.6, 0.08), Vector3(0, 0.8, -26), Color("#2c3a2c"), 0.6)
-	_box(Vector3(14, 6, 6), Vector3(-18, 3, -32), Color("#d8d2c2"))
-	_box(Vector3(14, 0.5, 6.5), Vector3(-18, 6.2, -32), Color("#8a2a22"))
-	_box(Vector3(5, 0.5, 0.6), Vector3(4, 0.45, -22.5), Color("#3a5a8a"), 0.4)
-	_box(Vector3(5, 1.2, 0.1), Vector3(4, 0.8, -22.85), Color("#cfd8e0"), 0.2)
+	# tesis binası: iki katlı, camlı, kulüp renginde şerit
+	var win_m = st._shader_mat(StadS.WINDOW_SHADER)
+	win_m.set_shader_parameter("night", 0.0 if cond.tod == "day" else 1.0)
+	win_m.set_shader_parameter("wall", Vector3(0.78, 0.76, 0.72))
+	_mbox(Vector3(22, 7, 9), Vector3(-14, 3.5, -50), win_m)
+	_mbox(Vector3(22.4, 0.5, 9.4), Vector3(-14, 7.2, -50), _mat(Color(cl.get("c1", "#8a2a22")), 0.6))
+	_mbox(Vector3(4, 3, 0.2), Vector3(-14, 1.5, -45.4), _mat(Color(0.15, 0.17, 0.2), 0.2, 0.4))
+	# yedek kulübesi bankları, top torbası, su şişeleri, duvar mankenleri
+	for bx in [-6.0, 2.0]:
+		_mbox(Vector3(4.5, 0.08, 0.45), Vector3(bx, 0.45, -37.0), _mat(Color(cl.get("c1", "#2a4a8a")), 0.5))
+		_mbox(Vector3(4.5, 0.5, 0.06), Vector3(bx, 0.72, -37.25), _mat(Color(cl.get("c1", "#2a4a8a")).darkened(0.2), 0.5))
+		for lx in [-2.0, 2.0]:
+			_box(Vector3(0.06, 0.45, 0.4), Vector3(bx + lx, 0.22, -37.0), Color(0.3, 0.3, 0.32))
+		_ao(Vector3(bx, 0, -37.0), Vector2(5.2, 1.2), 0.45)
+	var bag := _mat(Color(0.1, 0.1, 0.12), 0.9)
+	_mbox(Vector3(0.7, 0.5, 0.5), Vector3(-1.5, 0.25, -35.5), bag)
+	for i in 6:
+		_sphere(0.11, Vector3(-1.75 + (i % 3) * 0.22, 0.55, -35.4 + (i / 3) * 0.2), white)
+	for i in 8:
+		_cyl(0.04, 0.24, Vector3(0.0 + i * 0.12, 0.12, -35.8), Color(0.2, 0.55, 0.9) if i % 2 == 0 else Color(0.95, 0.95, 0.95), 0.03)
+	for i in 4:
+		var mx := 6.0 + i * 0.7
+		_mbox(Vector3(0.5, 1.75, 0.12), Vector3(mx, 0.9, -6.0), _mat(Color(0.95, 0.75, 0.1), 0.6))
+		_sphere(0.14, Vector3(mx, 1.9, -6.0), Color(0.95, 0.75, 0.1))
+	# taktik tahtası
+	_mbox(Vector3(1.4, 0.95, 0.05), Vector3(4.6, 1.3, -5.2), _mat(Color(0.95, 0.95, 0.93), 0.3))
+	_box(Vector3(0.05, 1.3, 0.05), Vector3(4.0, 0.65, -5.2), Color(0.3, 0.3, 0.3))
+	_box(Vector3(0.05, 1.3, 0.05), Vector3(5.2, 0.65, -5.2), Color(0.3, 0.3, 0.3))
+	for i in 5:
+		_sphere(0.04, Vector3(4.2 + i * 0.2, 1.3 + sin(i) * 0.2, -5.17), Color(0.85, 0.1, 0.1) if i % 2 else Color(0.1, 0.2, 0.8))
 	# koniler
 	cones.clear()
 	for i in 6:
@@ -699,9 +553,14 @@ void fragment(){
 		_box(Vector3(0.08, 1.4, 0.08), goal_pos + Vector3(0.0, 0.7, zz), white, 0.4)
 	_box(Vector3(0.08, 0.08, 3.28), goal_pos + Vector3(0, 1.4, 0), white, 0.4)
 	var net := _box(Vector3(0.9, 1.35, 3.2), goal_pos + Vector3(0.5, 0.68, 0), Color(1, 1, 1, 1))
-	var nm := StandardMaterial3D.new()
-	nm.albedo_color = Color(1, 1, 1, 0.18)
-	nm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var nm := _shm("""shader_type spatial;
+render_mode unshaded, cull_disabled, blend_mix, depth_draw_never, shadows_disabled;
+void fragment() {
+	vec2 g = fract(UV * vec2(36.0, 24.0));
+	float line = 1.0 - step(0.08, g.x) * step(0.08, g.y);
+	ALBEDO = vec3(0.95);
+	ALPHA = line * 0.32;
+}""")
 	net.material_override = nm
 	ball = _sphere(0.11, Vector3(-9, 0.11, 4), Color("#f5f5f5"))
 	# büyük kale (şut idmanı): x=17, kaleci karşısında
@@ -715,7 +574,6 @@ void fragment(){
 	for xx in [-12.0, 12.0]:
 		for zz in [-11.4, -13.8]:
 			_cyl(0.16, 0.32, Vector3(xx, 0.16, zz), Color("#ffd21a"), 0.02)
-	_sun(Vector3(-48, -35, 0), Color("#fff4e0"), 1.2)
 	# kıvılcım halkası
 	spark_ring = MeshInstance3D.new()
 	var tm := TorusMesh.new()
@@ -766,6 +624,7 @@ const DRILL_SETS := {"tec": ["rondo", "slalom", "shoot", "longpass", "cross"], "
 	"men": ["rondo", "longpass", "duel", "rondo", "cross"], "all": ["rondo", "shoot", "slalom", "cross", "sprint", "longpass", "duel"]}
 const DRILL_LEN := {"rondo": 8.0, "shoot": 8.5, "sprint": 6.0, "duel": 7.0, "slalom": 7.5, "cross": 8.0, "longpass": 7.0, "keeper": 9.0}
 var drill_nodes: Array = []
+var train_stadium: Node3D
 
 func start_drills(id: String, duration := 14.0, n_sparks := 3, focus := "all") -> void:
 	drill_on = true
@@ -1443,3 +1302,516 @@ func _ball_tick(delta: float) -> void:
 	if ball.position.x > goal_pos.x + 0.8:
 		ball.position.x = goal_pos.x + 0.8
 		ball_vel.x = -ball_vel.x * 0.15
+
+# ================================================================ v0.21 set kiti: dokular, pencereler, gölgeler
+const HubS = preload("res://three/hub3d.gd")
+const StadS = preload("res://three/stadium.gd")
+
+func _has(path: String) -> bool:
+	return ResourceLoader.exists(path)
+
+## Doku varsa doku (Gemini), yoksa renk
+func _tmat(path: String, fallback: Color, scale := Vector2.ONE, tint := Color.WHITE, rough := 0.8) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.roughness = rough
+	if _has(path):
+		m.albedo_texture = load(path)
+		m.albedo_color = tint
+		m.uv1_scale = Vector3(scale.x, scale.y, 1)
+	else:
+		m.albedo_color = fallback
+	return m
+
+func _shm(code: String) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = code
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
+
+func _paint(col: Color, wainscot := 0.0, panel := Color(0.22, 0.13, 0.07), stains := 0.0, slats := 0.0) -> ShaderMaterial:
+	var m := _shm(HubS.PAINT_SHADER)
+	m.set_shader_parameter("col", Vector3(col.r, col.g, col.b))
+	m.set_shader_parameter("panel", Vector3(panel.r, panel.g, panel.b))
+	m.set_shader_parameter("wainscot", wainscot)
+	m.set_shader_parameter("stains", stains)
+	m.set_shader_parameter("slats", slats)
+	return m
+
+func _wood(dark := false) -> Material:
+	if _has("res://assets/tex/tex_wood_dark.jpg"):
+		return _tmat("res://assets/tex/tex_wood_dark.jpg", Color.BLACK, Vector2(4, 4), Color(1, 1, 1) if dark else Color(1.35, 1.2, 1.05), 0.55)
+	var m := _shm(HubS.WOOD_SHADER)
+	if dark:
+		m.set_shader_parameter("c1", Vector3(0.1, 0.055, 0.03))
+		m.set_shader_parameter("c2", Vector3(0.17, 0.095, 0.05))
+	return m
+
+func _mbox(sz: Vector3, pos: Vector3, mat: Material, parent: Node3D = null, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = sz
+	mi.mesh = bm
+	mi.position = pos
+	mi.rotation_degrees = rot
+	mi.material_override = mat
+	(parent if parent else world).add_child(mi)
+	return mi
+
+func _quad(sz: Vector2, pos: Vector3, mat: Material, rot := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = sz
+	mi.mesh = q
+	mi.position = pos
+	mi.rotation_degrees = rot
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	world.add_child(mi)
+	return mi
+
+func _ao(pos: Vector3, size: Vector2, strength := 0.5) -> void:
+	var m := _shm(HubS.AO_SHADER)
+	m.set_shader_parameter("strength", strength)
+	_quad(size, pos + Vector3(0, 0.012, 0), m, Vector3(-90, 0, 0))
+
+## Pencere: özel görsel varsa onu, yoksa gece şehri fotoğrafını saate göre boyar
+func _window(pos: Vector3, size: Vector2, img: String, frame: Color, mode := "day", rot_y := 0.0) -> void:
+	var mat: Material
+	if _has(img):
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.albedo_texture = load(img)
+		sm.albedo_color = Color(1.05, 1.05, 1.05)
+		mat = sm
+	else:
+		var pm := _shm(HubS.PHOTO_WINDOW)
+		pm.set_shader_parameter("city", load("res://assets/tex/city_night.jpg"))
+		pm.set_shader_parameter("day", 1.0 if mode == "day" else 0.0)
+		pm.set_shader_parameter("dusk", 1.0 if mode == "dusk" else 0.0)
+		var span := clampf(size.x / size.y * 0.97, 0.3, 1.0)
+		pm.set_shader_parameter("crop_x", Vector2(0.5 - span / 2.0, 0.5 + span / 2.0))
+		mat = pm
+	var holder := Node3D.new()
+	holder.position = pos
+	holder.rotation.y = rot_y
+	world.add_child(holder)
+	var q := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = size
+	q.mesh = qm
+	q.material_override = mat
+	holder.add_child(q)
+	var fm := _mat(frame, 0.5, 0.3)
+	_mbox(Vector3(size.x + 0.14, 0.07, 0.08), Vector3(0, size.y / 2.0 + 0.035, 0.02), fm, holder)
+	_mbox(Vector3(size.x + 0.14, 0.1, 0.22), Vector3(0, -size.y / 2.0 - 0.05, 0.08), fm, holder)
+	for sx in [-1.0, 1.0]:
+		_mbox(Vector3(0.07, size.y, 0.08), Vector3(sx * (size.x / 2.0 + 0.035), 0, 0.02), fm, holder)
+	_mbox(Vector3(0.04, size.y, 0.05), Vector3(0, 0, 0.02), fm, holder)
+
+func _frames(base: Vector3, n: int, rng: RandomNumberGenerator, gold := false) -> void:
+	## duvarda çerçeveli fotoğraflar (kâğıt dokulu içerik, futbol temalı küçük renkler)
+	var fr := _mat(Color(0.72, 0.56, 0.24) if gold else Color(0.12, 0.08, 0.05), 0.4, 0.8 if gold else 0.0)
+	var paper := _tmat("res://assets/tex/paper.jpg", Color(0.9, 0.86, 0.78))
+	for i in n:
+		var w := rng.randf_range(0.28, 0.42)
+		var h := rng.randf_range(0.32, 0.46)
+		var p := base + Vector3(i * 0.55, rng.randf_range(-0.12, 0.12), 0)
+		_mbox(Vector3(w, h, 0.03), p, fr)
+		_mbox(Vector3(w - 0.06, h - 0.06, 0.032), p + Vector3(0, 0, 0.002), paper)
+		# fotoğrafın içindeki takım (küçük renk bloğu)
+		_mbox(Vector3(w - 0.12, (h - 0.06) * 0.45, 0.034), p + Vector3(0, -0.02, 0.003), _mat(Color.from_hsv(rng.randf(), 0.35, 0.35), 0.9))
+
+func _books(pos: Vector3, w: float, h: float, rng: RandomNumberGenerator, dark := true) -> void:
+	var wood := _wood(dark)
+	_mbox(Vector3(w, h, 0.04), pos + Vector3(0, h / 2.0, -0.17), wood)
+	for sx in [-1.0, 1.0]:
+		_mbox(Vector3(0.04, h, 0.36), pos + Vector3(sx * w / 2.0, h / 2.0, 0), wood)
+	var shelves := int(h / 0.42)
+	var cols := [Color("#7d1d1d"), Color("#1d3c5c"), Color("#c49a2c"), Color("#2e5a3a"), Color("#d8cbb0"), Color("#3a3a3a"), Color("#5a3a6a")]
+	for si in shelves + 1:
+		var y := 0.05 + si * (h - 0.1) / shelves
+		_mbox(Vector3(w, 0.03, 0.34), pos + Vector3(0, y, 0), wood)
+		if si == shelves:
+			break
+		var x := -w / 2.0 + 0.05
+		while x < w / 2.0 - 0.1:
+			var bw := rng.randf_range(0.04, 0.09)
+			var bh := rng.randf_range(0.22, 0.34)
+			if rng.randf() < 0.1:
+				x += 0.1
+				continue
+			_box(Vector3(bw, bh, 0.24), pos + Vector3(x + bw / 2.0, y + 0.015 + bh / 2.0, 0.02), cols[rng.randi() % cols.size()] * rng.randf_range(0.7, 1.1))
+			x += bw + 0.004
+	_ao(pos + Vector3(0, 0, 0.1), Vector2(w + 0.4, 0.8), 0.45)
+
+func _plant(pos: Vector3, s := 1.0) -> void:
+	_cyl(0.2 * s, 0.38 * s, pos + Vector3(0, 0.19 * s, 0), Color("#8a4a2a"), 0.16 * s)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(pos.x * 100.0 + pos.z * 7.0)
+	for i in 9:
+		var a := i * TAU / 9.0
+		var lm := _sphere(0.14 * s, pos + Vector3(cos(a) * 0.16 * s, (0.6 + rng.randf() * 0.5) * s, sin(a) * 0.16 * s), Color(0.1, 0.26 + rng.randf() * 0.1, 0.1))
+		lm.scale = Vector3(1.0, 1.9, 0.45)
+		lm.rotation = Vector3(rng.randf_range(-0.5, 0.5), a, rng.randf_range(-0.4, 0.4))
+	_ao(pos, Vector2(0.8, 0.8) * s, 0.45)
+
+func _leather_chair(pos: Vector3, face: float, col := Color(0.42, 0.22, 0.12)) -> void:
+	var n := Node3D.new()
+	n.position = pos
+	n.rotation.y = face
+	world.add_child(n)
+	var lm := _tmat("res://assets/tex/leather.jpg", col, Vector2.ONE, col.lightened(0.6), 0.45)
+	_mbox(Vector3(0.62, 0.4, 0.55), Vector3(0, 0.2, 0), lm, n)
+	_mbox(Vector3(0.58, 0.12, 0.5), Vector3(0, 0.44, 0.02), lm, n)
+	_mbox(Vector3(0.62, 0.62, 0.12), Vector3(0, 0.75, -0.24), lm, n)
+	for sx in [-1.0, 1.0]:
+		_mbox(Vector3(0.1, 0.24, 0.55), Vector3(sx * 0.31, 0.56, 0), lm, n)
+	_ao(pos, Vector2(1.0, 1.0), 0.5)
+
+func _rug(pos: Vector3, size: Vector2, col: Color) -> void:
+	_mbox(Vector3(size.x, 0.012, size.y), pos + Vector3(0, 0.006, 0), _tmat("res://assets/tex/tex_carpet.jpg", col, size / 1.5, col.lightened(0.5), 1.0))
+
+# ================================================================ setler (v0.21)
+
+## Başkan / kulüp ofisi: imza ve yönetim toplantısı
+func _set_office() -> void:
+	_env(Color("#120d09"), Color("#7a6250"), 0.5)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	_mbox(Vector3(10, 0.1, 9), Vector3(0, -0.05, 0), _wood(true))
+	_mbox(Vector3(10, 4.2, 0.2), Vector3(0, 2.1, -2.4), _paint(Color(0.1, 0.12, 0.17), 0.26, Color(0.16, 0.09, 0.05), 0.0, 1.0))
+	_mbox(Vector3(0.2, 4.2, 9), Vector3(-4.2, 2.1, 0), _paint(Color(0.1, 0.12, 0.17), 0.26, Color(0.16, 0.09, 0.05)))
+	_mbox(Vector3(10, 0.2, 9), Vector3(0, 4.2, 0), _mat(Color(0.06, 0.06, 0.07)))
+	# büyük pencere (stadyum manzarası)
+	_window(Vector3(-0.3, 2.15, -2.28), Vector2(2.6, 1.9), "res://assets/tex/win_president.jpg", Color(0.08, 0.08, 0.09), "day")
+	# kitaplık + kupa dolabı
+	_books(Vector3(-3.0, 0, -2.08), 1.6, 2.6, rng)
+	var cl := Game.my_club()
+	var c1 := Color(cl.get("c1", "#b5121b"))
+	var c2 := Color(cl.get("c2", "#ffffff"))
+	var cab := _wood(true)
+	_mbox(Vector3(1.2, 2.2, 0.45), Vector3(2.7, 1.1, -2.05), cab)
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.7, 0.85, 1.0, 0.12)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.roughness = 0.05
+	_mbox(Vector3(1.1, 1.2, 0.02), Vector3(2.7, 1.55, -1.81), glass)
+	var gold := _mat(Color(0.95, 0.75, 0.25), 0.25, 1.0)
+	for i in 3:
+		var tp := Vector3(2.35 + i * 0.35, 1.0 + (i % 2) * 0.55, -2.0)
+		_mbox(Vector3(1.0, 0.03, 0.38), Vector3(2.7, tp.y - 0.04, -2.0), cab)
+		var cup := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.09
+		cm.bottom_radius = 0.04
+		cm.height = 0.2
+		cup.mesh = cm
+		cup.material_override = gold
+		cup.position = tp + Vector3(0, 0.14, 0)
+		world.add_child(cup)
+		_cyl(0.025, 0.08, tp + Vector3(0, 0.03, 0), Color(0.95, 0.75, 0.25))
+	_lamp(Vector3(2.7, 2.0, -1.6), Color("#ffe2a8"), 0.7, 1.8)
+	# çerçeveli kulüp forması ve eski fotoğraflar
+	_mbox(Vector3(0.9, 1.0, 0.04), Vector3(1.25, 2.35, -2.27), _mat(Color(0.05, 0.05, 0.05), 0.4))
+	_mbox(Vector3(0.82, 0.92, 0.042), Vector3(1.25, 2.35, -2.268), _mat(Color(0.85, 0.83, 0.78), 0.9))
+	_mbox(Vector3(0.36, 0.5, 0.05), Vector3(1.25, 2.31, -2.262), _mat(c1, 0.8))
+	_mbox(Vector3(0.6, 0.14, 0.05), Vector3(1.25, 2.51, -2.262), _mat(c1, 0.8))
+	_mbox(Vector3(0.36, 0.1, 0.052), Vector3(1.25, 2.3, -2.26), _mat(c2, 0.8))
+	_frames(Vector3(-4.08, 2.4, -1.4), 3, rng, true)
+	for f in world.get_children().slice(-9):
+		pass
+	# masa: maun, deri kaplama, isimlik, lamba
+	var desk := _wood(true)
+	_mbox(Vector3(0.95, 0.07, 1.9), Vector3(0.5, 0.76, 0), desk)
+	_mbox(Vector3(0.06, 0.72, 1.85), Vector3(0.05, 0.38, 0), desk)
+	_mbox(Vector3(0.85, 0.7, 0.06), Vector3(0.5, 0.38, -0.9), desk)
+	_mbox(Vector3(0.85, 0.7, 0.06), Vector3(0.5, 0.38, 0.9), desk)
+	_mbox(Vector3(0.6, 0.012, 1.1), Vector3(0.55, 0.8, 0), _tmat("res://assets/tex/leather.jpg", Color(0.3, 0.12, 0.08), Vector2.ONE, Color(0.85, 0.7, 0.62), 0.5))
+	_mbox(Vector3(0.22, 0.02, 0.3), Vector3(0.35, 0.81, -0.3), _tmat("res://assets/tex/paper.jpg", Color(0.94, 0.9, 0.82)))
+	_mbox(Vector3(0.22, 0.02, 0.3), Vector3(0.37, 0.82, -0.27), _tmat("res://assets/tex/manila.jpg", Color(0.86, 0.76, 0.52)))
+	_mbox(Vector3(0.05, 0.06, 0.26), Vector3(0.12, 0.83, 0.45), gold)
+	_cyl(0.06, 0.03, Vector3(0.75, 0.81, -0.62), Color(0.75, 0.6, 0.3))
+	_box(Vector3(0.02, 0.38, 0.02), Vector3(0.75, 1.0, -0.62), Color(0.75, 0.6, 0.3))
+	_cyl(0.05, 0.12, Vector3(0.68, 1.2, -0.62), Color(0.1, 0.3, 0.18), 0.12)
+	_lamp(Vector3(0.6, 1.1, -0.55), Color("#ffd9a0"), 1.2, 2.5)
+	_cyl(0.03, 0.12, Vector3(0.75, 0.86, 0.55), Color("#1a1a1a"))
+	_ao(Vector3(0.5, 0, 0), Vector2(1.6, 2.6), 0.6)
+	_rug(Vector3(0.4, 0, 0.2), Vector2(4.2, 3.2), Color(0.32, 0.08, 0.08))
+	_plant(Vector3(-1.9, 0, -1.9), 1.2)
+	_lamp(Vector3(0.3, 3.4, 0.6), Color("#ffe2b8"), 1.4, 6.0)
+	_lamp(Vector3(-0.3, 2.0, -1.4), Color("#dfe9ff"), 0.9, 4.5)
+	_sun(Vector3(-40, 30, 0), Color("#ffe8c8"), 0.5)
+	_leather_chair(Vector3(1.75, 0, 0.0), -PI / 2.0, Color(0.18, 0.1, 0.07))
+	_leather_chair(Vector3(-0.85, 0, 0.0), PI / 2.0)
+	_ao(Vector3(0, 0, -2.25), Vector2(9.5, 0.7), 0.45)
+	_ao(Vector3(-4.05, 0, 0), Vector2(0.7, 8.5), 0.45)
+	cam_target["wide0"] = {"pos": Vector3(0.4, 1.6, 2.9), "look": Vector3(0.4, 1.0, -0.3)}
+
+## Kahvehane / kafe
+func _set_cafe() -> void:
+	_env(Color("#1b120c"), Color("#806048"), 0.55)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 9
+	if _has("res://assets/tex/tex_cafe_tiles.jpg"):
+		_mbox(Vector3(10, 0.1, 8), Vector3(0, -0.05, 0), _tmat("res://assets/tex/tex_cafe_tiles.jpg", Color.WHITE, Vector2(8, 6.5), Color(0.9, 0.88, 0.84), 0.5))
+	else:
+		var tm := _shm(HubS.TILE_SHADER)
+		tm.set_shader_parameter("a", Vector3(0.62, 0.6, 0.55))
+		tm.set_shader_parameter("b", Vector3(0.12, 0.11, 0.1))
+		_mbox(Vector3(10, 0.1, 8), Vector3(0, -0.05, 0), tm)
+	var wall_m: Material = _tmat("res://assets/tex/tex_brick.jpg", Color.WHITE, Vector2(5, 2), Color(0.95, 0.9, 0.85), 0.9) if _has("res://assets/tex/tex_brick.jpg") else _paint(Color(0.7, 0.55, 0.38), 0.25, Color(0.3, 0.18, 0.1), 0.6)
+	_mbox(Vector3(10, 4, 0.2), Vector3(0, 2, -2.6), wall_m)
+	_mbox(Vector3(0.2, 4, 8), Vector3(-3.4, 2, 0), _paint(Color(0.66, 0.52, 0.36), 0.28, Color(0.3, 0.18, 0.1), 0.5))
+	_mbox(Vector3(10, 0.2, 8), Vector3(0, 4.0, 0), _mat(Color(0.2, 0.14, 0.1)))
+	# vitrin penceresi: sokak
+	_window(Vector3(0.9, 1.95, -2.48), Vector2(3.4, 1.7), "res://assets/tex/win_cafe.jpg", Color("#3a2416"), "dusk")
+	# tezgâh, çay ocağı, ince belli bardaklar
+	var wood := _wood(false)
+	_mbox(Vector3(2.2, 1.05, 0.6), Vector3(-2.2, 0.52, -1.6), wood)
+	_mbox(Vector3(2.3, 0.06, 0.68), Vector3(-2.2, 1.07, -1.6), _mat(Color(0.08, 0.07, 0.06), 0.25))
+	var steel := _mat(Color(0.75, 0.75, 0.78), 0.25, 0.9)
+	_cyl(0.16, 0.42, Vector3(-2.9, 1.31, -1.7), Color(0.75, 0.75, 0.78), 0.12)
+	_cyl(0.13, 0.22, Vector3(-2.9, 1.63, -1.7), Color(0.78, 0.78, 0.8), 0.08)
+	_mbox(Vector3(0.45, 0.4, 0.35), Vector3(-1.6, 1.3, -1.75), steel)
+	var tea := StandardMaterial3D.new()
+	tea.albedo_color = Color(0.55, 0.15, 0.05, 0.75)
+	tea.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tea.roughness = 0.1
+	for i in 7:
+		var gm := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.032
+		cm.bottom_radius = 0.026
+		cm.height = 0.09
+		gm.mesh = cm
+		gm.material_override = tea
+		gm.position = Vector3(-2.6 + i * 0.12, 1.15, -1.45)
+		world.add_child(gm)
+	# raf: şişeler, kavanozlar
+	_mbox(Vector3(2.4, 0.04, 0.25), Vector3(-2.2, 1.6, -2.38), wood)
+	_mbox(Vector3(2.4, 0.04, 0.25), Vector3(-2.2, 2.1, -2.38), wood)
+	var cols := [Color("#7d1d1d"), Color("#1d5c3a"), Color("#c49a2c"), Color("#2e4d7d"), Color("#a8c8d0")]
+	for i in 9:
+		_cyl(0.035, 0.24, Vector3(-3.1 + i * 0.2, 1.74, -2.38), cols[i % cols.size()])
+		_cyl(0.05, 0.14, Vector3(-3.05 + i * 0.2, 2.19, -2.38), Color(0.85, 0.75, 0.55))
+	# karatahta menü
+	_mbox(Vector3(1.0, 0.7, 0.04), Vector3(-2.2, 2.8, -2.48), _mat(Color(0.08, 0.1, 0.09), 0.9))
+	for i in 5:
+		_box(Vector3(0.6 - (i % 2) * 0.15, 0.025, 0.01), Vector3(-2.25, 3.0 - i * 0.1, -2.455), Color(0.85, 0.85, 0.8))
+	# eski futbol fotoğrafları
+	_frames(Vector3(-3.28, 2.3, 0.6), 3, rng)
+	# masa ve çay takımı
+	_cyl(0.48, 0.04, Vector3(0, 0.74, 0), Color("#2b1b10"), -1.0)
+	_cyl(0.05, 0.72, Vector3(0, 0.36, 0), Color("#1a1a1a"))
+	_cyl(0.25, 0.03, Vector3(0, 0.015, 0), Color("#1a1a1a"))
+	for pp in [Vector3(-0.18, 0.8, 0.08), Vector3(0.2, 0.8, -0.06)]:
+		var gm2 := MeshInstance3D.new()
+		var cm2 := CylinderMesh.new()
+		cm2.top_radius = 0.034
+		cm2.bottom_radius = 0.026
+		cm2.height = 0.1
+		gm2.mesh = cm2
+		gm2.material_override = tea
+		gm2.position = pp
+		world.add_child(gm2)
+		_cyl(0.06, 0.008, pp - Vector3(0, 0.05, 0), Color("#e8e2d4"))
+	_mbox(Vector3(0.16, 0.012, 0.22), Vector3(-0.05, 0.765, 0.18), _tmat("res://assets/tex/paper.jpg", Color(0.92, 0.88, 0.78)))
+	_ao(Vector3(0, 0, 0), Vector2(1.6, 1.6), 0.55)
+	# sarkıt lambalar
+	for lx in [-1.6, 0.0, 1.6]:
+		_cyl(0.18, 0.16, Vector3(lx, 2.55, 0.0), Color("#2a2a2a"), 0.06)
+		_sphere(0.06, Vector3(lx, 2.45, 0.0), Color("#fff2c8"))
+		_box(Vector3(0.01, 1.4, 0.01), Vector3(lx, 3.3, 0.0), Color("#111111"))
+		_lamp(Vector3(lx, 2.35, 0.0), Color("#ffcf8a"), 1.6, 4.0)
+	_lamp(Vector3(0.9, 1.9, -1.9), Color("#a8c0e8"), 0.6, 3.5)
+	_sun(Vector3(-35, -150, 0), Color("#dfe9ff"), 0.5)
+	for bx in [2.6, -1.0]:
+		_cyl(0.42, 0.04, Vector3(bx, 0.74, -1.5), Color("#2b1b10"))
+		_cyl(0.05, 0.72, Vector3(bx, 0.36, -1.5), Color("#1a1a1a"))
+		_ao(Vector3(bx, 0, -1.5), Vector2(1.3, 1.3), 0.5)
+	_plant(Vector3(3.6, 0, -2.2), 1.0)
+	_chair(Vector3(-0.98, 0, 0.0), PI / 2.0, Color("#5a3a22"))
+	_chair(Vector3(0.98, 0, 0.0), -PI / 2.0, Color("#5a3a22"))
+	_ao(Vector3(0, 0, -2.45), Vector2(9.5, 0.7), 0.45)
+	cam_target["wide0"] = {"pos": Vector3(0.2, 1.5, 2.7), "look": Vector3(0, 0.95, -0.2)}
+
+## Otel / kulüp lobisi
+func _set_lobby() -> void:
+	_env(Color("#140f0c"), Color("#8a7058"), 0.55)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 13
+	if _has("res://assets/tex/tex_marble.jpg"):
+		_mbox(Vector3(12, 0.1, 10), Vector3(0, -0.05, 0), _tmat("res://assets/tex/tex_marble.jpg", Color.WHITE, Vector2(6, 5), Color.WHITE, 0.2))
+	else:
+		var tm := _shm(HubS.TILE_SHADER)
+		tm.set_shader_parameter("a", Vector3(0.78, 0.74, 0.66))
+		tm.set_shader_parameter("b", Vector3(0.7, 0.66, 0.58))
+		_mbox(Vector3(12, 0.1, 10), Vector3(0, -0.05, 0), tm)
+	_mbox(Vector3(12, 4.5, 0.2), Vector3(0, 2.25, -3.0), _paint(Color(0.82, 0.76, 0.64), 0.3, Color(0.25, 0.14, 0.08)))
+	_mbox(Vector3(12, 0.2, 10), Vector3(0, 4.5, 0), _mat(Color(0.85, 0.82, 0.75)))
+	# kulüp tarihi duvarı (görsel varsa)
+	if _has("res://assets/tex/wall_club_history.jpg"):
+		var hm := StandardMaterial3D.new()
+		hm.albedo_texture = load("res://assets/tex/wall_club_history.jpg")
+		_quad(Vector2(3.6, 1.8), Vector3(0, 2.4, -2.88), hm)
+	else:
+		_frames(Vector3(-1.1, 2.4, -2.88), 5, rng, true)
+	# iki yüksek pencere
+	_window(Vector3(-3.8, 2.1, -2.88), Vector2(1.6, 2.6), "res://assets/tex/win_president.jpg", Color(0.15, 0.1, 0.06), "day")
+	_window(Vector3(3.8, 2.1, -2.88), Vector2(1.6, 2.6), "res://assets/tex/win_president.jpg", Color(0.15, 0.1, 0.06), "day")
+	# resepsiyon, avize ışıkları
+	var wood := _wood(true)
+	_mbox(Vector3(1.8, 1.05, 0.55), Vector3(4.2, 0.52, -2.1), wood)
+	_mbox(Vector3(1.9, 0.05, 0.6), Vector3(4.2, 1.07, -2.1), _mat(Color(0.85, 0.82, 0.76), 0.2))
+	_rug(Vector3(0, 0, 0), Vector2(3.6, 2.6), Color(0.45, 0.3, 0.15))
+	_mbox(Vector3(0.9, 0.06, 0.55), Vector3(0, 0.42, 0), _mat(Color(0.08, 0.06, 0.05), 0.2))
+	_mbox(Vector3(0.06, 0.4, 0.06), Vector3(0, 0.2, 0), _mat(Color(0.83, 0.68, 0.22), 0.3, 1.0))
+	_cyl(0.06, 0.1, Vector3(0.2, 0.5, 0.1), Color(0.95, 0.95, 0.92))
+	_plant(Vector3(-2.2, 0, -2.4), 1.3)
+	_plant(Vector3(2.4, 0, -2.5), 1.1)
+	for cx in [-1.5, 1.5]:
+		_cyl(0.3, 0.05, Vector3(cx, 3.6, 0.3), Color(0.83, 0.68, 0.22))
+		_sphere(0.1, Vector3(cx, 3.5, 0.3), Color(1.0, 0.92, 0.75))
+		_lamp(Vector3(cx, 3.3, 0.3), Color("#ffe2b8"), 1.1, 5.5)
+	_lamp(Vector3(0, 2.3, -2.2), Color("#ffd9a0"), 0.7, 3.5)
+	_sun(Vector3(-40, -160, 0), Color("#f0f4ff"), 0.55)
+	_leather_chair(Vector3(-1.0, 0, 0.0), PI / 2.0, Color(0.45, 0.25, 0.12))
+	_leather_chair(Vector3(1.0, 0, 0.0), -PI / 2.0, Color(0.45, 0.25, 0.12))
+	_ao(Vector3(0, 0, -2.85), Vector2(11.5, 0.7), 0.4)
+	cam_target["wide0"] = {"pos": Vector3(0.2, 1.75, 3.7), "look": Vector3(0, 0.85, -0.2)}
+
+## Ev ziyareti: oturma odası (genç oyuncunun ailesi), akşam
+func _set_home() -> void:
+	_env(Color("#120e0b"), Color("#8a7058"), 0.5)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 21
+	_mbox(Vector3(10, 0.1, 9), Vector3(0, -0.05, 0), _wood(false))
+	_mbox(Vector3(10, 3.4, 0.2), Vector3(0, 1.7, -2.6), _paint(Color(0.78, 0.68, 0.5), 0.0, Color.BLACK, 0.4))
+	_mbox(Vector3(0.2, 3.4, 9), Vector3(-3.6, 1.7, 0), _paint(Color(0.72, 0.62, 0.46), 0.0, Color.BLACK, 0.4))
+	_mbox(Vector3(10, 0.2, 9), Vector3(0, 3.4, 0), _mat(Color(0.82, 0.78, 0.7)))
+	# pencere + perdeler (gece mahalle)
+	_window(Vector3(-0.6, 1.8, -2.48), Vector2(1.6, 1.3), "res://assets/tex/win_home.jpg", Color(0.9, 0.88, 0.84), "night")
+	var curtain := _mat(Color(0.55, 0.18, 0.12), 0.95)
+	for sx in [-1.0, 1.0]:
+		var c := _mbox(Vector3(0.45, 2.0, 0.06), Vector3(-0.6 + sx * 1.05, 1.6, -2.4), curtain)
+		c.rotation_degrees.y = sx * 4.0
+	_box(Vector3(2.8, 0.04, 0.04), Vector3(-0.6, 2.62, -2.38), Color(0.6, 0.5, 0.3))
+	_rug(Vector3(0, 0, 0), Vector2(3.0, 2.2), Color(0.5, 0.15, 0.12))
+	_mbox(Vector3(1.0, 0.06, 0.55), Vector3(0, 0.4, 0), _wood(true))
+	_ao(Vector3(0, 0, 0), Vector2(1.4, 0.9), 0.45)
+	# çay takımı ve tabak
+	_cyl(0.05, 0.1, Vector3(-0.2, 0.48, 0.05), Color("#c84a2a"))
+	_cyl(0.05, 0.1, Vector3(0.2, 0.48, -0.05), Color("#c84a2a"))
+	_cyl(0.16, 0.02, Vector3(0.0, 0.44, 0.12), Color(0.92, 0.9, 0.84))
+	for i in 5:
+		_sphere(0.025, Vector3(-0.05 + (i % 3) * 0.04, 0.47, 0.1 + (i / 3) * 0.04), Color(0.7, 0.45, 0.2))
+	# kanepe (kumaş)
+	var sofa := _mat(Color(0.35, 0.42, 0.25), 0.95)
+	_mbox(Vector3(0.75, 0.42, 1.9), Vector3(1.55, 0.21, 0.0), sofa)
+	_mbox(Vector3(0.22, 0.6, 1.9), Vector3(1.95, 0.6, 0.0), sofa)
+	for sz in [-1.0, 1.0]:
+		_mbox(Vector3(0.75, 0.55, 0.18), Vector3(1.55, 0.35, sz * 0.95), sofa)
+	_box(Vector3(0.35, 0.3, 0.12), Vector3(1.75, 0.6, -0.6), Color(0.85, 0.7, 0.35))
+	_ao(Vector3(1.6, 0, 0), Vector2(1.2, 2.4), 0.5)
+	# TV ünitesi
+	_mbox(Vector3(1.6, 0.5, 0.4), Vector3(-2.3, 0.25, -2.3), _wood(true))
+	_box(Vector3(1.1, 0.62, 0.05), Vector3(-2.3, 0.85, -2.35), Color("#0a0a0a"), 0.2)
+	var tvm := StandardMaterial3D.new()
+	tvm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tvm.albedo_texture = load("res://assets/tex/grass.jpg")
+	tvm.albedo_color = Color(0.7, 0.8, 0.7)
+	_quad(Vector2(1.02, 0.56), Vector3(-2.3, 0.85, -2.32), tvm)
+	_lamp(Vector3(-2.3, 0.9, -1.8), Color("#7fb0ff"), 0.5, 2.5)
+	# duvarda aile fotoğrafları, çocukluk forması, madalyalar
+	_frames(Vector3(0.6, 2.0, -2.48), 4, rng)
+	var cl := Game.my_club()
+	_mbox(Vector3(0.6, 0.7, 0.02), Vector3(3.0, 1.8, -2.48), _mat(Color("#b5121b"), 0.9))
+	_mbox(Vector3(0.66, 0.76, 0.015), Vector3(3.0, 1.8, -2.49), _mat(Color(0.1, 0.07, 0.05)))
+	# köşede eski top ve krampon
+	_sphere(0.11, Vector3(-3.2, 0.11, -1.8), Color(0.93, 0.92, 0.88))
+	_box(Vector3(0.12, 0.08, 0.28), Vector3(-3.0, 0.04, -2.1), Color(0.1, 0.1, 0.1))
+	_plant(Vector3(-3.1, 0, 0.8), 0.9)
+	# abajur
+	_cyl(0.02, 1.4, Vector3(2.6, 0.7, -1.9), Color(0.5, 0.4, 0.25))
+	_cyl(0.25, 0.3, Vector3(2.6, 1.5, -1.9), Color(0.95, 0.85, 0.65), 0.15)
+	_lamp(Vector3(2.6, 1.4, -1.7), Color("#ffcf8a"), 1.0, 3.5)
+	_lamp(Vector3(-0.5, 2.6, 0.8), Color("#ffd9a0"), 1.3, 6.0)
+	_sun(Vector3(-35, -150, 0), Color("#a8b8e0"), 0.3)
+	_chair(Vector3(-1.0, 0, 0.0), PI / 2.0, Color("#6b3a22"), true)
+	_ao(Vector3(0, 0, -2.45), Vector2(9.5, 0.7), 0.45)
+	cam_target["wide0"] = {"pos": Vector3(0.3, 1.7, 3.6), "look": Vector3(0.3, 0.85, -0.2)}
+
+## Telefon: solda scout ofisi, sağda arayan kişi (antrenman sahası kenarı)
+func _set_phone() -> void:
+	# sağ taraf: gerçek tesis sahası (stadyum sistemi, küçük ölçek)
+	var st = StadS.new()
+	st.position = Vector3(40, 0, 0)
+	world.add_child(st)
+	st.configure(3, "day", "clear")
+	st.build(Color("#2f6b3a"), Color("#ffffff"), Color("#b5121b"), false, shadows)
+	# sol: scout ofisi
+	_mbox(Vector3(6, 0.1, 6), Vector3(0, -0.05, 0), _wood(false))
+	_mbox(Vector3(6, 3.5, 0.2), Vector3(0, 1.75, -1.8), _paint(Color(0.1, 0.2, 0.15), 0.3))
+	_window(Vector3(1.6, 1.75, -1.68), Vector2(1.2, 1.0), "", Color(0.1, 0.1, 0.11), "night")
+	var desk := _wood(false)
+	_mbox(Vector3(1.4, 0.06, 0.7), Vector3(0, 0.75, -0.6), desk)
+	_mbox(Vector3(1.35, 0.7, 0.05), Vector3(0, 0.37, -0.92), desk)
+	_box(Vector3(0.5, 0.32, 0.03), Vector3(-0.3, 1.0, -0.85), Color("#111111"), 0.2)
+	_glow_quad(Vector2(0.46, 0.28), Vector3(-0.3, 1.0, -0.83), 0.0, Color("#6fa0c8"), 1.0)
+	_mbox(Vector3(0.25, 0.02, 0.32), Vector3(0.3, 0.79, -0.5), _tmat("res://assets/tex/manila.jpg", Color(0.86, 0.76, 0.52)))
+	_mbox(Vector3(1.2, 0.7, 0.04), Vector3(-1.4, 1.9, -1.68), _tmat("res://assets/tex/cork.jpg", Color(0.6, 0.45, 0.3)))
+	_ao(Vector3(0, 0, -0.6), Vector2(1.8, 1.2), 0.5)
+	_lamp(Vector3(0.4, 2.2, 0.3), Color("#ffd9a0"), 1.3, 4.0)
+	_chair(Vector3(0, 0, 0.05), PI, Color("#3a2416"))
+	cam_target["wide0"] = {"pos": Vector3(0.55, 1.4, -1.45), "look": Vector3(0, 1.15, -0.25)}
+	cam_target["wide1"] = {"pos": Vector3(41.0, 1.6, 2.2), "look": Vector3(40, 1.3, 0)}
+
+## Video odası: karanlık analiz odası, büyük ekran
+func _set_video() -> void:
+	_env(Color("#07090c"), Color("#4a5a70"), 0.4)
+	_mbox(Vector3(8, 0.1, 8), Vector3(0, -0.05, 0), _tmat("res://assets/tex/tex_carpet.jpg", Color(0.14, 0.15, 0.18), Vector2(4, 4), Color(0.4, 0.42, 0.5), 1.0))
+	_mbox(Vector3(8, 3.4, 0.2), Vector3(0, 1.7, -2.4), _paint(Color(0.08, 0.09, 0.11), 0.0, Color.BLACK, 0.0, 1.0))
+	_mbox(Vector3(0.2, 3.4, 8), Vector3(-3.0, 1.7, 0), _paint(Color(0.08, 0.09, 0.11)))
+	# büyük ekran: maç görüntüsü (çim + oyuncu noktaları)
+	var scr := _shm("""shader_type spatial;
+render_mode unshaded;
+uniform sampler2D grass : source_color, filter_linear_mipmap, repeat_enable;
+float h(float n) { return fract(sin(n) * 43758.5453); }
+void fragment() {
+	vec2 uv = UV;
+	vec3 c = texture(grass, vec2(uv.x * 2.5, uv.y * 1.2)).rgb * 0.75;
+	float line = step(abs(uv.x - 0.5), 0.003) + step(abs(length((uv - 0.5) * vec2(1.6, 1.0)) - 0.12), 0.004);
+	c = mix(c, vec3(0.9), clamp(line, 0.0, 1.0) * 0.8);
+	for (int i = 0; i < 14; i++) {
+		float fi = float(i);
+		vec2 p = vec2(0.5 + 0.38 * sin(TIME * (0.15 + h(fi) * 0.2) + fi * 1.7), 0.5 + 0.35 * cos(TIME * (0.12 + h(fi + 3.0) * 0.2) + fi));
+		float d = length((uv - p) * vec2(1.6, 1.0));
+		vec3 tc = i < 7 ? vec3(0.9, 0.2, 0.15) : vec3(0.95);
+		c = mix(c, tc, 1.0 - smoothstep(0.008, 0.012, d));
+	}
+	float scan = 0.92 + 0.08 * sin(uv.y * 500.0);
+	ALBEDO = c * scan * 1.3;
+}""")
+	scr.set_shader_parameter("grass", load("res://assets/tex/grass.jpg"))
+	_mbox(Vector3(3.3, 1.9, 0.08), Vector3(0, 1.75, -2.26), _mat(Color(0.02, 0.02, 0.02), 0.3))
+	_quad(Vector2(3.1, 1.74), Vector3(0, 1.75, -2.21), scr)
+	_lamp(Vector3(0, 1.6, -1.5), Color("#9fd0a8"), 0.9, 4.0)
+	# masa, iki monitör, not defteri
+	var desk := _mat(Color(0.12, 0.12, 0.13), 0.4, 0.3)
+	_mbox(Vector3(2.4, 0.06, 0.8), Vector3(0, 0.75, -0.9), desk)
+	for sx in [-1.0, 1.0]:
+		_mbox(Vector3(0.06, 0.72, 0.75), Vector3(sx * 1.15, 0.37, -0.9), desk)
+		_box(Vector3(0.6, 0.36, 0.03), Vector3(sx * 0.45, 1.05, -1.15), Color("#0b0b0b"), 0.2)
+		_glow_quad(Vector2(0.56, 0.32), Vector3(sx * 0.45, 1.05, -1.13), 0.0, Color("#3a7a5a") if sx < 0 else Color("#5a6a9a"), 0.9)
+	_mbox(Vector3(0.22, 0.02, 0.3), Vector3(0.1, 0.79, -0.7), _tmat("res://assets/tex/paper.jpg", Color(0.94, 0.9, 0.82)))
+	_ao(Vector3(0, 0, -0.9), Vector2(2.8, 1.3), 0.5)
+	# jaluzili yan pencere: dışarıdan ince ışık
+	_window(Vector3(-2.88, 1.8, 0.4), Vector2(1.4, 1.1), "", Color(0.2, 0.2, 0.22), "night", PI / 2.0)
+	var slat := _mat(Color(0.75, 0.74, 0.7), 0.6)
+	for i in 8:
+		_mbox(Vector3(0.07, 0.02, 1.5), Vector3(-2.8, 2.3 - i * 0.12, 0.4), slat, null, Vector3(0, 0, 35))
+	_lamp(Vector3(1.2, 2.8, 0.8), Color("#ffd9a0"), 0.6, 4.0)
+	_sun(Vector3(-40, 30, 0), Color("#a8b8e0"), 0.25)
+	_chair(Vector3(0, 0, 0.1), PI, Color("#222222"))
+	cam_target["wide0"] = {"pos": Vector3(0.9, 1.5, 2.4), "look": Vector3(0, 1.3, -1.6)}
