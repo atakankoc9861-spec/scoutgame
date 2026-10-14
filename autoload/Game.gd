@@ -954,7 +954,8 @@ func do_video(pid: String, focus := "tec", sparks := 0) -> Dictionary:
 	kn.vid += 1
 	var strength := 0.2 if p.st.apps > 0 else 0.08
 	var groups: Array = FOCUS_GROUPS.get(focus, ["tec", "gk"])
-	observe(pid, strength / (1.0 + kn.vid * 0.25) + 0.08 * sparks, groups, 1.3)
+	observe(pid, strength / (1.0 + kn.vid * 0.15) + 0.08 * sparks, groups, 1.3)
+	observe(pid, strength * 0.35 / (1.0 + kn.vid * 0.15), _other_groups(groups), 1.5)
 	_gain_xp("eye", 1)
 	changed.emit()
 	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sparks, 2)), "sparks": sparks}
@@ -1008,11 +1009,13 @@ func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec")
 		if int(i) >= 0 and int(i) < data.tl.size():
 			seen_tl.append(data.tl[int(i)])
 	var agg := Timeline.aggregate(self, seen_tl, [pid])
-	var decay := 1.0 / (1.0 + float(kn.vid - 1) * 0.25)
+	var decay := 1.0 / (1.0 + float(kn.vid - 1) * 0.15)
 	_learn_from_agg(pid, agg[pid], clampf(0.25 + seen_tl.size() * 0.03, 0.25, 0.75) * decay)
 	var groups: Array = FOCUS_GROUPS.get(focus, ["tec", "gk"])
 	var sp: int = int(fe.get("_sparks", {}).get(pid, 0))
 	observe(pid, (0.08 + 0.06 * mini(sp, 3)) * decay, groups, 1.2)
+	# masa başı da işe yarar: maç görüntüsü diğer özellik gruplarını da biraz gösterir
+	observe(pid, 0.07 * decay, _other_groups(groups), 1.4)
 	var eyes: Array = fe.get("_eye", {}).get(pid, [])
 	if not eyes.is_empty():
 		var ag2 := {"attr": {}}
@@ -1172,7 +1175,7 @@ func trip_cost(cc: String) -> int:
 	var city := trip_city(cc)
 	if city == "" or my_club().is_empty():
 		return 0
-	return int(round(float(travel_info(city).cost) * 1.6 / 10.0) * 10)
+	return int(round(float(travel_info(city).cost) * 1.25 / 10.0) * 10)
 
 func trip_check(cc: String) -> String:
 	if s.week < 1:
@@ -1193,7 +1196,7 @@ func do_trip(cc: String, kind := "academy") -> Dictionary:
 	if not has_perk("perk_3b"):
 		_take_day("trip", "")
 	var info := _spend_travel(city)
-	s.scout.spent += int(float(info.cost) * 0.6)
+	s.scout.spent += int(float(info.cost) * 0.25)
 	var clubs := []
 	for cid in s.clubs:
 		if club_country(cid) == cc:
@@ -1244,7 +1247,7 @@ func do_trip(cc: String, kind := "academy") -> Dictionary:
 	_gain_xp("eye", 1)
 	add_news("n_trip", [Data.country_name(cc), found.size()], true, "career")
 	changed.emit()
-	return {"ok": true, "pids": found, "cc": cc, "kind": kind, "cost": int(info.cost * 1.6)}
+	return {"ok": true, "pids": found, "cc": cc, "kind": kind, "cost": int(info.cost * 1.25)}
 
 func rest_day() -> bool:
 	if free_days() <= 0:
@@ -1385,10 +1388,9 @@ func _decide_report(r: Dictionary) -> void:
 		s.scout.rep = maxf(0.0, s.scout.rep - 1.5)
 		add_news("n_rej_criteria", [pname(p)], true, "bad")
 		return
-	var fee := int(p.value * rng.randf_range(1.0, 1.35))
-	if p.rival != "" and int(p.get("rush", 0)) < s.season * 100 + s.week - 1:
-		fee = int(fee * 1.15)
-	if fee > int(a.max_value) * 1.15 or fee > me.budget:
+	# bonservis artık zar değil: rapor ekranında gösterilen tahminle aynı
+	var fee := est_fee(r.pid)
+	if fee > int(float(a.max_value) * 1.15) or fee > int(me.budget):
 		r.status = "rejected"
 		add_news("n_rej_budget", [pname(p), money_str(fee)], true, "bad")
 		return
@@ -2291,6 +2293,10 @@ func _staff_week() -> void:
 		s.staff_reports = []
 		s.next_sid = 1
 	refresh_staff_pool()
+	# itibar düşüp kota küçüldüyse fazla kişi sözleşmesi biter (en yeni giden)
+	while s.staff.size() > staff_slots():
+		var gone: Dictionary = s.staff.pop_back()
+		add_news("n_staff_left_quota", [gone.name], true, "bad")
 	for m in s.staff.duplicate():
 		m.weeks = int(m.weeks) + 1
 		s.scout.spent += int(m.salary)
@@ -2486,6 +2492,13 @@ func board_request(topic: String, arg := "") -> Dictionary:
 	match topic:
 		"abroad":
 			var cost: int = {"brit": 4500, "west": 4200, "central": 4000, "south": 4000, "sa": 6000, "east": 4500, "nordic": 4200}.get(arg, 3800)
+			# ek bütçe gerçek yol masrafına göre: bölgeye yaklaşık 6 gidiş
+			for cc in Data.COUNTRIES:
+				if Data.zone_of(cc) == arg:
+					var tc := trip_cost(cc)
+					if tc > 0:
+						cost = maxi(cost, int(round(float(tc) * 6.0 / 100.0) * 100))
+						break
 			var p := _board_chance(0.35 + float(s.scout.stats.signed) * 0.06 - nag)
 			if rf() < p:
 				b.abroad.append(arg)
@@ -3914,3 +3927,35 @@ func has_perk(id: String) -> bool:
 		if id in PERKS.get("title_%d" % i, []):
 			return true
 	return false
+
+
+## Tahmini bonservis: oyuncu değeri, kulübün satıcı gücü ve rakip ilgisi (rapordan önce görünür)
+func est_fee(pid: String) -> int:
+	var p := player(pid)
+	if p.is_empty():
+		return 0
+	var c := club(p.club)
+	var mult := 1.12 + clampf((float(c.get("prestige", 50)) - float(my_club().get("prestige", 50))) / 200.0, -0.08, 0.15)
+	if p.get("rival", "") != "" and int(p.get("rush", 0)) < s.season * 100 + s.week - 1:
+		mult += 0.15
+	if int(p.get("contract", s.season + 2)) <= s.season:
+		mult -= 0.25
+	return int(float(p.value) * mult)
+
+func fee_ok(pid: String, aid: String) -> String:
+	## "" uygun | "limit" görev sınırını aşıyor | "budget" kulüp bütçesi yetmiyor
+	var a := assignment(aid)
+	var fee := est_fee(pid)
+	if not a.is_empty() and fee > int(float(a.max_value) * 1.15):
+		return "limit"
+	if fee > int(my_club().get("budget", 0)):
+		return "budget"
+	return ""
+
+
+func _other_groups(groups: Array) -> Array:
+	var out := []
+	for g in ["tec", "phy", "men", "gk"]:
+		if not g in groups:
+			out.append(g)
+	return out

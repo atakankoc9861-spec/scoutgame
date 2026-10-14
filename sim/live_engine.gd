@@ -104,8 +104,8 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.base = slots[pid]
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
 			var fm := rng.randfn(0.0, 2.6 - float(p.hid.consistency) * 0.11) * 0.8
-			if sd == "h" and not youth:
-				fm += 0.55   # ev sahibi avantajı
+			if sd == "h":
+				fm += 0.55 if not youth else 0.4   # ev sahibi avantajı (U19 dahil)
 			if not youth and g.club(m.h if sd == "a" else m.a).get("prestige", 0) >= 80:
 				fm += (float(p.hid.big_match) - 10.0) * 0.06
 			form[pid] = fm
@@ -848,7 +848,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 			_set_restart("goalkick", k.side, Vector2(L * signf(ball.x) - 5.5 * signf(ball.x), rng.randf_range(-6, 6)))
 		return
 	var sv := duel(k, [["reflexes", 0.65], ["handling", 0.35]], sh, [["finishing", 0.6], ["composure", 0.4]] if not fl.header else [["heading", 1.0]],
-		clampf(0.41 + float(fl.dist) / 90.0, 0.36, 0.84) if not fl.get("pen", false) else 0.2, 0.025)
+		clampf(0.43 + float(fl.dist) / 90.0, 0.38, 0.85) if not fl.get("pen", false) else 0.2, 0.025)
 	var saved: bool = rng.randf() < sv.p
 	if saved:
 		var held: bool = rng.randf() < 0.35 + at(k, "handling") * 0.025

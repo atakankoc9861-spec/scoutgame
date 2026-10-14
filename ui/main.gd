@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta5"
+const VERSION := "v0.21-beta6"
 
 var bg: ColorRect
 var hub
@@ -3909,10 +3909,19 @@ func _scr_report(pid: String) -> void:
 		var b := _btn("%s — %s (≤%d, %s)" % [T.t("kind_" + a.kind), T.t("pos_" + a.pos), int(a.max_age), Game.money_str(a.max_value)], func(): pass, "small", v)
 		b.add_theme_font_size_override("font_size", 18)
 		task_btns.append([b, a.id])
+	# tahmini bonservis: ret sürpriz olmasın
+	var fee_l := _typed("", 16, C_INK)
+	v.add_child(fee_l)
+	var kf := Game.known_fraction(pid)
+	if kf < 0.3:
+		v.add_child(_typed(T.t("rep_low_info", [int(kf * 100.0)]), 15, C_RED))
 	var paint_tasks := func():
 		for tb in task_btns:
 			var on: bool = tb[1] == state.aid
 			tb[0].add_theme_stylebox_override("normal", _sb(C_HL if on else C_CARD, 10, 2, C_INK if on else Color(C_INK, 0.3), 12))
+		var why := Game.fee_ok(pid, state.aid)
+		fee_l.text = T.t("est_fee", [Game.money_str(Game.est_fee(pid))]) + ("" if why == "" else "  —  " + T.t("est_fee_" + why))
+		fee_l.add_theme_color_override("font_color", C_GREEN if why == "" else C_RED)
 	for tb in task_btns:
 		var aid2: String = tb[1]
 		tb[0].pressed.connect(func():
