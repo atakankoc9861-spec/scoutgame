@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta10"
+const VERSION := "v0.21-beta11"
 
 var bg: ColorRect
 var hub
@@ -266,17 +266,40 @@ func _build_shell() -> void:
 	bsafe.custom_minimum_size = Vector2(0, 18 if OS.has_feature("mobile") else 0)
 	root.add_child(bsafe)
 	_build_nav()
+	# bildirim: altta, içeriğe göre boyutlanan küçük koyu şerit (v0.21-b10)
 	toast = PanelContainer.new()
-	toast.add_theme_stylebox_override("panel", _paper_style(Color("#fbf0bd"), 20, 4, 8))
-	toast.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	toast.offset_left = 34
-	toast.offset_right = -34
-	toast.offset_top = 150
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color("#241a12")
+	tsb.border_color = Color("#c9a45c")
+	tsb.set_border_width_all(2)
+	tsb.set_corner_radius_all(16)
+	tsb.shadow_color = Color(0, 0, 0, 0.45)
+	tsb.shadow_size = 14
+	tsb.shadow_offset = Vector2(0, 5)
+	tsb.content_margin_left = 26
+	tsb.content_margin_right = 26
+	tsb.content_margin_top = 16
+	tsb.content_margin_bottom = 16
+	tsb.anti_aliasing = true
+	toast.add_theme_stylebox_override("panel", tsb)
+	toast.anchor_left = 0.5
+	toast.anchor_right = 0.5
+	toast.anchor_top = 1.0
+	toast.anchor_bottom = 1.0
+	toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	toast.visible = false
 	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	toast_lbl = _hand("", 30, C_INK)
-	toast_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	toast.add_child(toast_lbl)
+	var thb := HBoxContainer.new()
+	thb.add_theme_constant_override("separation", 14)
+	thb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast.add_child(thb)
+	var tic = Icon.new().setup("check", Color("#e8c46e"), 30)
+	tic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	thb.add_child(tic)
+	toast_lbl = _lbl("", 24, Color("#f4ead2"), false, F_SEMI)
+	toast_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	thb.add_child(toast_lbl)
 	add_child(toast)
 
 func _build_nav() -> void:
@@ -581,13 +604,25 @@ func _country_items(playable := true) -> Array:
 
 func _toast(text: String) -> void:
 	toast_lbl.text = text
+	var long := text.length() > 38
+	toast_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if long else TextServer.AUTOWRAP_OFF
+	toast_lbl.custom_minimum_size = Vector2(520 if long else 0, 0)
 	toast.visible = true
+	toast.size = Vector2.ZERO
+	toast.reset_size()
+	var w := toast.get_combined_minimum_size().x
+	var h := toast.get_combined_minimum_size().y
+	var base := -(176.0 if navbar and navbar.visible else 70.0)
+	toast.offset_left = -w * 0.5
+	toast.offset_right = w * 0.5
+	toast.offset_bottom = base + 30.0
+	toast.offset_top = base + 30.0 - h
 	toast.modulate.a = 0.0
-	toast.rotation_degrees = -1.5
-	toast.position.y = 120
+	toast.rotation_degrees = 0.0
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(toast, "modulate:a", 1.0, 0.2)
-	tw.tween_property(toast, "position:y", 150.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(toast, "offset_top", base - h, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(toast, "offset_bottom", base, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	toast_t = 3.0
 
 # ================================================================ gezinme
