@@ -5,6 +5,8 @@ extends Node
 const BC_FILE := "user://watch_bc.txt"
 const STALL_FILE := "user://watch_stall.txt"
 const PREV_FILE := "user://watch_prev.txt"
+const DIAG_FILE := "user://watch_diag.txt"
+var diag_lines: PackedStringArray = []
 
 var hb := 0          # son _process
 var pre := 0         # son frame_pre_draw
@@ -32,6 +34,9 @@ func _ready() -> void:
 		if last.find("arka plana alindi") >= 0:
 			bg_exit = true
 			parts.append("=== NOT: uygulama arka plandayken kapandi (Android kapatti ya da donuste takildi) ===")
+	if FileAccess.file_exists(DIAG_FILE):
+		parts.append("=== ONCEKI 3B TESHIS ===\n" + FileAccess.get_file_as_string(DIAG_FILE))
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(DIAG_FILE))
 	var why := _exit_reason()
 	if why != "":
 		parts.append("=== ANDROID CIKIS NEDENI ===\n" + why)
@@ -132,6 +137,10 @@ func check_vp(sv: SubViewport, tag: String, fallback := Callable(), tries := 2) 
 			fallback.call()
 		Game.settings["safe3d"] = true
 		check_vp(sv, tag + "+fb", Callable(), tries - 1)
+	elif bad and tries == 0:
+		diagnose(sv, tag, true)
+	elif lum < 0.05 and not _diag_done.has(tag):
+		diagnose(sv, tag + "(karanlik)", false)
 
 ## Ekranda gerçekten ne görünüyor: ana pencerenin görüntüsünü örnekle
 var _scr_checks := 0
@@ -230,3 +239,140 @@ func _exit_reason() -> String:
 	var rss := int(info.getRss()) / 1024
 	var imp := int(info.getImportance())
 	return "neden=%d %s | onem=%d | bellek pss=%dMB rss=%dMB | %s" % [code, EXIT_REASONS.get(code, "?"), imp, pss, rss, str(desc) if desc != null else ""]
+
+
+# ================================================================ 3B teşhis
+## Görüntü boş/karanlıksa: materyalleri grup grup gizleyip hangisinin bozduğunu bulur,
+## suçluyu gizli bırakır (oyun oynanır kalsın) ve sonucu kayda yazar.
+var _diag_done := {}
+var _diag_running := false
+
+func _sample(sv: SubViewport) -> Vector2:
+	for i in 3:
+		await RenderingServer.frame_post_draw
+	if not is_instance_valid(sv):
+		return Vector2(-1, -1)
+	var img := sv.get_texture().get_image()
+	if img == null or img.is_empty():
+		return Vector2(-1, -1)
+	var w := img.get_width()
+	var h := img.get_height()
+	var lum := 0.0
+	var a := 0.0
+	for yi in range(1, 6):
+		for xi in range(1, 6):
+			var c := img.get_pixel(w * xi / 6, h * yi / 6)
+			lum += c.get_luminance()
+			a += c.a
+	return Vector2(lum / 25.0, a / 25.0)
+
+static func mat_label(g: GeometryInstance3D) -> String:
+	var m: Material = g.material_override
+	if m == null and g is MeshInstance3D and (g as MeshInstance3D).mesh and (g as MeshInstance3D).mesh.get_surface_count() > 0:
+		m = (g as MeshInstance3D).get_active_material(0)
+	if m == null:
+		return "yok:" + g.get_class()
+	if m is ShaderMaterial:
+		var sh: Shader = (m as ShaderMaterial).shader
+		if sh == null:
+			return "sh:bos"
+		var code := sh.code
+		var names := []
+		var rx := RegEx.new()
+		rx.compile("uniform\\s+\\w+\\s+(\\w+)")
+		for r in rx.search_all(code):
+			names.append(r.get_string(1))
+			if names.size() >= 3:
+				break
+		return "sh%d[%s]" % [absi(code.hash()) % 100000, ",".join(names)]
+	if m is StandardMaterial3D:
+		var sm := m as StandardMaterial3D
+		return "std" + ("+tex" if sm.albedo_texture else "") + ("+alpha" if sm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED else "")
+	return m.get_class()
+
+func diagnose(sv: SubViewport, tag: String, keep := true) -> void:
+	if _diag_running or _diag_done.has(tag) or not is_instance_valid(sv):
+		return
+	_diag_running = true
+	_diag_done[tag] = true
+	var base := await _sample(sv)
+	dbc("TESHIS %s: baslangic lum=%.3f a=%.2f" % [tag, base.x, base.y])
+	var groups := {}
+	for n in sv.find_children("*", "GeometryInstance3D", true, false):
+		var g := n as GeometryInstance3D
+		if not g.visible:
+			continue
+		var k := mat_label(g)
+		if not groups.has(k):
+			groups[k] = []
+		groups[k].append(g)
+	dbc("TESHIS %s: %d materyal grubu" % [tag, groups.size()])
+	# 1) hepsi gizli: arka plan/ortam tek başına çiziliyor mu
+	for k in groups:
+		for g in groups[k]:
+			if is_instance_valid(g):
+				g.visible = false
+	var empty := await _sample(sv)
+	dbc("TESHIS %s: tum geometri gizli lum=%.3f a=%.2f" % [tag, empty.x, empty.y])
+	for k in groups:
+		for g in groups[k]:
+			if is_instance_valid(g):
+				g.visible = true
+	var good := func(v: Vector2) -> bool: return v.y > 0.5 and v.x > maxf(0.03, base.x + 0.02)
+	# 2) her grubu tek tek gizle
+	var culprits := []
+	var keys := groups.keys()
+	keys.sort_custom(func(a, b): return groups[a].size() > groups[b].size())
+	for k in keys.slice(0, 30):
+		for g in groups[k]:
+			if is_instance_valid(g):
+				g.visible = false
+		var v := await _sample(sv)
+		var fix: bool = good.call(v)
+		dbc("TESHIS %s: gizli %s (n=%d, ilk=%s) lum=%.3f a=%.2f%s" % [tag, k, groups[k].size(), str(groups[k][0].name) if is_instance_valid(groups[k][0]) else "?", v.x, v.y, "  <== SUCLU" if fix else ""])
+		if fix:
+			culprits.append(k)
+			if keep:
+				continue   # gizli kalsın
+		for g in groups[k]:
+			if is_instance_valid(g):
+				g.visible = true
+	# 3) ortam ayarları
+	if culprits.is_empty() and keep:
+		var envs := sv.find_children("*", "WorldEnvironment", true, false)
+		var cam := sv.get_camera_3d()
+		if cam and cam.environment:
+			envs.append(cam)
+		for e in envs:
+			var env: Environment = e.environment
+			if env == null:
+				continue
+			for step in ["fog", "glow", "tonemap", "adj", "bg"]:
+				match step:
+					"fog": env.fog_enabled = false
+					"glow": env.glow_enabled = false
+					"tonemap": env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+					"adj": env.adjustment_enabled = false
+					"bg":
+						env.background_mode = Environment.BG_COLOR
+						env.background_color = Color(0.2, 0.25, 0.3)
+				var v := await _sample(sv)
+				dbc("TESHIS %s: ortam %s kapali lum=%.3f a=%.2f" % [tag, step, v.x, v.y])
+				if good.call(v):
+					dbc("TESHIS %s: SUCLU ortam ayari %s" % [tag, step])
+					break
+		var lights := sv.find_children("*", "Light3D", true, false)
+		for l in lights:
+			(l as Light3D).shadow_enabled = false
+		var v2 := await _sample(sv)
+		dbc("TESHIS %s: golgeler kapali lum=%.3f a=%.2f" % [tag, v2.x, v2.y])
+	dbc("TESHIS %s bitti: suclu=%s" % [tag, str(culprits)])
+	_diag_running = false
+
+func dbc(msg: String) -> void:
+	bc(msg)
+	diag_lines.append(msg)
+	var f := FileAccess.open(DIAG_FILE, FileAccess.WRITE)
+	if f:
+		f.store_string("\n".join(diag_lines))
+		f.close()

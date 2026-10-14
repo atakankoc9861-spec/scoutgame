@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta7"
+const VERSION := "v0.21-beta8"
 
 var bg: ColorRect
 var hub
@@ -1018,7 +1018,9 @@ func _last_log(current := false) -> String:
 	info += RenderingServer.get_video_adapter_name() + " / " + RenderingServer.get_video_adapter_api_version() + "\n---\n"
 	var prev: String = Watch.prev_report
 	if prev != "":
-		info += prev.right(3000) + "\n"
+		info += prev.right(9000) + "\n"
+	if not Watch.diag_lines.is_empty():
+		info += "=== 3B TESHIS (bu oturum) ===\n" + "\n".join(Watch.diag_lines) + "\n"
 	# önceki oturumun log dosyasından hatalar
 	if current and not files.is_empty():
 		var pf := FileAccess.open("user://logs/" + files[-1], FileAccess.READ)
