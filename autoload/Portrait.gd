@@ -17,7 +17,12 @@ var mem := {}                  # anahtar -> ImageTexture
 var order: Array = []
 var waiting := {}              # anahtar -> [Callable]
 
+var rendered := 0
+
 func enabled() -> bool:
+	# v0.21-b9: mobilde varsayılan kapalı (oturum içinde açılan yeni 3B görünümlerin boş kalmasıyla ilişkili olabilir)
+	if OS.has_feature("mobile") and not Game.settings.get("portraits", false):
+		return false
 	return Game.quality() != "low" and not Game.settings.get("safe3d", false)
 
 func key_of(p: Dictionary) -> String:
@@ -165,6 +170,7 @@ func _render(p: Dictionary) -> Texture2D:
 	if img == null or img.is_empty():
 		Watch.bc("portre alinamadi")
 		return null
+	rendered += 1
 	img.convert(Image.FORMAT_RGB8)
 	img.save_png(ProjectSettings.globalize_path(DIR + key_of(p) + ".png"))
 	return ImageTexture.create_from_image(img)

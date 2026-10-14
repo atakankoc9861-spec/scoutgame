@@ -54,6 +54,7 @@ func _ready() -> void:
 	RenderingServer.frame_pre_draw.connect(func(): pre = Time.get_ticks_msec())
 	RenderingServer.frame_post_draw.connect(func(): post = Time.get_ticks_msec())
 	bc("oturum basladi")
+	get_tree().create_timer(1.5).timeout.connect(func(): selftest("acilis"))
 	th = Thread.new()
 	th.start(_loop)
 
@@ -376,3 +377,55 @@ func dbc(msg: String) -> void:
 	if f:
 		f.store_string("\n".join(diag_lines))
 		f.close()
+
+# ================================================================ taze görünüm testi
+## Yeni bir SubViewport açıp gerçekten çizilip çizilmediğine bakar (2B ve 3B, küçük ve büyük).
+var _st_count := 0
+func selftest(tag: String) -> String:
+	_st_count += 1
+	if _st_count > 8:
+		return ""
+	var holder := Node.new()
+	add_child(holder)
+	var res := []
+	for variant in ["2d", "3d", "3d_buyuk"]:
+		var sv := SubViewport.new()
+		sv.size = Vector2i(1459, 720) if variant == "3d_buyuk" else Vector2i(128, 128)
+		sv.own_world_3d = true
+		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+		holder.add_child(sv)
+		if variant == "2d":
+			var cr := ColorRect.new()
+			cr.color = Color(0.9, 0.2, 0.2)
+			cr.size = Vector2(128, 128)
+			sv.add_child(cr)
+		else:
+			var we := WorldEnvironment.new()
+			var env := Environment.new()
+			env.background_mode = Environment.BG_COLOR
+			env.background_color = Color(0.2, 0.6, 0.3)
+			we.environment = env
+			sv.add_child(we)
+			var cam := Camera3D.new()
+			cam.position = Vector3(0, 0, 3)
+			sv.add_child(cam)
+			var mi := MeshInstance3D.new()
+			mi.mesh = BoxMesh.new()
+			sv.add_child(mi)
+			var l := DirectionalLight3D.new()
+			l.rotation_degrees = Vector3(-40, 30, 0)
+			sv.add_child(l)
+		for i in 4:
+			await RenderingServer.frame_post_draw
+		var txt := "?"
+		var img := sv.get_texture().get_image()
+		if img and not img.is_empty():
+			var c := img.get_pixel(img.get_width() / 2, img.get_height() / 2)
+			var e := img.get_pixel(3, 3)
+			txt = "orta(%.2f,%.2f,%.2f,a%.1f) kose(%.2f,%.2f,%.2f,a%.1f)" % [c.r, c.g, c.b, c.a, e.r, e.g, e.b, e.a]
+			txt = ("OK " if e.a > 0.5 else "BOS ") + txt
+		res.append(variant + "=" + txt)
+	holder.queue_free()
+	var line := "OZTEST %s (portre=%d): %s" % [tag, Portrait.rendered, " | ".join(res)]
+	dbc(line)
+	return line

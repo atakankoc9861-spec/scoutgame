@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta8"
+const VERSION := "v0.21-beta9"
 
 var bg: ColorRect
 var hub
@@ -1980,6 +1980,7 @@ func _run_viewer(data: Dictionary, focus: Array):
 	for i in 3:
 		await get_tree().process_frame
 	Watch.bc("yukleme: menu 3D kapandi " + Watch._mon())
+	await Watch.selftest("mac oncesi")
 	var mv = MatchView.new()
 	mv.setup(data, F_HEAD, F_BODY, focus)
 	mv.hold = true
@@ -5353,6 +5354,7 @@ func _scene_reveal() -> void:
 		scene_ready = true
 		return
 	Watch.bc("sahne perde: menu kapandi " + Watch._mon())
+	await Watch.selftest("sahne oncesi")
 	var ok := false
 	for attempt in 3:
 		for i in 6:
