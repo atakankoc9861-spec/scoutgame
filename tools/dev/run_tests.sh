@@ -19,6 +19,8 @@
 # Her test kendi geçici user:// klasöründe çalışır (XDG_DATA_HOME), geliştiricinin kaydına dokunmaz.
 # Testler bilerek SIRAYLA çalışır (paralel değil): hepsi user://kariyer.json'a yazar.
 # FAIL sayılanlar: zaman aşımı, sıfırdan farklı çıkış, PASS satırı yok, çıktıda SCRIPT ERROR.
+# Çıktı canlı izlenir: "Parse Error", "SCRIPT ERROR" ya da "Failed to load script" satırı
+# görüldüğü anda Godot öldürülür ve test FAIL sayılır (zaman aşımını beklemez).
 # Çıkış kodu: tüm testler geçtiyse 0, en az biri kaldıysa 1, test bulunamadı/ortam hatası 2.
 
 set -u
@@ -26,6 +28,8 @@ set -u
 GODOT="${GODOT:-/home/claude/godot/Godot_v4.5.1-stable_linux.x86_64}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-900}"
 FILTER="${1:-}"
+# Görüldüğü anda testi durduran (FAIL) çıktı satırları
+FATAL_RE="Parse Error|SCRIPT ERROR|Failed to load script"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -41,7 +45,7 @@ if [[ ! -d "$CHECK_DIR" ]]; then
 fi
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/gozcu-tests.XXXXXX")"
-cleanup() { [[ "${KEEP_LOGS:-0}" == "1" ]] || [[ "${FAILED_ANY:-0}" == "1" ]] || rm -rf "$WORK"; }
+cleanup() { [[ -n "${gpid:-}" ]] && kill -KILL "$gpid" 2>/dev/null; [[ "${KEEP_LOGS:-0}" == "1" ]] || [[ "${FAILED_ANY:-0}" == "1" ]] || rm -rf "$WORK"; }
 trap cleanup EXIT
 
 # Testleri bul: önce sahneler, sonra sahnesi olmayan betikler
@@ -89,22 +93,45 @@ for t in "${TESTS[@]}"; do
 	mkdir -p "$udata"
 	t0=$(date +%s)
 	if [[ "$t" == *.tscn ]]; then
-		XDG_DATA_HOME="$udata" timeout --kill-after=20 "$TEST_TIMEOUT" \
-			"$GODOT" --headless --path "$REPO" "res://$rel" >"$log" 2>&1
+		XDG_DATA_HOME="$udata" "$GODOT" --headless --path "$REPO" "res://$rel" >"$log" 2>&1 &
 	else
-		XDG_DATA_HOME="$udata" timeout --kill-after=20 "$TEST_TIMEOUT" \
-			"$GODOT" --headless --path "$REPO" -s "res://$rel" >"$log" 2>&1
+		XDG_DATA_HOME="$udata" "$GODOT" --headless --path "$REPO" -s "res://$rel" >"$log" 2>&1 &
 	fi
+	gpid=$!
+	# Çıktıyı canlı izle: ölümcül hata satırı görülür görülmez ya da süre dolunca öldür.
+	# (Autoload'da sözdizimi hatası olursa Godot quit()'e hiç ulaşmaz, boşta bekler.)
+	killed=""
+	while kill -0 "$gpid" 2>/dev/null; do
+		if grep -qE "$FATAL_RE" "$log" 2>/dev/null; then
+			killed="fatal"
+		elif (( $(date +%s) - t0 >= TEST_TIMEOUT )); then
+			killed="timeout"
+		fi
+		if [[ -n "$killed" ]]; then
+			sleep 0.3   # hata satırının devamı (backtrace) kayda düşsün
+			kill -TERM "$gpid" 2>/dev/null
+			for _ in 1 2 3 4 5 6 7 8 9 10; do
+				kill -0 "$gpid" 2>/dev/null || break
+				sleep 0.5
+			done
+			kill -KILL "$gpid" 2>/dev/null
+			break
+		fi
+		sleep 0.5
+	done
+	wait "$gpid" 2>/dev/null
 	rc=$?
 	dt=$(( $(date +%s) - t0 ))
 	reason=""
-	if [[ $rc -eq 124 || $rc -eq 137 ]]; then
+	if [[ "$killed" == "fatal" ]]; then
+		reason="ölümcül hata satırı görüldü, test hemen durduruldu: $(grep -m1 -E "$FATAL_RE" "$log" | head -n1 | cut -c1-120)"
+	elif [[ "$killed" == "timeout" ]]; then
 		reason="zaman aşımı (${TEST_TIMEOUT}s)"
 	elif [[ $rc -ne 0 ]]; then
 		reason="çıkış kodu $rc"
 	elif ! grep -q "^CHECK_RESULT: PASS" "$log"; then
 		reason="çıkış 0 ama CHECK_RESULT: PASS satırı yok"
-	elif grep -qE "SCRIPT ERROR|Parse Error|Failed to load script|Failed to instantiate" "$log"; then
+	elif grep -qE "$FATAL_RE|Failed to instantiate" "$log"; then
 		reason="çıktıda SCRIPT ERROR / yükleme hatası var"
 	fi
 	if [[ -z "$reason" ]]; then
