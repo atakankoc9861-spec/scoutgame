@@ -152,10 +152,16 @@ uniform float panels = 3.0;
 uniform float bright = 1.6;
 uniform float n_ads = 14.0;
 uniform float seed = 0.0;
+uniform vec3 bsize = vec3(96.0, 1.2, 0.15);
+varying vec3 lp;
 float pick(float k, float pi) { return mod(floor(k * 5.0 + pi * 3.0 + seed * 7.0), n_ads); }
+void vertex() { lp = VERTEX; }
 void fragment() {
-	float pi = floor(UV.x * panels);
-	vec2 lu = vec2(fract(UV.x * panels), UV.y);
+	// kutu UV'si yerine yerel konum: tasarım panonun tamamına oturur
+	float along = bsize.x >= bsize.z ? lp.x / bsize.x : -lp.z / bsize.z;
+	vec2 buv = vec2(clamp(along + 0.5, 0.0, 0.9999), clamp(0.5 - lp.y / bsize.y, 0.0, 1.0));
+	float pi = floor(buv.x * panels);
+	vec2 lu = vec2(fract(buv.x * panels), buv.y);
 	// her pano kendi temposunda: 6 sn'de bir sonraki tasarım aşağıdan yukarı kayarak gelir
 	float t = led > 0.5 ? TIME / 6.0 + seed * 0.37 + pi * 0.11 : seed;
 	float k = floor(t);
@@ -165,7 +171,7 @@ void fragment() {
 	float yy = fract(y);
 	vec3 col = texture(ads, vec2(lu.x, (d + clamp(yy, 0.004, 0.996)) / n_ads)).rgb;
 	if (led > 0.5) {
-		float px = step(0.18, fract(UV.x * panels * 260.0)) * step(0.18, fract(UV.y * 32.0));
+		float px = step(0.18, fract(buv.x * panels * 260.0)) * step(0.18, fract(buv.y * 32.0));
 		col *= 0.62 + 0.38 * px;
 		col = mix(col, c1, pulse * step(0.5, fract(TIME * 4.0)));
 	}
@@ -936,17 +942,18 @@ func _led_boards() -> void:
 	var panels := L / 7.6
 	for sz in [-1.0, 1.0]:
 		var mi := _box(Vector3(L, 1.2, 0.15), Vector3(0, 0.6, sz * 37.2), led_mat)
-		_board_uv(mi, panels)
+		_board_uv(mi, L / 9.6, Vector3(L, 1.2, 0.15))
 		_box(Vector3(L, 1.2, 0.3), Vector3(0, 0.6, sz * 37.45), back)
 	if tier <= 2:
 		for sx in [-1.0, 1.0]:
 			for z in [-22.0, 22.0]:
 				var mi2 := _box(Vector3(0.15, 1.2, 26), Vector3(sx * 56.0, 0.6, z), led_mat)
-				_board_uv(mi2, 26.0 / 7.6)
+				_board_uv(mi2, 26.0 / 9.6, Vector3(0.15, 1.2, 26))
 
-func _board_uv(mi: MeshInstance3D, panels: float) -> void:
+func _board_uv(mi: MeshInstance3D, panels: float, bsize := Vector3(96, 1.2, 0.15)) -> void:
 	var m: ShaderMaterial = led_mat.duplicate()
 	m.set_shader_parameter("panels", maxf(1.0, round(panels)))
+	m.set_shader_parameter("bsize", bsize)
 	m.set_shader_parameter("seed", float(led_mats.size()) * 1.7 + 0.3)
 	mi.material_override = m
 	led_mats.append(m)
