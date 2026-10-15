@@ -1995,8 +1995,9 @@ func _update_camera(delta: float) -> void:
 				# klasik yayın: ana tribün çatısı, top yönünü önceden takip eder
 				pos = Vector3(clampf(tp.x * 0.8, -40.0, 40.0), 21.0, 47.0)
 				# yakın taç çizgisi de kadrajda kalsın: z ekseninde topu tam takip et
-				look = Vector3(clampf(tp.x * 0.93, -46.0, 46.0), 0.0, clampf(tp.z * 0.9, -18.0, 30.0) + 1.0)
-				fov = (24.5 if absf(tp.x) < 36.0 else 27.0) + maxf(0.0, tp.z - 12.0) * 0.25
+				# v0.22: karşı tribün önündeki reklam panoları üst düğmelerin altında görünsün
+				look = Vector3(clampf(tp.x * 0.93, -46.0, 46.0), 0.0, clampf(tp.z * 0.9, -18.0, 30.0) - 3.0)
+				fov = (27.0 if absf(tp.x) < 36.0 else 29.0) + maxf(0.0, tp.z - 12.0) * 0.25
 	var k := 1.0 - exp(-delta * stiff)
 	cam.position = cam.position.lerp(pos, k)
 	cam_target = cam_target.lerp(look, minf(1.0, k * 1.3))

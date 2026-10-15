@@ -935,13 +935,13 @@ func _led_boards() -> void:
 	var L := 96.0 if tier <= 1 else 70.0
 	var panels := L / 7.6
 	for sz in [-1.0, 1.0]:
-		var mi := _box(Vector3(L, 0.95, 0.15), Vector3(0, 0.48, sz * 37.2), led_mat)
+		var mi := _box(Vector3(L, 1.2, 0.15), Vector3(0, 0.6, sz * 37.2), led_mat)
 		_board_uv(mi, panels)
-		_box(Vector3(L, 0.95, 0.3), Vector3(0, 0.48, sz * 37.45), back)
+		_box(Vector3(L, 1.2, 0.3), Vector3(0, 0.6, sz * 37.45), back)
 	if tier <= 2:
 		for sx in [-1.0, 1.0]:
 			for z in [-22.0, 22.0]:
-				var mi2 := _box(Vector3(0.15, 0.95, 26), Vector3(sx * 56.0, 0.48, z), led_mat)
+				var mi2 := _box(Vector3(0.15, 1.2, 26), Vector3(sx * 56.0, 0.6, z), led_mat)
 				_board_uv(mi2, 26.0 / 7.6)
 
 func _board_uv(mi: MeshInstance3D, panels: float) -> void:
