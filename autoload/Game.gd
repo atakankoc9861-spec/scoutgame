@@ -84,6 +84,15 @@ func rf() -> float:
 func pick(arr: Array):
 	return arr[rng.randi_range(0, arr.size() - 1)]
 
+func _agent_name() -> String:
+	## menajer adı: gerçek futbolcuya denk gelen birleşim (Data.NAME_BLOCK) yeniden çekilir
+	var nm: String = "%s %s" % [pick(Data.FIRST["TR"]), pick(Data.LAST["TR"])]
+	var tries := 0
+	while Data.NAME_BLOCK.has(nm) and tries < 60:
+		nm = "%s %s" % [pick(Data.FIRST["TR"]), pick(Data.LAST["TR"])]
+		tries += 1
+	return nm
+
 func weighted_pick(d: Dictionary, idx: int) -> String:
 	var total := 0.0
 	for k in d:
@@ -228,7 +237,7 @@ func new_player(pos: String, target: int, age: int, nat: String, cid: String, yo
 		"st": {"apps": 0, "g": 0, "a": 0, "rs": 0.0},
 		"hist": [],
 		"contract": s.season + ri(1, 4),
-		"agent": "%s %s" % [pick(Data.FIRST["TR"]), pick(Data.LAST["TR"])],
+		"agent": _agent_name(),
 		"youth": youth, "disc": not youth, "rival": "",
 		"skin": ri(0, 4), "hair": ri(0, 5), "seed": ri(0, 99999),
 	}
