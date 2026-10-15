@@ -153,6 +153,40 @@ def lum(h):
     h = h.lstrip("#"); r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return 0.299 * r + 0.587 * g + 0.114 * b
 
+_SP = {"ø": "o", "Ø": "o", "ł": "l", "Ł": "l", "đ": "d", "Đ": "d", "ß": "ss", "æ": "ae", "Æ": "ae", "þ": "th", "Þ": "th",
+       "ð": "d", "Ð": "d", "ı": "i", "İ": "i", "œ": "oe", "ħ": "h"}
+
+def bfold(s):
+    ## kara liste karşılaştırması: küçük harf, aksansız, tek boşluk
+    s = fold("".join(_SP.get(c, c) for c in s))
+    return re.sub(r"\s+", " ", s.lower().replace("_", " ")).strip()
+
+def _gd_pools(var):
+    m = re.search(r"var " + var + r" := \{(.*?)\n\}", _DATA, re.S)
+    return {k: re.findall(r'"([^"]+)"', body) for k, body in re.findall(r'"(\w+)": \[(.*?)\]', m.group(1))}
+
+def name_block(names):
+    """Kara listedeki gerçek oyuncu adlarından, havuzlardan (world + Data.gd) üretilebilenleri döndürür.
+    Tek kelimelik kara liste kaydı (ayırt edici soyad) havuzda bulunursa hata verir."""
+    bl = [l.strip() for l in open(os.path.join(os.path.dirname(__file__), "blacklist.txt"), encoding="utf-8")
+          if l.strip() and not l.lstrip().startswith("#")]
+    single = {bfold(x) for x in bl if " " not in x}
+    full = {bfold(x) for x in bl if " " in x}
+    gf, gl = _gd_pools("FIRST"), _gd_pools("LAST")
+    pools = {k: (list(v[0]), list(v[1])) for k, v in names.items()}
+    for k in gf:
+        f, l = pools.get(k, ([], []))
+        pools[k] = (gf[k] + [x for x in f if x not in gf[k]], gl.get(k, []) + [x for x in l if x not in gl.get(k, [])])
+    bad = sorted({(k, x) for k, (f, l) in pools.items() for x in l if bfold(x) in single})
+    assert not bad, f"kara listedeki soyad havuzda: {bad}"
+    out = set()
+    for k, (f, l) in pools.items():
+        for a in f:
+            for b in l:
+                if bfold(a + " " + b) in full:
+                    out.add(f"{a} {b}")
+    return sorted(out)
+
 def main():
     rnd = random.Random(1923)
     out = {"countries": {}, "cities": {}, "names": {}, "pool_of": POOL_OF, "lang_names": {}}
@@ -165,6 +199,8 @@ def main():
     for k, v in P.items():
         if v:
             out["names"][k] = [v[0].replace("_", " ").split(), [x.replace("_", " ") for x in v[1].split()]]
+    # gerçek oyuncuya denk gelen ad+soyad birleşimleri (Data.name_pair bunları yeniden çeker)
+    out["name_block"] = name_block(out["names"])
     for cc, (ntr, nen, lang, top_ovr, ptop, tiers, style) in C.items():
         cities = CITIES[cc]
         if cc in SCOUT_ONLY:
@@ -263,6 +299,7 @@ def main():
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     n = sum(len(c["clubs"]) for c in out["countries"].values())
-    print("ülke", len(out["countries"]), "kulüp", n, "şehir", len(out["cities"]), "bayt", os.path.getsize(path))
+    print("ülke", len(out["countries"]), "kulüp", n, "şehir", len(out["cities"]), "engelli ad", len(out["name_block"]),
+          "bayt", os.path.getsize(path))
 
 main()
