@@ -256,7 +256,7 @@ func name_pair(nat: String) -> Array:
 	var l: String = ll[randi() % ll.size()]
 	# gerçek futbolcuya denk gelen ad+soyad (tools/world/blacklist.txt -> world.json name_block) yeniden çekilir
 	var tries := 0
-	while NAME_BLOCK.has(f + " " + l) and tries < 20:
+	while NAME_BLOCK.has(f + " " + l) and tries < 60:
 		f = fl[randi() % fl.size()]
 		l = ll[randi() % ll.size()]
 		tries += 1
@@ -435,12 +435,12 @@ const NATIONS := {
 
 var FIRST := {
 	"TR": ["Emre", "Mert", "Murat", "Kerem", "Yusuf", "Arda", "Can", "Ozan", "Berkay", "Enes", "Furkan", "Halil", "İsmail", "Kaan", "Alp", "Serdar", "Taylan", "Umut", "Volkan", "Yiğit", "Utku", "Cengiz", "Doğukan", "Efe", "Görkay", "Hakan", "İrfan", "Koray", "Metehan", "Okan", "Onur", "Sinan", "Tolga", "Uğurcan", "Batuhan", "Eren", "Ferdi", "Gökhan", "Kazım", "Recep", "Salih", "Sarp", "Tarık", "Yunus", "Ahmet", "Bora", "Cenk", "Deniz", "Ege", "Alperen", "Bertuğ", "Selim", "Orkun", "Levent", "Atakan", "Berkan", "Çağan", "Mücahit", "Ensar", "Tayyip"],
-	"BR": ["Thiago", "Gabriel", "Matheus", "Lucas", "Rafael", "Vinícius", "Diego", "Rodrigo", "Felipe", "Bruno", "Caio", "Igor", "João", "Leandro", "Marcelo", "Renan", "Wesley", "Everton", "Jádson", "Kaio"],
-	"AR": ["Nicolás", "Facundo", "Lautaro", "Tomás", "Agustín", "Franco", "Gonzalo", "Ezequiel", "Matías", "Leandro", "Joaquín", "Santiago", "Cristian", "Federico"],
-	"UY": ["Martín", "Diego", "Rodrigo", "Facundo", "Brian", "Maximiliano", "Gastón", "Agustín", "Mathías", "Ignacio"],
+	"BR": ["Thiago", "Gabriel", "Matheus", "Lucas", "Rafael", "Vinícius", "Diego", "Rodrigo", "Felipe", "Bruno", "Caio", "Igor", "João", "Leandro", "Marcelo", "Renan", "Wesley", "Everton", "Jádson", "Kaio", "Henrique", "Guilherme", "Luiz", "Pedro", "Murilo", "André", "Paulo", "Vitor", "Fábio", "Otávio"],
+	"AR": ["Nicolás", "Facundo", "Lautaro", "Tomás", "Agustín", "Franco", "Gonzalo", "Ezequiel", "Matías", "Leandro", "Joaquín", "Santiago", "Cristian", "Federico", "Bautista", "Ramiro", "Hernán", "Mauro", "Germán", "Nahuel", "Iván", "Thiago", "Valentín", "Bruno", "Marcos"],
+	"UY": ["Martín", "Diego", "Rodrigo", "Facundo", "Brian", "Maximiliano", "Gastón", "Agustín", "Mathías", "Ignacio", "Sebastián", "Nicolás", "Matías", "Juan", "Santiago", "Federico", "Emiliano", "Bruno", "Joaquín", "Franco"],
 	"NG": ["Chidi", "Emeka", "Obinna", "Tunde", "Kelechi", "Samuel", "Victor", "Ikenna", "Chinedu", "Sunday", "Ademola", "Uche", "Nnamdi", "Femi"],
-	"SN": ["Moussa", "Cheikh", "Ibrahima", "Mamadou", "Pape", "Abdou", "Babacar", "Ismaïla", "Lamine", "Ousmane", "Aliou", "Alioune"],
-	"GH": ["Kwame", "Kofi", "Yaw", "Kwabena", "Emmanuel", "Daniel", "Joseph", "Mohammed", "Abdul", "Ebenezer", "Kojo", "Osman"],
+	"SN": ["Moussa", "Cheikh", "Ibrahima", "Mamadou", "Pape", "Abdou", "Babacar", "Ismaïla", "Lamine", "Ousmane", "Aliou", "Alioune", "Modou", "Saliou", "Serigne", "Tidiane", "Daouda", "Samba", "Bassirou", "Mor", "Ndiaga", "Fallou", "Assane", "Mansour", "Ablaye", "Birame"],
+	"GH": ["Kwame", "Kofi", "Yaw", "Kwabena", "Emmanuel", "Daniel", "Joseph", "Mohammed", "Abdul", "Ebenezer", "Kojo", "Osman", "Kwasi", "Kwaku", "Kobina", "Nana", "Isaac", "Richard", "Samuel", "Benjamin", "Felix", "Prince"],
 	"CM": ["Jean", "Vincent", "Clinton", "Karl", "Bryan", "Olivier", "Frank", "Georges", "Nicolas", "Pierre", "Achille"],
 	"MA": ["Youssef", "Hakim", "Achraf", "Sofiane", "Ayoub", "Ilias", "Mehdi", "Amine", "Bilal", "Zakaria", "Anass", "Hamza"],
 	"FR": ["Théo", "Lucas", "Hugo", "Maxime", "Antoine", "Mathieu", "Yanis", "Bastien", "Clément", "Enzo", "Florian", "Rayan"],
@@ -459,12 +459,12 @@ var FIRST := {
 var NAME_BLOCK := {}
 var LAST := {
 	"TR": ["Yılmaz", "Kaya", "Demirkol", "Şahin", "Çelik", "Yıldız", "Aydın", "Öztürk", "Aslantaş", "Doğan", "Kılıç", "Aslan", "Çakar", "Kara", "Koç", "Kandemir", "Özdemir", "Polat", "Erdem", "Güneş", "Bayrak", "Tekin", "Acar", "Akın", "Kalkan", "Bozkurt", "Erol", "Gürsoy", "Uçar", "Duman", "Karaca", "Sevinç", "Işık", "Sarıkaya", "Taş", "Altun", "Ekinci", "Bayram", "Coşkun", "Keskin", "Akgül", "Karataş", "Yavuz", "Ateş", "Erkan", "Sezer", "Akyol", "Karadağ", "Okumuş", "Tunç", "Yazgan", "Gündoğdu", "Özkan", "Kocabaş", "Aksoy", "Soylu", "Ercan", "Bilgin", "Toprak", "Elmas"],
-	"BR": ["Silva", "Santos", "Oliveira", "Souza", "Pereira", "Costa", "Rodrigues", "Almeida", "Nascimento", "Lima", "Araújo", "Fernandes", "Carvalho", "Gomes", "Ribeiro", "Barbosa", "Rocha", "Moura", "Teixeira", "Cardoso"],
-	"AR": ["González", "Rodríguez", "Fernández", "López", "Martínez", "Sosa", "Romero", "Álvarez", "Benítez", "Acosta", "Medina", "Herrera", "Castro", "Ledesma"],
-	"UY": ["Suárez", "Pereira", "Cáceres", "Olivera", "De León", "Viera", "Rodríguez", "Núñez", "Fagúndez", "Méndez"],
+	"BR": ["Silva", "Santos", "Oliveira", "Souza", "Pereira", "Costa", "Rodrigues", "Almeida", "Nascimento", "Lima", "Araújo", "Fernandes", "Carvalho", "Gomes", "Ribeiro", "Barbosa", "Rocha", "Moura", "Teixeira", "Cardoso", "Freitas", "Batista", "Monteiro", "Mendes", "Nunes", "Correia", "Dias", "Machado", "Pinto", "Farias", "Medeiros", "Cavalcanti", "Siqueira", "Sampaio", "Tavares"],
+	"AR": ["González", "Rodríguez", "Fernández", "López", "Martínez", "Sosa", "Romero", "Álvarez", "Benítez", "Acosta", "Medina", "Herrera", "Castro", "Ledesma", "Ojeda", "Quiroga", "Ponce", "Villalba", "Arce", "Godoy", "Peralta", "Coronel", "Lucero", "Ibarra", "Funes", "Toledo", "Olmedo", "Carrizo", "Bustos", "Moyano"],
+	"UY": ["Suárez", "Pereira", "Cáceres", "Olivera", "De León", "Viera", "Rodríguez", "Núñez", "Fagúndez", "Méndez", "Píriz", "Techera", "Laborda", "Arias", "Cabrera", "Morales", "Bentos", "Barreto", "Dutra", "Ferrés"],
 	"NG": ["Okafor", "Adebayo", "Nwosu", "Eze", "Okonkwo", "Balogun", "Ogunleye", "Obi", "Okeke", "Ogbu", "Chukwu", "Ibe", "Babatunde", "Nnaji"],
-	"SN": ["Diallo", "Ndiaye", "Sarr", "Diop", "Gueye", "Sow", "Fall", "Cissé", "Mbaye", "Faye", "Seck", "Diouf"],
-	"GH": ["Mensah", "Owusu", "Boateng", "Asante", "Addo", "Ofori", "Appiah", "Ansah", "Agyemang", "Darko", "Quaye", "Tetteh"],
+	"SN": ["Diallo", "Ndiaye", "Sarr", "Diop", "Gueye", "Sow", "Fall", "Cissé", "Mbaye", "Faye", "Seck", "Diouf", "Ndour", "Gaye", "Sene", "Ndao", "Thioune", "Tall", "Ly", "Kébé", "Sall", "Tine", "Mbow", "Wade", "Samb", "Dione", "Ndong"],
+	"GH": ["Mensah", "Owusu", "Boateng", "Asante", "Addo", "Ofori", "Appiah", "Ansah", "Agyemang", "Darko", "Quaye", "Tetteh", "Amoah", "Badu", "Osei", "Amponsah", "Bonsu", "Fosu", "Nkansah", "Sarpong", "Kyei", "Gyamfi"],
 	"CM": ["Mbarga", "Manga", "Tchami", "Etoundi", "Ateba", "Essomba", "Nana", "Bella", "Ebosse", "Owona", "Abena"],
 	"MA": ["El Amrani", "Benali", "Haddadi", "Ziani", "Bouzid", "Chakir", "El Idrissi", "Lahlou", "Tahiri", "Berrada", "Alaoui", "Bennani"],
 	"FR": ["Martin", "Bernard", "Dubois", "Moreau", "Laurent", "Girard", "Roux", "Fontaine", "Chevalier", "Mercier", "Lefèvre", "Blanchard"],
