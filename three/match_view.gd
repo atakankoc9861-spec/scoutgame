@@ -1529,6 +1529,8 @@ func _eye_verdict() -> void:
 			lines.append("✗ " + T.t("eye_you_miss", [_eye_opt_name(best)]))
 	else:
 		lines.append(T.t("eye_best", [_eye_opt_name(best)]))
+	if eye_guess >= 0:
+		lines.append(_streak_line(hit))
 	# 2) oyuncunun kararı -> karar/vizyon bilgisi
 	if res.is_empty():
 		lines.append(T.t("eye_lost"))
@@ -1552,6 +1554,18 @@ func _eye_verdict() -> void:
 	for n in eye_nodes:
 		if is_instance_valid(n) and n is MeshInstance3D:
 			(n as MeshInstance3D).transparency = 0.0 if int(n.get_meta("opt", -1)) == eye_best else 0.8
+
+func _streak_line(hit: bool) -> String:
+	## v0.22 okuma serisi: arka arkaya isabetli okumalar gözlem gücünü artırır
+	var before := int(Game.s.scout.get("eye_streak", 0))
+	var st := Game.eye_streak(hit)
+	if hit:
+		if st >= int(Game.s.scout.get("eye_best", 0)) and st >= 3:
+			return T.t("eye_streak_best", [st])
+		return T.t("eye_streak", [st])
+	if before >= 2:
+		return T.t("eye_streak_broke", [before])
+	return T.t("eye_streak_zero")
 
 func _eye_def_candidate(carrier):
 	## Rakip topu aldı: odaktaki bir savunmacı/orta saha 9 m içinde mi?
@@ -1657,6 +1671,8 @@ func _eye_def_verdict() -> void:
 		lines.append("✗ " + T.t("eye_you_miss", [_eye_opt_name(best)]))
 	else:
 		lines.append(T.t("eye_best", [_eye_opt_name(best)]))
+	if eye_guess >= 0:
+		lines.append(_streak_line(hit))
 	# savunmacının gerçek tepkisi: kendi özelliklerine göre
 	var q = eng.pl.get(eye_owner)
 	var good := false

@@ -49,7 +49,7 @@ func _ready() -> void:
 		settings.sound = cf.get_value("g", "sound", true)
 		settings.music = cf.get_value("g", "music", true)
 		settings.haptic = cf.get_value("g", "haptic", true)
-		for k in ["theme", "themes", "theme_ads", "supporter", "ad_free"]:
+		for k in ["theme", "themes", "theme_ads", "supporter", "ad_free", "drill_style", "portraits"]:
 			if cf.has_section_key("g", k):
 				settings[k] = cf.get_value("g", k)
 
@@ -59,7 +59,7 @@ func save_settings() -> void:
 	cf.set_value("g", "sound", settings.sound)
 	cf.set_value("g", "music", settings.music)
 	cf.set_value("g", "haptic", settings.get("haptic", true))
-	for k in ["theme", "themes", "theme_ads", "supporter", "ad_free"]:
+	for k in ["theme", "themes", "theme_ads", "supporter", "ad_free", "drill_style", "portraits"]:
 		if settings.has(k):
 			cf.set_value("g", k, settings[k])
 	cf.save(SETTINGS_PATH)
@@ -468,7 +468,7 @@ func new_game(scout_name: String, lang: String, start_cc := "TR") -> void:
 		"staff": [], "staff_pool": [], "staff_reports": [], "next_sid": 1,
 	}
 	s["start_cc"] = start_cc
-	s["tut"] = {"step": 0, "on": true}
+	s["tut"] = {"step": 0, "on": true, "v": 2}
 	_ensure_v15()
 	var idx := 0
 	for row in Data.SUPER_LIG:
@@ -574,6 +574,7 @@ func take_job(cid: String) -> void:
 	var c: Dictionary = s.clubs[cid]
 	ensure_country(club_country(cid))
 	s.scout.club_id = cid
+	_ensure_v22()
 	s.scout.salary = offer_salary(c)
 	s.scout.budget = offer_budget(c)
 	s.scout.spent = 0
@@ -722,6 +723,12 @@ func _spend_travel(city: String) -> Dictionary:
 	var info := travel_info(city)
 	if has_perk("perk_1b"):
 		info.cost = int(float(info.cost) * 0.75)
+	var car := int(s.get("life", {}).get("car", 0))
+	if car > 0 and info.mode != "local":
+		info.cost = int(float(info.cost) * (1.0 - 0.07 * car))
+		info.fat = maxi(0, int(info.fat) - car)
+	if s.has("life") and info.mode != "local":
+		s.life["away"] = int(s.life.get("away", 0)) + 1
 	var room := maxi(0, int(s.scout.budget) - int(s.scout.spent))
 	var cost: int = info.cost
 	if cost > room:
@@ -861,6 +868,7 @@ func observe(pid: String, strength: float, groups: Array, perf_noise_scale := 1.
 		kn.k[a] = snappedf(minf(1.0, kn.k[a] + gain * (1.0 - kn.k[a]) * 1.4), 0.001)
 		var perf := rng.randfn(0.0, (2.6 - cons * 0.11) * perf_noise_scale)
 		kn.e[a] = snappedf(lerpf(float(kn.e[a]), perf, clampf(gain * 1.3, 0.0, 0.8)), 0.01)
+	legend_seen(pid)
 	if int(p.age) <= 23:
 		kn.pa_k = snappedf(minf(0.85, kn.pa_k + strength * 0.25 * eye_factor()), 0.001)
 		kn.pa_e = snappedf(lerpf(float(kn.pa_e), rng.randfn(0.0, 4.0), strength * 0.3), 0.1)
@@ -1113,6 +1121,7 @@ func do_meet(pid: String, topics: Array = []) -> Dictionary:
 	if not can_talk(pid):
 		return {"ok": false, "msg": "need_lang"}
 	_take_day("meet", pid)
+	life_rel("agents", 2.0)
 	_spend_travel(club(p.club).city)
 	area_gain(area_of_club(p.club), 1.0)
 	kn.met = true
@@ -1218,6 +1227,12 @@ func do_trip(cc: String, kind := "academy") -> Dictionary:
 			clubs.append(cid)
 	clubs.shuffle()
 	var visit: Array = clubs.slice(0, 4 if kind == "academy" else 3)
+	if kind == "academy":
+		for lg in s.get("legends", []):
+			if lg.state == "hidden" and club_country(player(lg.pid).get("club", "")) == cc and rf() < (0.9 if int(lg.clues) >= 3 else 0.45):
+				var lc: String = player(lg.pid).club
+				if not lc in visit:
+					visit[0] = lc
 	var pool := []
 	for cid in visit:
 		ensure_squad(cid)
@@ -1269,6 +1284,7 @@ func rest_day() -> bool:
 		return false
 	_take_day("rest", "")
 	s.scout.fatigue = max(0, s.scout.fatigue - 30)
+	life_rel("family", 4.0)
 	changed.emit()
 	return true
 
@@ -1874,9 +1890,12 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 				notes.push_front(["nt_eye_def", [str(deyes.filter(func(x): return bool(x[0])).size()), str(deyes.size())]])
 			var hits: int = int(focus_events.get("_eye_hits", {}).get(pid, 0))
 			if hits > 0:
-				_learn_from_agg(pid, agg[pid], 0.12 * hits)
+				var smul := 1.0 + minf(float(s.scout.get("eye_streak", 0)), 10.0) * 0.06
+				_learn_from_agg(pid, agg[pid], 0.12 * hits * smul)
 				_gain_xp("eye", 3 * hits)
 				notes.append(["nt_eye_hit", [str(hits)]])
+				if int(s.scout.get("eye_streak", 0)) >= 3:
+					notes.append(["nt_streak", [str(s.scout.eye_streak), str(int(round((smul - 1.0) * 100.0)))]])
 			obs.notes[pid] = notes
 			obs.lines[pid] = line
 			_gain_xp("eye", 2)
@@ -2026,6 +2045,7 @@ func _week_events() -> void:
 	_organic_requests()
 	_tips()
 	_v21_week()
+	_v22_week()
 
 func _tips() -> void:
 	## Bağlantılardan altyapı ihbarı
@@ -3189,6 +3209,7 @@ func _organic_requests() -> void:
 # ================================================================ keşif tarihçesi + Kaçanlar Müzesi (v0.15)
 
 func log_discovery(pid: String, how: String, by := "") -> void:
+	legend_seen(pid)
 	if not s.scout.has("disc_log"):
 		return
 	for d in s.scout.disc_log:
@@ -3438,6 +3459,7 @@ func _ensure_v15() -> void:
 	if not s.has("next_qid"):
 		s["next_qid"] = 1
 	_ensure_v21()
+	_ensure_v22()
 
 func _fix_ints() -> void:
 	for k in ["season", "week", "next_pid", "next_aid", "next_rid"]:
@@ -3477,13 +3499,18 @@ func delete_save() -> void:
 
 # ================================================================ v0.21: ilk 10 dakika rehberi
 
-const TUT_STEPS := [["tab_week", "week"], ["plan", "week"], ["focus", "week"], ["watched", "home"], ["report", "players"], ["done", "tasks"]]
+const TUT_STEPS := [["intro", "home"], ["tab_week", "week"], ["plan", "week"], ["focus", "week"], ["watched", "home"], ["report", "players"], ["done", "tasks"]]
 
 func tut_on() -> bool:
 	return s.get("tut", {}).get("on", false)
 
 func tut_step() -> int:
-	return int(s.get("tut", {}).get("step", 0))
+	var t: Dictionary = s.get("tut", {})
+	# v0.22: eski kayıtlarda "intro" adımı yoktu
+	if not t.is_empty() and int(t.get("v", 1)) < 2:
+		t["v"] = 2
+		t["step"] = int(t.get("step", 0)) + 1
+	return int(t.get("step", 0))
 
 func tut_tab() -> String:
 	return TUT_STEPS[clampi(tut_step(), 0, TUT_STEPS.size() - 1)][1] if tut_on() else ""
@@ -3496,7 +3523,9 @@ func tut_event(ev: String) -> void:
 		s.tut.step = st + 1
 		changed.emit()
 	# rehberi takip etmeden ilerleyen oyuncuyu bekletme
-	elif ev == "report" and st < 4:
+	elif ev == "report" and st < 5:
+		s.tut.step = 6
+	elif ev == "watched" and st < 4:
 		s.tut.step = 5
 
 func tut_skip() -> void:
@@ -3521,7 +3550,7 @@ func _ensure_v21() -> void:
 	if not sc.has("caps"):
 		sc["caps"] = {}
 	if not s.has("tut"):
-		s["tut"] = {"step": 5, "on": false}
+		s["tut"] = {"step": 6, "on": false, "v": 2}
 
 func is_my_find(pid: String) -> bool:
 	if not discovery(pid).is_empty():
@@ -3547,6 +3576,10 @@ func _headline(kind: String, pid: String, args: Array) -> void:
 	add_news("n_hl_" + kind, [pname(player(pid))] + args, true, "headline")
 	# manşet itibar getirir: herkes keşfi kimin yaptığını konuşur
 	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
+	if s.has("life"):
+		life_rel("press", 4.0)
+		if float(s.life.rel.press) >= 70.0:
+			s.scout.rep = minf(100.0, s.scout.rep + 0.5)
 
 func pop_headline() -> Dictionary:
 	if s.get("headlines", []).is_empty():
@@ -4031,3 +4064,311 @@ func theme_add_ad(id: String) -> bool:
 		return true
 	save_settings()
 	return false
+
+
+# ================================================================ v0.22: efsane cevherler (CM tarzı)
+## Her kariyerde gizli 6 efsane genç. Söylentiler haftalar içinde ipucu verir; görülürse büyük an.
+## Sezon sonuna kadar bulunmazsa başka bir kulüp kapar (Kaçanlar Müzesi).
+const LEGEND_SIGS := ["dribbling", "pace", "vision", "finishing", "first_touch", "passing", "tackling", "reflexes"]
+
+func _ensure_v22() -> void:
+	if not s.has("legends"):
+		s["legends"] = []
+	if not s.get("legends_seeded", false) and s.has("clubs") and s.clubs.size() > 20:
+		s["legends_seeded"] = true
+		_seed_legends()
+	if not s.has("life"):
+		s["life"] = {"home": 0, "car": 0, "suit": 0, "rel": {"pres": 50.0, "agents": 40.0, "press": 40.0, "family": 70.0}, "away": 0, "log": []}
+	if not s.has("kids_feed"):
+		s["kids_feed"] = []
+	if not s.has("legend_pop"):
+		s["legend_pop"] = []
+
+func _seed_legends() -> void:
+	var home_cc := str(s.get("start_cc", "TR"))
+	var play := []
+	var scout := []
+	for cid in s.clubs:
+		var cc := club_country(cid)
+		var t := club_tier(cid)
+		if Data.is_scout_cc(cc):
+			scout.append(cid)
+		elif t >= 2 or (cc != home_cc and t >= 1):
+			play.append(cid)
+	play.shuffle()
+	scout.shuffle()
+	var picks := []
+	var used_cc := {}
+	for pool in [play, scout]:
+		var want := 3
+		for cid in pool:
+			if want <= 0:
+				break
+			var cc := club_country(cid)
+			if used_cc.has(cc) and used_cc.size() < 5:
+				continue
+			used_cc[cc] = true
+			picks.append(cid)
+			want -= 1
+	var positions := ["ST", "AM", "LW", "CB", "CM", "RW", "GK", "DM"]
+	positions.shuffle()
+	for i in picks.size():
+		var cid: String = picks[i]
+		ensure_squad(cid)
+		var c: Dictionary = s.clubs[cid]
+		var pos: String = positions[i]
+		var age := ri(15, 16)
+		var pid := new_player(pos, ri(44, 52), age, club_nat(cid), cid, true)
+		var p: Dictionary = s.players[pid]
+		var sig: String = "reflexes" if pos == "GK" else LEGEND_SIGS[ri(0, LEGEND_SIGS.size() - 2)]
+		p.attrs[sig] = mini(20, int(p.attrs[sig]) + 5)
+		p.ovr = calc_ovr(p)
+		p.pa = ri(92, 97)
+		p.hid.professionalism = ri(14, 19)
+		p.value = calc_value(p)
+		p["legend"] = true
+		p["keep"] = true
+		if not c.has("u19"):
+			c["u19"] = []
+		c.u19.append(pid)
+		s.legends.append({"pid": pid, "state": "hidden", "clues": 0, "sig": sig, "dl": int(s.season) + ri(1, 2), "found": {}})
+
+func legend_of(pid: String) -> Dictionary:
+	for lg in s.get("legends", []):
+		if lg.pid == pid:
+			return lg
+	return {}
+
+func legend_seen(pid: String) -> void:
+	if not s.has("legends"):
+		return
+	var lg := legend_of(pid)
+	if lg.is_empty() or lg.state != "hidden":
+		return
+	lg.state = "found"
+	lg.found = {"season": s.season, "week": s.week}
+	var p := player(pid)
+	if p.has("disc"):
+		p.disc = true
+	s.scout.rep = minf(100.0, float(s.scout.rep) + 5.0)
+	_gain_xp("eye", 3)
+	s.legend_pop.append(pid)
+	add_news("n_legend_found", [pname(p), club(p.club).get("name", "?")], true, "headline")
+
+func legend_clue_text(lg: Dictionary) -> Array:
+	## açılan ipuçları (en yeni en sonda): [anahtar, [argümanlar]]
+	var p := player(lg.pid)
+	if p.is_empty():
+		return []
+	var c := club(p.club)
+	var out := []
+	var n := int(lg.clues)
+	if n >= 1:
+		out.append(["lgc_1", [Data.country_name(club_country(p.club))]])
+	if n >= 2:
+		out.append(["lgc_2", [T.t("pos_" + p.pos), T.t("foot_" + str(p.foot))]])
+	if n >= 3:
+		out.append(["lgc_3", [int(p.age), T.t("a_" + str(lg.sig))]])
+	if n >= 4:
+		out.append(["lgc_4", [c.get("city", "?"), c.get("name", "?")]])
+	return out
+
+func legends_found() -> int:
+	var n := 0
+	for lg in s.get("legends", []):
+		if lg.state == "found":
+			n += 1
+	return n
+
+func _v22_week() -> void:
+	if s.scout.club_id == "":
+		return
+	_ensure_v22()
+	# söylenti: 3 haftada bir, gizli bir efsane için yeni ipucu
+	var hidden: Array = s.legends.filter(func(l): return l.state == "hidden")
+	if not hidden.is_empty() and s.week % 2 == 1:
+		var deep: Array = hidden.filter(func(l): return int(l.clues) < 4)
+		if deep.is_empty():
+			deep = hidden
+		deep.sort_custom(func(a, b): return int(a.clues) > int(b.clues))
+		var lg: Dictionary = deep[0] if rf() < 0.55 else pick(deep)
+		if int(lg.clues) < 4:
+			lg.clues = int(lg.clues) + 1
+			if int(lg.clues) >= 4:
+				player(lg.pid)["disc"] = true
+			var tx: Array = legend_clue_text(lg)
+			var last: Array = tx[-1]
+			add_news("n_rumor", [T.t(last[0], last[1])], true, "rumor")
+			_push_event({"kind": "rumor", "week": s.week, "pid": lg.pid, "clue": last})
+	# süre doldu: başka kulüp kaptı
+	if s.week == WEEKS - 3:
+		for lg in hidden:
+			if int(lg.dl) <= int(s.season):
+				lg.state = "lost"
+				var p := player(lg.pid)
+				add_news("n_legend_lost", [pname(p)], true, "headline")
+				if s.has("museum") and not _museum_has(lg.pid):
+					s.museum.append({"pid": lg.pid, "name": pname(p), "pos": p.pos, "seen_season": s.season, "seen_age": int(p.age), "ovr0": int(p.ovr),
+						"ovr": int(p.ovr), "club": p.club, "why": "legend", "season": s.season, "value": int(p.value), "how": "rumor"})
+					p["keep"] = true
+	_life_week()
+	_kids_week()
+
+
+# ================================================================ v0.22: beceri anı — okuma serisi
+func eye_streak(hit: bool) -> int:
+	var sc: Dictionary = s.scout
+	if hit:
+		sc["eye_streak"] = int(sc.get("eye_streak", 0)) + 1
+		var st: int = sc.eye_streak
+		if st > int(sc.get("eye_best", 0)):
+			sc["eye_best"] = st
+		if st == 5 or st == 10 or st == 20:
+			sc.rep = minf(100.0, float(sc.rep) + (1.0 if st == 5 else 2.0))
+			add_news("n_streak", [st], true, "career")
+		return st
+	sc["eye_streak"] = 0
+	return 0
+
+# ================================================================ v0.22: senin hayatın (NSS tarzı)
+const HOMES := [["home_0", 0, 0], ["home_1", 1500, 35], ["home_2", 6000, 80], ["home_3", 18000, 150]]   # ad, taşınma, haftalık kira
+const CARS := [["car_0", 0], ["car_1", 2000], ["car_2", 7000], ["car_3", 20000]]
+const SUITS := [["suit_0", 0], ["suit_1", 500], ["suit_2", 2500]]
+
+func life_rel(k: String, d: float) -> void:
+	if not s.has("life"):
+		return
+	s.life.rel[k] = clampf(float(s.life.rel.get(k, 50.0)) + d, 0.0, 100.0)
+
+func life_price(kind: String, lvl: int) -> int:
+	match kind:
+		"home": return int(HOMES[lvl][1]) if lvl < HOMES.size() else -1
+		"car": return int(CARS[lvl][1]) if lvl < CARS.size() else -1
+		"suit": return int(SUITS[lvl][1]) if lvl < SUITS.size() else -1
+	return -1
+
+func life_buy(kind: String) -> bool:
+	var cur := int(s.life.get(kind, 0))
+	var price := life_price(kind, cur + 1)
+	if price < 0 or int(s.scout.money) < price:
+		return false
+	s.scout.money -= price
+	s.life[kind] = cur + 1
+	match kind:
+		"home": life_rel("family", 15.0)
+		"car": life_rel("family", 4.0)
+		"suit":
+			life_rel("pres", 6.0)
+			life_rel("agents", 6.0)
+	s.life.log.append({"season": s.season, "week": s.week, "kind": kind, "lvl": cur + 1})
+	add_news("n_life_" + kind, [T.t(life_name(kind, cur + 1))], true, "career")
+	changed.emit()
+	return true
+
+func life_name(kind: String, lvl: int) -> String:
+	match kind:
+		"home": return HOMES[clampi(lvl, 0, 3)][0]
+		"car": return CARS[clampi(lvl, 0, 3)][0]
+		"suit": return SUITS[clampi(lvl, 0, 2)][0]
+	return ""
+
+func _life_week() -> void:
+	if not s.has("life"):
+		return
+	var L: Dictionary = s.life
+	var home := int(L.home)
+	# kira
+	var rent := int(HOMES[home][2])
+	if rent > 0:
+		if int(s.scout.money) >= rent:
+			s.scout.money -= rent
+		else:
+			life_rel("family", -6.0)
+	# ev rahatlığı: daha iyi dinlenme
+	s.scout.fatigue = maxi(0, int(s.scout.fatigue) - home * 3)
+	# aile: deplasman/yurt dışı uzaklaştırır, ev ve dinlenme yakınlaştırır
+	var away := int(L.get("away", 0))
+	life_rel("family", -4.0 * minf(away, 3) + 1.0 + home * 1.0)
+	L.away = 0
+	# takım elbise: başkan ve menajerler daha ciddiye alır
+	life_rel("pres", 0.3 * int(L.suit) - 0.2)
+	life_rel("agents", 0.3 * int(L.suit) - 0.3)
+	life_rel("press", -0.4)
+	# başkan ilişkisi yönetim güvenine doğru kayar
+	L.rel.pres = lerpf(float(L.rel.pres), float(board().get("mood", 55)), 0.08)
+	var fam := float(L.rel.family)
+	if fam < 30.0:
+		s.scout.fatigue = mini(100, int(s.scout.fatigue) + 6)
+		var now := int(s.season) * 100 + int(s.week)
+		if now - int(L.get("fam_ev", -999)) >= 6:
+			L["fam_ev"] = now
+			_push_event({"kind": "life", "type": "family"})
+	# menajerler iyi ilişkide ipucu verir
+	if float(L.rel.agents) >= 70.0 and rf() < 0.12:
+		var pool := []
+		for pid in s.players:
+			var p = s.players[pid]
+			if int(p.age) <= 20 and p.club != "" and p.club != s.scout.club_id and not s.scout.knowledge.has(pid) and not p.get("legend", false):
+				pool.append(pid)
+				if pool.size() > 60:
+					break
+		if not pool.is_empty():
+			var best: String = pool[0]
+			for pid in pool:
+				if int(s.players[pid].pa) > int(s.players[best].pa):
+					best = pid
+			observe(best, 0.12, ["tec", "phy"], 1.2)
+			log_discovery(best, "agent")
+			add_news("n_agent_tip", [pname(player(best)), club(player(best).club).get("name", "?")], true, "tip")
+
+func life_family_choice(stay: bool) -> String:
+	if stay:
+		life_rel("family", 30.0)
+		s.scout.fatigue = maxi(0, int(s.scout.fatigue) - 20)
+		s.scout["bonus_days"] = int(s.scout.get("bonus_days", 0)) - 2
+		return "life_fam_stay_r"
+	life_rel("family", -8.0)
+	s.scout.rep = minf(100.0, float(s.scout.rep) + 0.5)
+	return "life_fam_go_r"
+
+# ================================================================ v0.22: evlatların (FM tarzı)
+func _kids_week() -> void:
+	if not s.has("kids_feed"):
+		return
+	if not s.has("kids_state"):
+		s["kids_state"] = {}
+	var ks: Dictionary = s.kids_state
+	for d in s.scout.get("disc_log", []):
+		var p := player(d.pid)
+		if p.is_empty() or p.club == "":
+			continue
+		var cur := {"apps": int(p.st.apps), "g": int(p.st.g), "club": str(p.club), "ovr": int(p.ovr), "youth": bool(p.youth)}
+		if not ks.has(d.pid):
+			ks[d.pid] = cur
+			continue
+		var old: Dictionary = ks[d.pid]
+		var nm := pname(p)
+		if int(old.apps) == 0 and cur.apps > 0 and not cur.youth:
+			_kid_feed(d.pid, "kf_debut", [nm, club(p.club).get("name", "?")])
+		if int(old.g) == 0 and cur.g > 0:
+			_kid_feed(d.pid, "kf_first_goal", [nm])
+		elif int(old.g) < 10 and cur.g >= 10:
+			_kid_feed(d.pid, "kf_ten_goals", [nm])
+		if old.club != cur.club and not old.club.is_empty():
+			_kid_feed(d.pid, "kf_moved", [nm, club(p.club).get("name", "?")])
+		if bool(old.youth) and not cur.youth:
+			_kid_feed(d.pid, "kf_promoted", [nm])
+		if int(old.ovr) < 70 and cur.ovr >= 70 and not ks.get(d.pid + "_thx", false):
+			ks[d.pid + "_thx"] = true
+			_kid_feed(d.pid, "kf_thanks", [nm])
+		# senin kulübüne karşı: aynı ligde rakip kulüpte
+		if cur.club != s.scout.club_id and club(cur.club).get("league", "") == my_club().get("league", "") and not ks.get(d.pid + "_vs", false) and int(p.st.apps) >= 3:
+			ks[d.pid + "_vs"] = true
+			_kid_feed(d.pid, "kf_vs", [nm, club(cur.club).get("name", "?")])
+		ks[d.pid] = cur
+
+func _kid_feed(pid: String, key: String, args: Array) -> void:
+	s.kids_feed.push_front({"season": s.season, "week": s.week, "pid": pid, "key": key, "args": args})
+	if s.kids_feed.size() > 40:
+		s.kids_feed.resize(40)
+	add_news(key, args, key in ["kf_thanks", "kf_vs", "kf_debut"], "kids")

@@ -6,7 +6,7 @@ const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
 const Stage3D = preload("res://three/stage3d.gd")
-const VERSION := "v0.21-beta11"
+const VERSION := "v0.22-beta1"
 
 var bg: ColorRect
 var hub
@@ -131,6 +131,7 @@ var _safe_t := 0.0
 
 func _process(delta: float) -> void:
 	_hub_band()
+	_coach_tick(delta)
 	# güvenlik ağı: sahne hatayla yarıda kalırsa arayüz görünmez/kilitli kalmasın
 	_scene_tick()
 	_safe_t += delta
@@ -448,6 +449,7 @@ func _id_badge(name: String, sz: float) -> Control:
 
 func _stat_pill(parent: Control, icon: String, key: String, val: float, fmt: String, col: Color) -> void:
 	var pc := PanelContainer.new()
+	pc.set_meta("tut", "stat_" + key)
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pc.add_theme_stylebox_override("panel", _sb(Color(0, 0, 0, 0.28), 8, 1, Color(C_BRASS, 0.3), 10))
 	var h := HBoxContainer.new()
@@ -664,8 +666,6 @@ func _show(screen: String, arg = null, push := true, dir := 1) -> void:
 	if chrome:
 		_refresh_topbar()
 		_refresh_nav()
-		if Game.tut_on():
-			_tut_card()
 	match screen:
 		"title": _scr_title()
 		"newgame": _scr_newgame()
@@ -1017,6 +1017,14 @@ func _scr_title() -> void:
 		Game.settings.haptic = not Game.settings.get("haptic", true)
 		Game.save_settings()
 		_show("title", null, false), "dark", qh2, "bell"))
+	var ds: String = Game.settings.get("drill_style", "board")
+	if not ds in ["board", "cine", "3d"]:
+		ds = "board"
+	_btn(T.t("drill_btn", [T.t("drill_n_" + ds)]), func():
+		var order := ["board", "cine", "3d"]
+		Game.settings["drill_style"] = order[(order.find(ds) + 1) % 3]
+		Game.save_settings()
+		_show("title", null, false), "dark", cv, "play")
 	_btn(T.t("shop_btn"), func(): _shop(), "dark", cv, "star")
 	_btn(T.t("crash_copy"), func():
 		DisplayServer.clipboard_set(_last_log(true))
@@ -1231,6 +1239,209 @@ func _tut_card() -> void:
 			Game.tut_skip()
 			_refresh(), "ghost", bh).add_theme_font_size_override("font_size", 17)
 
+# ================================================================ v0.22 rehber: Hakkı Usta
+var coach: Coach
+var _coach_t := 0.0
+var _coach_key := ""
+var _coach_intro := 0
+const COACH_FACE := {"skin": 1, "hair": 4, "seed": 6107, "club": "", "age": 61, "id": "coach_hakki"}
+
+func _coach_find() -> Dictionary:
+	var out := {}
+	for n in root.find_children("*", "Control", true, false):
+		var c := n as Control
+		if not c.is_visible_in_tree():
+			continue
+		if c.has_meta("tut"):
+			var k: String = c.get_meta("tut")
+			if not out.has(k):
+				out[k] = c
+		if c.has_meta("tab"):
+			out["nav_" + str(c.get_meta("tab"))] = c
+	return out
+
+func _coach_plan() -> Array:
+	## [hedef, metin anahtarı, bilgi adımı mı]
+	var st := Game.tut_step()
+	var f := _coach_find()
+	var scr: String = stack[-1][0] if not stack.is_empty() else ""
+	match st:
+		0:
+			var seq := [["", "co_intro_1"], ["", "co_intro_2"], ["stat_rep", "co_rep"], ["stat_money", "co_money"], ["stat_days", "co_days"], ["stat_fat", "co_fat"]]
+			var it: Array = seq[clampi(_coach_intro, 0, seq.size() - 1)]
+			return [f.get(it[0]) if it[0] != "" else null, it[1], true]
+		1:
+			return [f.get("nav_week"), "co_week", false]
+		2:
+			if f.has("go_match"):
+				return [f.go_match, "co_go_match", false]
+			if f.has("ticket"):
+				return [f.ticket, "co_ticket", false]
+			if f.has("pick_match"):
+				return [f.pick_match, "co_pick", false]
+			return [f.get("nav_week"), "co_week", false]
+		3:
+			if f.has("focus_btn"):
+				return [f.focus_btn, "co_focus", false]
+			return [f.get("nav_week"), "co_back_match", false]
+		4:
+			if f.has("go_weekend"):
+				return [f.go_weekend, "co_weekend", false]
+			return [f.get("nav_home"), "co_back_home", false]
+		5:
+			if scr == "player" and f.has("act_report"):
+				return [f.act_report, "co_report", false]
+			if scr == "players":
+				return [f.get("player_row"), "co_player", false]
+			return [f.get("nav_players"), "co_players", false]
+		6:
+			return [f.get("nav_tasks"), "co_done", true]
+	return [null, "", true]
+
+func _coach_tick(delta: float) -> void:
+	_coach_t += delta
+	if _coach_t < 0.2:
+		return
+	_coach_t = 0.0
+	var show: bool = not Game.s.is_empty() and Game.tut_on() and dlg_layer == null and viewer == null and _modal_scroll == null and root.visible and not stack.is_empty() and not (stack[-1][0] in ["title", "newgame", "offers", "result", "season", "obs", "crash"])
+	if not show:
+		if coach:
+			coach.visible = false
+		return
+	var plan := _coach_plan()
+	if plan[1] == "":
+		return
+	if coach == null:
+		coach = Coach.new()
+		add_child(coach)
+		move_child(coach, toast.get_index())
+		coach.tapped.connect(_coach_tapped)
+	coach.visible = true
+	var tgt = plan[0]
+	coach.target = tgt if tgt is Control else null
+	coach.info_mode = plan[2]
+	if coach.target and scroll.is_ancestor_of(coach.target):
+		var vr := scroll.get_global_rect()
+		var tr := coach.target.get_global_rect()
+		if tr.position.y < vr.position.y + 40 or tr.end.y > vr.end.y - 300:
+			scroll.scroll_vertical = int(clampf(scroll.scroll_vertical + (tr.get_center().y - (vr.position.y + vr.size.y * 0.35)), 0.0, 1e6))
+	var key := "%s|%d" % [plan[1], Game.tut_step()]
+	if key != _coach_key:
+		_coach_key = key
+		_coach_bubble(plan[1], plan[2])
+		if coach.target and scroll.is_ancestor_of(coach.target):
+			scroll.ensure_control_visible.call_deferred(coach.target)
+
+func _coach_bubble(text_key: String, info: bool) -> void:
+	if coach.bubble and is_instance_valid(coach.bubble):
+		coach.bubble.queue_free()
+	var pc := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#fffaf0")
+	sb.border_color = C_INK
+	sb.set_border_width_all(3)
+	sb.set_corner_radius_all(18)
+	sb.shadow_color = Color(0, 0, 0, 0.4)
+	sb.shadow_size = 12
+	sb.shadow_offset = Vector2(0, 5)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	pc.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 14)
+	pc.add_child(h)
+	var av := _avatar(COACH_FACE, 76)
+	av.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	h.add_child(av)
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 4)
+	h.add_child(v)
+	var nh := HBoxContainer.new()
+	nh.add_child(_lbl(T.t("co_name"), 18, C_RED, false, F_TYPEB))
+	var dots := ""
+	for i in Game.TUT_STEPS.size():
+		dots += "●" if i <= Game.tut_step() else "○"
+	var dl := _lbl(dots, 13, C_INK2, false, F_BODY)
+	dl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	nh.add_child(dl)
+	v.add_child(nh)
+	var tl := _lbl(T.t(text_key), 23, C_INK, true, F_BODY)
+	tl.custom_minimum_size = Vector2(420, 0)
+	v.add_child(tl)
+	if text_key == "co_intro_2":
+		v.add_child(_coach_loop())
+	var bh := HBoxContainer.new()
+	bh.add_theme_constant_override("separation", 10)
+	v.add_child(bh)
+	var sk := _btn(T.t("co_skip"), func():
+		Game.tut_skip()
+		if coach:
+			coach.visible = false
+		_refresh(), "ghost", bh)
+	sk.add_theme_font_size_override("font_size", 16)
+	sk.custom_minimum_size = Vector2(0, 44)
+	if info:
+		var nx := _btn(T.t("co_ok") if Game.tut_step() >= 6 else T.t("co_next"), _coach_tapped, "primary", bh, "arrow")
+		nx.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nx.custom_minimum_size = Vector2(0, 50)
+	else:
+		var hint := _hand(T.t("co_tap_hint"), 24, C_BLUE)
+		hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		bh.add_child(hint)
+	coach.add_child(pc)
+	coach.bubble = pc
+	pc.position = Vector2(20, -1)
+	pc.modulate.a = 0.0
+	create_tween().tween_property(pc, "modulate:a", 1.0, 0.25)
+	Sfx.play("page", -14.0)
+
+func _coach_loop() -> Control:
+	## işin döngüsü: İZLE → NOT AL → RAPOR → İMZA → İTİBAR
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(0, 96)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var steps := [["eye", "co_l1"], ["report", "co_l2"], ["task", "co_l3"], ["star", "co_l4"]]
+	var hb := HBoxContainer.new()
+	hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_theme_constant_override("separation", 2)
+	c.add_child(hb)
+	for i in steps.size():
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_theme_constant_override("separation", 2)
+		var ic = Icon.new().setup(steps[i][0], C_RED if i == 0 else C_INK, 34)
+		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		col.add_child(ic)
+		var l := _lbl(T.t(steps[i][1]), 15, C_INK, false, F_HEAD)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(l)
+		hb.add_child(col)
+		if i < steps.size() - 1:
+			var ar := _lbl("→", 26, C_RED, false, F_HEAD)
+			ar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			hb.add_child(ar)
+	return c
+
+func _coach_tapped() -> void:
+	if coach == null or not coach.info_mode:
+		return
+	var st := Game.tut_step()
+	if st == 0:
+		_coach_intro += 1
+		if _coach_intro >= 6:
+			Game.tut_event("intro")
+		_coach_t = 1.0
+	elif st >= 6:
+		Game.tut_skip()
+		coach.visible = false
+		_refresh()
+
 func _scr_home() -> void:
 	_sheet([["summary", T.t("st_summary")], ["board", T.t("st_board")], ["career", T.t("st_career")], ["archive", T.t("st_archive")], ["club", T.t("st_myclub")]], sub.home, _sub_cb("home"))
 	match sub.home:
@@ -1298,6 +1509,7 @@ func _home_summary() -> void:
 		oh.add_child(Icon.new().setup("task", C_RED, 26))
 		oh.add_child(_lbl(T.t("tasks_open", [open]), 20, C_RED, true, F_SEMI))
 	var cta := _btn(T.t("end_preseason") if Game.s.week == 0 else T.t("go_weekend"), _play_weekend, "primary", w, "ball")
+	cta.set_meta("tut", "go_weekend")
 	var ptw := cta.create_tween().set_loops()
 	ptw.tween_property(cta, "modulate", Color(1.12, 1.12, 1.12), 0.9)
 	ptw.tween_property(cta, "modulate", Color.WHITE, 0.9)
@@ -1439,6 +1651,7 @@ func _board_meeting() -> void:
 	_scene_close()
 
 func _home_career() -> void:
+	_life_card()
 	var sc: Dictionary = Game.s.scout
 	# lisans kartı
 	var lic := _card(null, "manila", 22)
@@ -1721,7 +1934,9 @@ func _headline_archive() -> void:
 				_show("player", id))
 
 func _home_archive() -> void:
-	## Keşiflerim: keşif 11'i, manşetler, kaçanlar müzesi, keşif tarihçesi
+	## Keşiflerim: efsaneler, evlatlarım, keşif 11'i, manşetler, kaçanlar müzesi, keşif tarihçesi
+	_legends_card()
+	_kids_card()
 	_finds_xi_card()
 	_headline_archive()
 	var mus: Array = Game.s.get("museum", []).duplicate()
@@ -2295,7 +2510,7 @@ func _week_this() -> void:
 			var dd: String = day
 			_btn(T.t("pick_match"), func():
 				sub.week = "matches"
-				_refresh_soft(), "small", em, "pin")
+				_refresh_soft(), "small", em, "pin").set_meta("tut", "pick_match")
 			continue
 		var m := Game.get_match(key)
 		_match_ticket(page, key, m, true)
@@ -2310,7 +2525,7 @@ func _week_this() -> void:
 	var wleft := maxi(1, Game.WEEKS - maxi(Game.s.week, 1) + 1)
 	bc.add_child(_hand(T.t("safe_spend", [Game.money_str(maxi(0, bl) / wleft)]), 24, C_BLUE if bl > 0 else C_RED))
 	bc.add_child(_typed(T.t("travel_hint"), 15, C_INK2))
-	_btn(T.t("end_preseason") if Game.s.week == 0 else T.t("go_weekend"), _play_weekend, "primary", page, "ball")
+	_btn(T.t("end_preseason") if Game.s.week == 0 else T.t("go_weekend"), _play_weekend, "primary", page, "ball").set_meta("tut", "go_weekend")
 
 func _match_ticket(parent: Control, key: String, m: Dictionary, planned: bool) -> void:
 	var hc := Game.club(m.h)
@@ -2352,6 +2567,8 @@ func _match_ticket(parent: Control, key: String, m: Dictionary, planned: bool) -
 	h.add_child(mid)
 	var k2 := key
 	var go := _btn("", func(): _show("match", k2), "ghost", h, "arrow")
+	if not planned:
+		go.set_meta("tut", "ticket")
 	go.custom_minimum_size = Vector2(62, 62)
 	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
@@ -2385,7 +2602,7 @@ func _week_matches() -> void:
 			_section(T.t(cur_day + "_long"), null, "calendar")
 		var key := Game.match_key(wm.lg, wm.idx)
 		_match_ticket(page, key, wm.m, Game.s.plan[wm.m.day] == key)
-	_btn(T.t("go_weekend"), _play_weekend, "primary", page, "ball")
+	_btn(T.t("go_weekend"), _play_weekend, "primary", page, "ball").set_meta("tut", "go_weekend")
 
 func _week_u19() -> void:
 	_title(T.t("u19_title"), null, 34, "youth")
@@ -2491,7 +2708,7 @@ func _scr_match_plan(key: String) -> void:
 			if not Game.plan_match(day, key):
 				_toast(T.t("need_travel_day"))
 				return
-			_refresh(), "primary", hero, "pin")
+			_refresh(), "primary", hero, "pin").set_meta("tut", "go_match")
 	else:
 		var st := _stamp(T.t("planned_stamp"), C_RED, -6.0, 26)
 		st.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -2566,10 +2783,13 @@ func _player_row(parent: Control, pid: String, focus_day := "", starter := true)
 		if _dragged:
 			return
 		_show("player", pid))
+	if Game.s.scout.knowledge.has(pid):
+		b.set_meta("tut", "player_row")
 	if focus_day != "":
 		var fb := Button.new()
 		fb.custom_minimum_size = Vector2(74, 74)
 		fb.mouse_filter = Control.MOUSE_FILTER_PASS
+		fb.set_meta("tut", "focus_btn")
 		var eic = Icon.new().setup("eye", C_INK if focused else C_INK2, 34)
 		eic.position = Vector2(20, 20)
 		fb.add_child(eic)
@@ -3215,7 +3435,7 @@ func _player_file(pid: String, p: Dictionary) -> void:
 			b.add_theme_font_size_override("font_size", 18)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		ac.add_child(_typed(T.t("act_costs", [Game.money_str(Game.travel_info(cl.get("city", "")).cost) if not cl.is_empty() else "-"]), 15, C_INK2))
-		_btn(T.t("act_report"), func(): _show("report", pid), "red", ac, "report")
+		_btn(T.t("act_report"), func(): _show("report", pid), "red", ac, "report").set_meta("tut", "act_report")
 
 func _player_attrs(pid: String, p: Dictionary) -> void:
 	var kn: Dictionary = Game.s.scout.knowledge.get(pid, {})
@@ -3333,9 +3553,14 @@ func _scene_open(set_name: String, place: String) -> void:
 	blk2.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	blk2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	dlg_layer.add_child(blk2)
-	stage = Stage3D.new()
-	dlg_layer.add_child(stage)
-	stage.setup(set_name, set_name == "phone")
+	if set_name == "drill":
+		stage = Drill2D.new()
+		dlg_layer.add_child(stage)
+		stage.setup(_drill_req[0], _drill_req[1], _drill_req[2])
+	else:
+		stage = Stage3D.new()
+		dlg_layer.add_child(stage)
+		stage.setup(set_name, set_name == "phone")
 	scene_ready = false
 	dlg_root = Control.new()
 	dlg_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -3763,6 +3988,29 @@ func _seat(id: String, info: Dictionary, chair_x: float, face: float) -> void:
 	var a = stage.add_actor(id, info, Vector3(chair_x + 0.33 * dir, 0, 0), face, "sit")
 	a.set_meta("seated", true)
 
+var _drill_req: Array = []
+
+## Antrenman görünümü: ilk seferde sorulur, açılış ekranından değiştirilebilir
+func _drill_style() -> String:
+	var st: String = Game.settings.get("drill_style", "")
+	if st in ["board", "cine", "3d"]:
+		return st
+	var lv: Array = _modal_layer(0.18, 0.82)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	v.add_child(_head(T.t("drill_style_q"), 26, C_INK))
+	for o in [["board", "drill_board"], ["cine", "drill_cine"], ["3d", "drill_3d"]]:
+		var key: String = o[0]
+		_btn(T.t(o[1]), func(): _choice_done.emit(key), "primary" if key != "3d" else "ghost", v, "check")
+	var r = await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+	st = str(r) if str(r) in ["board", "cine", "3d"] else "board"
+	Game.settings["drill_style"] = st
+	Game.save_settings()
+	return st
+
 func _do_action(pid: String, kind: String) -> void:
 	if _busy:
 		return
@@ -3802,9 +4050,14 @@ func _do_action(pid: String, kind: String) -> void:
 					await _note(T.t(ln[0], ln[1]))
 		"train":
 			var is_vid := false
-			_scene_open("video" if is_vid else "training", T.t("sc_place_video") if is_vid else T.t("sc_place_train", [cl.get("name", "")]))
-			stage.add_actor("p", {"kind": "player", "p": p, "club": cl, "training": not is_vid}, Vector3(-10, 0, 4), PI / 2.0, "idle")
-			if not is_vid:
+			var dstyle: String = await _drill_style()
+			if dstyle != "3d":
+				_drill_req = [dstyle, p, cl]
+				_scene_open("drill", T.t("sc_place_train", [cl.get("name", "")]))
+			else:
+				_scene_open("video" if is_vid else "training", T.t("sc_place_video") if is_vid else T.t("sc_place_train", [cl.get("name", "")]))
+				stage.add_actor("p", {"kind": "player", "p": p, "club": cl, "training": not is_vid}, Vector3(-10, 0, 4), PI / 2.0, "idle")
+			if not is_vid and dstyle == "3d":
 				stage.add_mates(cl, 6)
 				var me = stage.add_actor("me", SCOUT_LOOK, Vector3(-3.0, 0, 9.5), PI, "idle")
 				me.overlay = "notebook"
@@ -3818,7 +4071,7 @@ func _do_action(pid: String, kind: String) -> void:
 			await _caption(T.t("sc_spark_hint"))
 			var caught := await _observe_phase(34.0, 4, false, f)
 			var res := Game.do_video(pid, f, caught) if is_vid else Game.do_training(pid, f, caught)
-			if not is_vid:
+			if not is_vid and dstyle == "3d":
 				stage.shot(0, Vector3(-2.35, 1.62, 8.15), Vector3(-3.0, 1.35, 9.5), 3.0)
 			if res.ok:
 				if caught > 0:
@@ -4940,6 +5193,9 @@ func _check_popups() -> void:
 		await _story("promoted")
 	elif not Game.s.has("last_title"):
 		Game.s["last_title"] = ti
+	while not Game.s.get("legend_pop", []).is_empty():
+		await _legend_celebrate(Game.s.legend_pop.pop_front())
+		shown = true
 	var h := Game.pop_headline()
 	while not h.is_empty():
 		await _story("first_headline")
@@ -4948,7 +5204,7 @@ func _check_popups() -> void:
 		h = Game.pop_headline()
 	var e := Game.next_event()
 	# rehber sürerken olaylarla bölme
-	if Game.tut_on() and Game.tut_step() < 5:
+	if Game.tut_on() and Game.tut_step() < 6:
 		e = {}
 	if not e.is_empty() and not _busy:
 		await _run_event(e)
@@ -5007,6 +5263,10 @@ func _run_event(e: Dictionary) -> void:
 			await _ev_tournament(e)
 		"dilemma":
 			await _ev_dilemma(e)
+		"rumor":
+			await _ev_rumor(e)
+		"life":
+			await _ev_life(e)
 	Game.s.events.erase(e)
 
 func _countdown_bar(parent: Control, secs: float, on_end: Callable) -> Control:
@@ -5210,6 +5470,298 @@ func _ev_dilemma(e: Dictionary) -> void:
 	await _choice_done
 	_busy = was
 	_close_modal(lv[0])
+
+# ================================================================ v0.22: senin hayatın
+func _rel_bar(parent: Control, key: String, val: float) -> void:
+	var h := _h(parent, 8)
+	var l := _lbl(T.t("rel_" + key), 18, C_INK, false, F_SEMI)
+	l.custom_minimum_size = Vector2(150, 0)
+	h.add_child(l)
+	var bar := Control.new()
+	bar.custom_minimum_size = Vector2(0, 18)
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var col := Color("#3f8a3a") if val >= 60 else (C_BRASS if val >= 30 else C_RED)
+	bar.draw.connect(func():
+		bar.draw_rect(Rect2(Vector2.ZERO, bar.size), Color(C_INK, 0.12))
+		bar.draw_rect(Rect2(Vector2.ZERO, Vector2(bar.size.x * val / 100.0, bar.size.y)), col)
+		bar.draw_rect(Rect2(Vector2.ZERO, bar.size), Color(C_INK, 0.5), false, 1.5))
+	h.add_child(bar)
+	var n := _lbl("%d" % int(val), 17, col, false, F_TYPEB)
+	n.custom_minimum_size = Vector2(40, 0)
+	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(n)
+
+func _life_card() -> void:
+	if not Game.s.has("life"):
+		return
+	var L: Dictionary = Game.s.life
+	var v := _card(null, "paper", 18)
+	_section(T.t("life_title"), v, "people")
+	v.add_child(_typed(T.t("life_hint"), 15, C_INK2))
+	for kind in ["home", "car", "suit"]:
+		var lvl := int(L.get(kind, 0))
+		var row := _h(v, 10)
+		var ic = Icon.new().setup({"home": "home", "car": "bus", "suit": "shirt"}[kind], C_INK, 30)
+		row.add_child(ic)
+		var nv := VBoxContainer.new()
+		nv.add_theme_constant_override("separation", -2)
+		nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nv.add_child(_lbl(T.t(Game.life_name(kind, lvl)), 21, C_INK, false, F_SEMI))
+		nv.add_child(_typed(T.t(Game.life_name(kind, lvl) + "_d"), 14, C_INK2))
+		row.add_child(nv)
+		var price := Game.life_price(kind, lvl + 1)
+		if price > 0:
+			var k2: String = kind
+			var b := _btn(Game.money_str(price), func():
+				if Game.life_buy(k2):
+					Sfx.play("stamp", -6.0)
+					_haptic(40)
+					_toast(T.t("life_bought", [T.t(Game.life_name(k2, int(Game.s.life[k2])))]))
+					_refresh()
+				else:
+					_toast(T.t("life_no_money")), "small" if int(Game.s.scout.money) >= price else "ghost", row, "arrow")
+			b.custom_minimum_size = Vector2(150, 54)
+			b.tooltip_text = T.t(Game.life_name(kind, lvl + 1))
+			var up := _typed("→ " + T.t(Game.life_name(kind, lvl + 1)), 13, C_BLUE)
+			nv.add_child(up)
+		else:
+			row.add_child(_stamp(T.t("life_max"), C_BLUE, -6.0, 16))
+	var rent := int(Game.HOMES[int(L.home)][2])
+	if rent > 0:
+		v.add_child(_typed(T.t("life_rent", [Game.money_str(rent)]), 15, C_INK2))
+	_rule(v)
+	v.add_child(_typed(T.t("rel_title"), 15, C_INK2))
+	for k in ["pres", "agents", "press", "family"]:
+		_rel_bar(v, k, float(L.rel.get(k, 50.0)))
+	var fam := float(L.rel.family)
+	if fam < 35.0:
+		v.add_child(_hand(T.t("rel_family_low"), 24, C_RED))
+	v.add_child(_typed(T.t("streak_best", [int(Game.s.scout.get("eye_streak", 0)), int(Game.s.scout.get("eye_best", 0))]), 15, C_INK2))
+
+func _ev_life(e: Dictionary) -> void:
+	var lv: Array = _modal_layer(0.24, 0.8)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("home", C_RED, 34))
+	hh.add_child(_lbl(T.t("life_fam_title"), 30, C_INK, true, F_HEAD))
+	v.add_child(_hand(T.t("life_fam_text"), 28, C_INK))
+	_btn(T.t("life_fam_stay"), func(): _choice_done.emit(true), "primary", v, "home")
+	_btn(T.t("life_fam_go"), func(): _choice_done.emit(false), "small", v, "plane")
+	var stay: bool = await _choice_done
+	var rk := Game.life_family_choice(stay)
+	for ch in v.get_children():
+		ch.queue_free()
+	v.add_child(_hand(T.t(rk), 28, C_BLUE))
+	_btn(T.t("close"), func(): _choice_done.emit(true), "primary", v, "check")
+	await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+
+# ================================================================ v0.22: evlatlarım
+func _kids_card() -> void:
+	var feed: Array = Game.s.get("kids_feed", [])
+	var v := _card(null, "memo", 18)
+	_section(T.t("kids_title"), v, "youth")
+	if feed.is_empty():
+		v.add_child(_hand(T.t("kids_empty"), 25, C_INK2))
+		return
+	for it in feed.slice(0, 8):
+		var p := Game.player(it.pid)
+		var h := _h(v, 10)
+		if not p.is_empty():
+			var av := _avatar(p, 48)
+			av.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			h.add_child(av)
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", -2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var gold: bool = it.key in ["kf_thanks", "kf_vs"]
+		tv.add_child(_lbl(T.t(it.key, it.args), 19, C_RED if gold else C_INK, true, F_SEMI if gold else F_BODY))
+		tv.add_child(_typed("%d • %s" % [int(it.season), T.t("week_n", [int(it.week)])], 13, C_INK2))
+		h.add_child(tv)
+
+# ================================================================ v0.22: efsaneler
+func _ev_rumor(e: Dictionary) -> void:
+	var lv: Array = _modal_layer(0.24, 0.8)
+	var v: VBoxContainer = lv[1]
+	var was := _busy
+	_busy = false
+	var hh := _h(v, 10)
+	hh.add_child(Icon.new().setup("news", C_RED, 34))
+	hh.add_child(_lbl(T.t("rum_title"), 30, C_INK, true, F_HEAD))
+	v.add_child(_typed(T.t("rum_sub", [Game.legends_found(), Game.s.legends.size()]), 16, C_INK2))
+	var clue: Array = e.get("clue", ["", []])
+	v.add_child(_hand("“" + T.t(clue[0], clue[1]) + "”", 32, C_BLUE))
+	v.add_child(_typed(T.t("rum_hint"), 16, C_INK2))
+	_btn(T.t("rum_open"), func(): _choice_done.emit("open"), "primary", v, "eye")
+	_btn(T.t("rum_ok"), func(): _choice_done.emit("ok"), "ghost", v, "check")
+	var r = await _choice_done
+	_busy = was
+	_close_modal(lv[0])
+	if str(r) == "open":
+		sub.home = "archive"
+		_goto_tab("home")
+
+func _legend_celebrate(pid: String) -> void:
+	var p := Game.player(pid)
+	if p.is_empty():
+		return
+	var c := Game.club(p.club)
+	var layer := CanvasLayer.new()
+	layer.layer = 26
+	add_child(layer)
+	var bg := Control.new()
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var st := {"t": 0.0}
+	bg.draw.connect(func():
+		var sz: Vector2 = bg.size
+		bg.draw_rect(Rect2(Vector2.ZERO, sz), Color("#0d0905"))
+		var ctr := Vector2(sz.x * 0.5, sz.y * 0.36)
+		for i in 18:
+			var a: float = st.t * 0.15 + TAU * i / 18.0
+			var w := 0.09
+			var R := sz.y
+			bg.draw_colored_polygon(PackedVector2Array([ctr, ctr + Vector2(cos(a - w), sin(a - w)) * R, ctr + Vector2(cos(a + w), sin(a + w)) * R]), Color(1.0, 0.78, 0.25, 0.10 if i % 2 == 0 else 0.05))
+		for k in 6:
+			bg.draw_circle(ctr, 150.0 - k * 18.0, Color(1.0, 0.8, 0.3, 0.05)))
+	layer.add_child(bg)
+	var tm := Timer.new()
+	tm.wait_time = 0.033
+	tm.autostart = true
+	bg.add_child(tm)
+	tm.timeout.connect(func():
+		st.t += 0.033
+		bg.queue_redraw())
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 34
+	v.offset_right = -34
+	v.offset_top = 120
+	v.alignment = BoxContainer.ALIGNMENT_BEGIN
+	v.add_theme_constant_override("separation", 10)
+	layer.add_child(v)
+	var top := _lbl(T.t("lg_found_kicker"), 22, Color("#e8c46e"), false, F_TYPEB)
+	top.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(top)
+	var av := _avatar(p, 230)
+	av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(av)
+	var nm := _lbl(Game.pname(p).to_upper(), 46, Color("#ffd27a"), false, F_HEAD)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.add_theme_color_override("font_outline_color", Color("#2a1a08"))
+	nm.add_theme_constant_override("outline_size", 10)
+	v.add_child(nm)
+	var info := _lbl("%d %s  •  %s  •  %s" % [int(p.age), T.t("yo"), T.t("pos_" + p.pos), c.get("name", "?")], 21, C_CREAM, false, F_SEMI)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(info)
+	var lg := Game.legend_of(pid)
+	var sigl := _lbl(T.t("lg_sig", [T.t("a_" + str(lg.get("sig", "pace")))]), 20, Color("#e8c46e"), false, F_SEMI)
+	sigl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(sigl)
+	var stp := _stamp(T.t("lg_stamp"), Color("#ffd27a"), -8.0, 44)
+	stp.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(stp)
+	var tx := _lbl(T.t("lg_found_text", [Game.legends_found(), Game.s.legends.size()]), 22, C_CREAM, true, F_BODY)
+	tx.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(tx)
+	var hint := _lbl(T.t("lg_share"), 16, Color(1, 1, 1, 0.5), true, F_TYPEB)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(hint)
+	_btn(T.t("lg_open"), func(): _choice_done.emit("open"), "primary", v, "eye")
+	_btn(T.t("close"), func(): _choice_done.emit("close"), "dark", v, "check")
+	v.modulate.a = 0.0
+	create_tween().tween_property(v, "modulate:a", 1.0, 0.5)
+	stp.scale = Vector2(2.2, 2.2)
+	stp.pivot_offset = Vector2(120, 30)
+	var tw := create_tween()
+	tw.tween_interval(0.6)
+	tw.tween_property(stp, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_callback(func():
+		Sfx.play("stamp", -2.0)
+		_haptic(80))
+	Sfx.play("catch", -2.0)
+	var was := _busy
+	_busy = false
+	var r = await _choice_done
+	_busy = was
+	layer.queue_free()
+	if not pid in Game.s.scout.shortlist:
+		Game.s.scout.shortlist.append(pid)
+	Game.save_game()
+	if str(r) == "open":
+		_show("player", pid)
+
+func _legends_card() -> void:
+	if not Game.s.has("legends") or Game.s.legends.is_empty():
+		return
+	var v := _card(null, "manila", 18)
+	_section(T.t("lg_title") + "  %d/%d" % [Game.legends_found(), Game.s.legends.size()], v, "star")
+	v.add_child(_typed(T.t("lg_hint"), 15, C_INK2))
+	var g := GridContainer.new()
+	g.columns = 3
+	g.add_theme_constant_override("h_separation", 10)
+	g.add_theme_constant_override("v_separation", 10)
+	v.add_child(g)
+	for lg in Game.s.legends:
+		var p := Game.player(lg.pid)
+		var cell := PanelContainer.new()
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var gold: bool = lg.state == "found"
+		cell.add_theme_stylebox_override("panel", _sb(Color("#2a1d10") if gold else (Color(0, 0, 0, 0.08) if lg.state == "hidden" else Color(0, 0, 0, 0.18)), 12, 2, Color("#d9a441") if gold else Color(C_INK, 0.25), 10))
+		var cv := VBoxContainer.new()
+		cv.alignment = BoxContainer.ALIGNMENT_CENTER
+		cv.add_theme_constant_override("separation", 2)
+		cell.add_child(cv)
+		cell.custom_minimum_size = Vector2(0, 150)
+		if gold and not p.is_empty():
+			var av := _avatar(p, 70)
+			av.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			cv.add_child(av)
+			var nl := _lbl(String(p.last).to_upper(), 17, Color("#ffd27a"), false, F_HEAD)
+			nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			nl.clip_text = true
+			cv.add_child(nl)
+			var il := _lbl("%s • %d" % [T.t("pos_" + p.pos), int(p.age)], 14, C_CREAM, false, F_TYPEB)
+			il.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cv.add_child(il)
+			var b := Button.new()
+			b.flat = true
+			b.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			var pid: String = lg.pid
+			b.pressed.connect(func(): _show("player", pid))
+			cell.add_child(b)
+		elif lg.state == "lost":
+			var q := _lbl("✕", 44, C_INK2, false, F_HEAD)
+			q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cv.add_child(q)
+			var ll := _lbl(T.t("lg_lost"), 15, C_RED, false, F_TYPEB)
+			ll.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cv.add_child(ll)
+		else:
+			var q := _lbl("?", 50, Color(C_INK, 0.35), false, F_HEAD)
+			q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cv.add_child(q)
+			var cl: Array = Game.legend_clue_text(lg)
+			var tl := _lbl(T.t("lg_noclue") if cl.is_empty() else T.t(cl[-1][0], cl[-1][1]), 14, C_INK2, true, F_BODY)
+			tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			cv.add_child(tl)
+		g.add_child(cell)
+	# açık ipuçlarının tamamı
+	var any := false
+	for lg in Game.s.legends:
+		if lg.state != "hidden" or int(lg.clues) == 0:
+			continue
+		if not any:
+			_rule(v)
+			v.add_child(_typed(T.t("lg_rumors"), 15, C_INK2))
+			any = true
+		var parts := []
+		for c in Game.legend_clue_text(lg):
+			parts.append(T.t(c[0], c[1]))
+		v.add_child(_hand("• " + "  ".join(parts), 24, C_BLUE))
 
 func _rival_popup(enc: Dictionary) -> void:
 	var p := Game.player(enc.pid)
