@@ -4144,6 +4144,10 @@ func _do_action(pid: String, kind: String) -> void:
 					look = {"top": Color(cl.get("c1", "#334455")).darkened(0.15), "pants": Color("#1d2028"), "shoes": Color("#efefef"), "skin": hash(nm) % 4, "hair": hash(nm) % 6, "seed": 5}
 				"journalist":
 					nm = "%s %s" % [Data.FIRST["TR"][hash(pid) % Data.FIRST["TR"].size()], Data.LAST["TR"][hash(pid + "j") % Data.LAST["TR"].size()]]
+					var jk := 0
+					while Data.NAME_BLOCK.has(nm) and jk < 60:
+						jk += 1
+						nm = "%s %s" % [Data.FIRST["TR"][hash(pid + str(jk)) % Data.FIRST["TR"].size()], Data.LAST["TR"][hash(pid + "j" + str(jk)) % Data.LAST["TR"].size()]]
 					look = {"top": Color("#8a3a2a"), "pants": Color("#3b4a6b"), "shoes": Color("#2a1a12"), "skin": hash(nm) % 4, "hair": hash(nm) % 6, "seed": 8}
 				"agent":
 					nm = p.agent
