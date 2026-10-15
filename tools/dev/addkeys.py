@@ -1,6 +1,6 @@
 """T.gd'ye anahtar ekle: addkeys.py keys.json  ({"key": ["tr", "en"]})"""
-import json, sys, re
-p = "/home/claude/scout/autoload/T.gd"
+import json, sys, re, os
+p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "autoload", "T.gd")
 s = open(p, encoding="utf-8").read()
 keys = json.load(open(sys.argv[1], encoding="utf-8"))
 def lit(v): return json.dumps(v, ensure_ascii=False)
