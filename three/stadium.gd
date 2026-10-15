@@ -87,10 +87,10 @@ void fragment() {
 	col = mix(col, vec3(0.62, 0.64, 0.68), sn * (1.0 - L));
 	col = mix(col, vec3(0.82), L * (0.85 + 0.15 * n));
 	if (a.x > 52.6 || a.y > 34.1) { col *= 0.82; }
-	col *= 1.0 - wet * 0.22;
+	col *= 1.0 - wet * 0.14;
 	ALBEDO = col;
-	ROUGHNESS = mix(0.82, 0.32, wet) - 0.08 * cross_s;
-	SPECULAR = mix(0.25, 0.6, wet);
+	ROUGHNESS = mix(0.82, 0.58, wet) - 0.08 * cross_s;
+	SPECULAR = mix(0.25, 0.38, wet);
 }
 """
 
@@ -465,7 +465,7 @@ func _env() -> void:
 		env.fog_light_color = {"day": Color(0.7, 0.78, 0.88), "dusk": Color(0.55, 0.45, 0.45)}.get(tod, Color(0.08, 0.09, 0.12))
 		if weather != "clear":
 			env.fog_light_color = env.fog_light_color.lerp(Color(0.5, 0.52, 0.56) if tod == "day" else Color(0.12, 0.13, 0.15), 0.6)
-		env.fog_density = {"clear": 0.0007, "rain": 0.0022, "snow": 0.0026}.get(weather, 0.001)
+		env.fog_density = {"clear": 0.0007, "rain": 0.0013, "snow": 0.0018}.get(weather, 0.001)
 		env.fog_sky_affect = 0.25
 	we.environment = env
 	add_child(we)
@@ -920,13 +920,15 @@ func _lights() -> void:
 			var omni := OmniLight3D.new()
 			omni.position = p * 0.75 + Vector3(0, h * 0.65, 0)
 			omni.omni_range = 90.0
-			omni.light_energy = 0.22 if tier <= 1 else 0.3
+			omni.light_energy = 0.16 if tier <= 1 else 0.2
 			omni.light_color = Color(1.0, 0.97, 0.9)
+			# ıslak çimde köşede beyaz parlama yapmasın
+			omni.light_specular = 0.0
 			add_child(omni)
 			if hq:
 				_flare(head.position + (Vector3(-p.x, 0, -p.z).normalized() * 0.8), 8.0 + cols * 3.0, 0.9 if tod == "night" else 0.55)
 				if Game.quality() == "high" or tier <= 1:
-					_beam(self, head.position, Vector3(p.x * 0.35, 0, p.z * 0.2), 0.022 if weather == "clear" else 0.035)
+					_beam(self, head.position, Vector3(p.x * 0.35, 0, p.z * 0.2), 0.016 if weather == "clear" else 0.02)
 
 func _led_boards() -> void:
 	var back := _mat(Color(0.05, 0.05, 0.06))

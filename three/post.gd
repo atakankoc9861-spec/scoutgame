@@ -47,16 +47,16 @@ void fragment() {
 		c += g * grain;
 	}
 	if (rain > 0.0) {
-		// eğik yağmur çizgileri, iki katman (yakın/uzak)
+		// ince, kısa, hafif yağmur çizgileri (parlak "kayan yıldız" gibi durmasın)
 		for (int k = 0; k < 2; k++) {
-			float sc = k == 0 ? 1.0 : 2.3;
-			vec2 r = vec2(uv.x * 70.0 * sc + uv.y * 9.0 * sc, uv.y * 3.0 * sc + TIME * (4.2 - float(k) * 1.4));
+			float sc = k == 0 ? 1.6 : 2.8;
+			vec2 r = vec2(uv.x * 110.0 * sc + uv.y * 4.0 * sc, uv.y * 5.0 * sc + TIME * (6.0 - float(k) * 2.0));
 			vec2 cell = floor(r);
 			float rnd = h(cell + float(k) * 13.0);
 			float y = fract(r.y);
-			float streak = step(0.93, rnd) * smoothstep(0.0, 0.08, y) * (1.0 - smoothstep(0.12, 0.6, y));
-			float xw = 1.0 - smoothstep(0.0, 0.18, abs(fract(r.x) - 0.5));
-			c += vec3(0.55, 0.6, 0.68) * streak * xw * rain * (k == 0 ? 0.32 : 0.18);
+			float streak = step(0.975, rnd) * smoothstep(0.0, 0.05, y) * (1.0 - smoothstep(0.06, 0.28, y));
+			float xw = 1.0 - smoothstep(0.0, 0.08, abs(fract(r.x) - 0.5));
+			c += vec3(0.7, 0.74, 0.8) * streak * xw * rain * (k == 0 ? 0.07 : 0.045);
 		}
 	}
 	if (snow > 0.0) {
@@ -88,7 +88,7 @@ const PRESETS := {
 		"tint_shadow": Vector3(-0.006, 0.0, 0.02), "tint_high": Vector3(0.02, 0.012, -0.01), "vignette": 0.42, "grain": 0.025},
 	"day": {"lift": Vector3(0.01, 0.01, 0.015), "gain": Vector3(1.05, 1.03, 0.98), "gamma": 1.02, "sat": 1.1, "contrast": 1.06,
 		"tint_shadow": Vector3(0.0, 0.004, 0.014), "tint_high": Vector3(0.025, 0.015, -0.01), "vignette": 0.3, "grain": 0.018},
-	"rain": {"lift": Vector3(0.02, 0.025, 0.035), "gain": Vector3(0.96, 1.0, 1.04), "gamma": 1.0, "sat": 0.82, "contrast": 1.04,
+	"rain": {"lift": Vector3(0.008, 0.01, 0.016), "gain": Vector3(0.98, 1.0, 1.03), "gamma": 1.0, "sat": 0.93, "contrast": 1.08,
 		"tint_shadow": Vector3(0.0, 0.006, 0.02), "tint_high": Vector3(-0.01, 0.0, 0.01), "vignette": 0.45, "grain": 0.03},
 	"office": {"lift": Vector3(0.02, 0.012, 0.004), "gain": Vector3(1.08, 1.0, 0.9), "gamma": 1.06, "sat": 1.05, "contrast": 1.1,
 		"tint_shadow": Vector3(0.0, 0.006, 0.018), "tint_high": Vector3(0.03, 0.012, -0.02), "vignette": 0.5, "grain": 0.03},
