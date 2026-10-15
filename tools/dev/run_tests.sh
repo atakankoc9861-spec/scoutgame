@@ -17,6 +17,8 @@
 #   ikisi birden yoksa test FAIL sayılır (asılı kalma, çökme, sessiz çıkış dahil).
 #
 # Her test kendi geçici user:// klasöründe çalışır (XDG_DATA_HOME), geliştiricinin kaydına dokunmaz.
+# Testler bilerek SIRAYLA çalışır (paralel değil): hepsi user://kariyer.json'a yazar.
+# FAIL sayılanlar: zaman aşımı, sıfırdan farklı çıkış, PASS satırı yok, çıktıda SCRIPT ERROR.
 # Çıkış kodu: tüm testler geçtiyse 0, en az biri kaldıysa 1, test bulunamadı/ortam hatası 2.
 
 set -u
@@ -102,6 +104,8 @@ for t in "${TESTS[@]}"; do
 		reason="çıkış kodu $rc"
 	elif ! grep -q "^CHECK_RESULT: PASS" "$log"; then
 		reason="çıkış 0 ama CHECK_RESULT: PASS satırı yok"
+	elif grep -qE "SCRIPT ERROR|Parse Error|Failed to load script|Failed to instantiate" "$log"; then
+		reason="çıktıda SCRIPT ERROR / yükleme hatası var"
 	fi
 	if [[ -z "$reason" ]]; then
 		PASS=$((PASS + 1))

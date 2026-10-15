@@ -43,7 +43,25 @@ func _ready() -> void:
 	Game.rng.seed = sd
 	seed(sd)
 	print("[CHECK] %s seed=%d" % [check_name(), sd])
+	# Emniyet zamanlayıcısı: test bir hata yüzünden finish()'e ulaşmazsa (Godot headless'ta
+	# boşta sonsuza kadar bekler) belirli süre sonra quit(1). CHECK_WATCHDOG=sn ile değişir.
+	var wd: float = watchdog_sec()
+	var env_wd: String = OS.get_environment("CHECK_WATCHDOG")
+	if env_wd.is_valid_float():
+		wd = env_wd.to_float()
+	get_tree().create_timer(wd, true, false, true).timeout.connect(_on_watchdog.bind(wd))
 	await run_check()
+	finish()
+
+## Alt sınıf gerekirse büyütür. Runner'ın zaman aşımından (TEST_TIMEOUT) küçük olmalı.
+func watchdog_sec() -> float:
+	return 300.0
+
+func _on_watchdog(wd: float) -> void:
+	if _finished:
+		return
+	_fails.append("emniyet zamanlayıcısı: %d sn içinde bitmedi (asılı kaldı ya da hata finish()'i atlattı)" % int(wd))
+	print("  FAIL: ", _fails[-1])
 	finish()
 
 ## Alt sınıf adını döndürür (çıktıda görünür)
