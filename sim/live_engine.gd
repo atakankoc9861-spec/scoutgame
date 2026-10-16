@@ -12,6 +12,25 @@ const HALF := 2700.0
 const FULL := 5400.0
 const L := 52.5
 const W := 34.0
+# ---- kalibrasyon (v0.23 Dalga 2-F; hızlı motor sim/quick_engine.gd de bunları kullanır)
+const DUEL_K := 1.2            # düellolarda oyuncu kalitesi farkının etkisi
+const HOME_FM := 0.18          # ev sahibi avantajı (tüm özelliklere eklenen form kayması)
+const HOME_FM_Y := 0.4         # U19
+const LEAD_EASE := 1.5         # 2+ farkla önde: hücum becerilerine fazladan gol başına eksi
+const TRAIL_PUSH := 0.7        # geride: hücum becerilerine artı
+const LEVEL_LATE := 0.4        # berabere ve son bölüm: hücum becerilerine eksi
+const LEVEL_LATE_T := 4500.0   # 75. dakika
+const YC2_K := 0.4             # sarısı olan oyuncu daha dikkatli: ikinci sarı olasılığı çarpanı
+const SAVE_ADJ := 0.14         # kurtarış tabanı düzeltmesi (isabetli şutun gole dönme oranı)
+const SHOT_V_K := 1.5          # şut seçeneğinin değer çarpanı (maç başı şut sayısı)
+# skor durumu kaymasının eklendiği hücum özellikleri (hızlı motorda hücum bileşiklerine eklenir)
+const LEAD_KEYS := {"passing": true, "vision": true, "dribbling": true, "agility": true, "finishing": true,
+	"composure": true, "heading": true, "crossing": true, "first_touch": true}
+const PASS_ADJ := 0.06         # pas başarı tabanı düzeltmesi
+const FOUL_K := 2.3            # mücadelede faul olasılığı çarpanı
+const CLEAR_CORNER := 0.35     # ceza sahasından kafayla uzaklaştırmanın korner olma olasılığı
+const RED_P := 0.001           # faul başına doğrudan kırmızı (son adam/ceza sahası ayrıca)
+const CARD_K := 1.2            # faul başına sarı kart olasılığı çarpanı
 const BASE := {
 	"GK": Vector2(-49, 0), "CB": Vector2(-35, 0), "LB": Vector2(-31, -24), "RB": Vector2(-31, 24),
 	"DM": Vector2(-20, 0), "CM": Vector2(-13, 0), "AM": Vector2(-3, 0),
@@ -73,6 +92,8 @@ var stoppage := 0.0
 var celebrate_t := 0.0
 var scorer := ""
 var form := {}
+var lead_sh := {"h": 0.0, "a": 0.0}   # skor durumu kayması (lead_shift), gol ve 75. dakikada güncellenir
+var _late_lead := false
 var eye_pid := ""               # Analist Gözü: bu oyuncunun sıradaki kararı kaydedilir
 var eye_res := {}
 var dbg := {"dec": 0, "dec_f3": 0, "shot_opt": 0, "pick": {}, "lx_sum": 0.0}
@@ -103,11 +124,7 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.gk = p.pos == "GK"
 			q.base = slots[pid]
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
-			var fm := rng.randfn(0.0, 2.6 - float(p.hid.consistency) * 0.11) * 0.8
-			if sd == "h":
-				fm += 0.55 if not youth else 0.4   # ev sahibi avantajı (U19 dahil)
-			if not youth and g.club(m.h if sd == "a" else m.a).get("prestige", 0) >= 80:
-				fm += (float(p.hid.big_match) - 10.0) * 0.06
+			var fm := form_shift(rng, p, sd == "h", youth, int(g.club(m.h if sd == "a" else m.a).get("prestige", 0)))
 			form[pid] = fm
 			for k in p.attrs:
 				q.a[k] = clampf(float(p.attrs[k]) + fm, 1.0, 20.0)
@@ -154,8 +171,67 @@ func at(q: Pl, k: String) -> float:
 	## Böylece BAL ligi ile Süper Lig aynı oyun temposunda oynar; farkı oyuncular arası fark belirler.
 	var v: float = 10.0 + (float(q.a[k]) - _raw_avg(k)) * float(_raw_cache.get(k + "#f", 1.0))
 	if clock > 4200.0 and k != "stamina":
-		v -= (10.0 - at(q, "stamina")) * 0.12 * (clock - 4200.0) / 1200.0
+		v -= fatigue(at(q, "stamina"), clock)
+	if LEAD_KEYS.has(k):
+		v += lead_sh[q.side]
 	return v
+
+func _update_lead() -> void:
+	lead_sh.h = lead_shift(score[0] - score[1], clock)
+	lead_sh.a = lead_shift(score[1] - score[0], clock)
+
+# ---- ortak formüller (hızlı motor da kullanır)
+
+static func form_shift(r: RandomNumberGenerator, p: Dictionary, home: bool, is_youth: bool, opp_prestige: int) -> float:
+	## Maç günü formu (tutarlılığa bağlı) + ev sahibi avantajı + büyük maç: tüm özelliklere eklenir
+	var fm := r.randfn(0.0, 2.6 - float(p.hid.consistency) * 0.11) * 0.8
+	if home:
+		fm += HOME_FM if not is_youth else HOME_FM_Y   # ev sahibi avantajı (U19 dahil)
+	if not is_youth and opp_prestige >= 80:
+		fm += (float(p.hid.big_match) - 10.0) * 0.06
+	return fm
+
+static func norm_factor(sd: float) -> float:
+	## çok geniş yetenek farkı olan maçlarda (dev - küçük) farkı biraz sıkıştır
+	return clampf(2.6 / maxf(0.1, sd), 0.6, 1.0)
+
+static func fatigue(stamina_at: float, clk: float) -> float:
+	## 70. dakikadan sonra dayanıklılığa göre düşüş
+	if clk <= 4200.0:
+		return 0.0
+	return (10.0 - stamina_at) * 0.12 * (clk - 4200.0) / 1200.0
+
+static func rating_base(s: Dictionary, team_gd: int, is_gk: bool, conceded: int) -> float:
+	## Maç puanı (gürültüsüz): canlı ve hızlı motor aynı formülü kullanır
+	var r := 6.1
+	r += s.po * 0.025 - (s.p - s.po) * 0.06 + s.kp * 0.12
+	r += s.do * 0.12 - (s.d - s.do) * 0.05 + s.t * 0.09
+	r += s.so * 0.25 + s.g * 0.9 + s["as"] * 0.5 + s.sv * 0.3 - s.err * 0.15
+	r += s.air_ok * 0.05
+	r += clampf(float(team_gd), -3.0, 3.0) * 0.15
+	if is_gk:
+		r += 0.4 - conceded * 0.3
+	r -= float(s.get("yc", 0)) * 0.3 + float(s.get("rc", 0)) * 1.5
+	return r
+
+static func duel_p(ae: float, de: float, base: float, slope: float) -> float:
+	## Düello olasılığı (canlı ve hızlı motor ortak): özellik farkı x eğim x DUEL_K
+	return clampf(base + slope * DUEL_K * (ae - de), 0.04, 0.96)
+
+static func decision_temp(dec: float) -> float:
+	## Seçenek seçiminde softmax sıcaklığı: iyi karar veren en iyi seçeneği daha sık seçer
+	return clampf(0.008 - (dec - 10.0) * 0.0005, 0.003, 0.016)
+
+static func lead_shift(lead: int, clk := 0.0) -> float:
+	## Skor durumu etkisi (hücum becerilerine eklenir): rahat önde olan takım temposunu düşürür,
+	## geride olan risk alır. Gerçek futbolda farklı skorların seyrek olmasının ana sebeplerinden.
+	if lead >= 2:
+		return -LEAD_EASE * float(mini(lead - 1, 3))
+	if lead < 0:
+		return TRAIL_PUSH
+	if lead == 0 and clk > LEVEL_LATE_T:
+		return -LEVEL_LATE   # berabere, son dakikalar: iki taraf da riske girmez
+	return 0.0
 
 func duel(att: Pl, aw: Array, def: Pl, dw: Array, base: float, slope: float) -> Dictionary:
 	## timeline.gd ile aynı biçim: p ve özellik kredileri [özellik, p10, eğim]
@@ -171,7 +247,7 @@ func duel(att: Pl, aw: Array, def: Pl, dw: Array, base: float, slope: float) -> 
 		de = 0.0
 		for x in dw:
 			de += at(def, x[0]) * x[1]
-	slope *= 1.2   # oyuncu kalitesinin etkisini belirginleştir
+	slope *= DUEL_K   # oyuncu kalitesinin etkisini belirginleştir
 	var p := clampf(base + slope * (ae - de), 0.04, 0.96)
 	var aa := []
 	for x in aw:
@@ -205,7 +281,7 @@ func _raw_avg(k: String) -> float:
 			var_sum += pow(float(q.a[k]) - avg, 2.0)
 		var sd := sqrt(var_sum / float(maxi(1, n)))
 		# çok geniş yetenek farkı olan maçlarda (dev - küçük) farkı biraz sıkıştır
-		_raw_cache[k + "#f"] = clampf(2.6 / maxf(0.1, sd), 0.6, 1.0)
+		_raw_cache[k + "#f"] = norm_factor(sd)
 		_raw_cache[k] = avg
 	return _raw_cache[k]
 
@@ -289,6 +365,9 @@ func step(dt := DT) -> void:
 		clock += dt * CLOCK_K
 	if celebrate_t > 0.0:
 		celebrate_t -= dt
+	if not _late_lead and clock > LEVEL_LATE_T:
+		_late_lead = true
+		_update_lead()
 	for q: Pl in pl.values():
 		q.stun = maxf(0.0, q.stun - dt)
 		q.tackle_cd = maxf(0.0, q.tackle_cd - dt)
@@ -491,7 +570,7 @@ func _decide(o: Pl) -> void:
 			mult = 2.0
 		elif blockers == 0:
 			mult = 1.5
-		opts.append({"k": "shot", "v": q * mult})
+		opts.append({"k": "shot", "v": q * mult * SHOT_V_K})
 	# paslar
 	var vis := at(o, "vision")
 	var off_line := _offside_line(o.side)
@@ -523,7 +602,7 @@ func _decide(o: Pl) -> void:
 		var risk := _lane_risk(o, tp, speed)
 		var long := dist > 30.0
 		var acc_q := (at(o, "passing") * (0.65 if long else 1.0) + (at(o, "vision") * 0.35 if long else 0.0) - 10.0) * 0.022
-		var ps := clampf(0.97 - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
+		var ps := clampf(0.97 + PASS_ADJ - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
 		var mp := pressure_on(mt)
 		var v := ps * (value(tp, d) * (1.0 - mp * 0.3) + 0.004) - (1.0 - ps) * loss
 		opts.append({"k": "pass", "to": mt, "tp": tp, "p": ps, "v": v, "long": long, "speed": speed, "risk": risk, "offside": offs})
@@ -557,7 +636,7 @@ func _decide(o: Pl) -> void:
 	if lx < -30.0 and press > 0.6:
 		opts.append({"k": "clear", "v": 0.0})
 	# seçim: softmax, sıcaklık karar özelliğine bağlı
-	var temp := clampf(0.008 - (at(o, "decisions") - 10.0) * 0.0005, 0.003, 0.016)
+	var temp := decision_temp(at(o, "decisions"))
 	var mx := -1e9
 	for op in opts:
 		mx = maxf(mx, op.v)
@@ -599,7 +678,7 @@ func _decide(o: Pl) -> void:
 const EYE_GOOD := 0.004
 
 func _eye_temp(dec: float) -> float:
-	return clampf(0.008 - (dec - 10.0) * 0.0005, 0.003, 0.016)
+	return decision_temp(dec)
 
 func _eye_record(o: Pl, opts: Array, mx: float, pick: Dictionary) -> void:
 	## Kararı kaydet: iyi seçenek mi + karar özelliği için Bernoulli kredisi (p10, eğim)
@@ -658,7 +737,7 @@ func eye_preview(o: Pl) -> Array:
 		var risk := _lane_risk(o, tp, speed)
 		var long := dist > 30.0
 		var acc_q := (at(o, "passing") * (0.65 if long else 1.0) + (at(o, "vision") * 0.35 if long else 0.0) - 10.0) * 0.022
-		var ps := clampf(0.97 - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
+		var ps := clampf(0.97 + PASS_ADJ - dist / 150.0 - risk * 0.6 + acc_q - press * 0.1, 0.05, 0.98)
 		var mp := pressure_on(mt)
 		var v := ps * (value(tp, d) * (1.0 - mp * 0.3) + 0.004) - (1.0 - ps) * loss
 		if offs:
@@ -736,7 +815,7 @@ func _do_pass(o: Pl, op: Dictionary) -> void:
 	var ic := _interceptor(o, tp, op.speed)
 	var icp: Pl = ic[0]
 	var att := [["passing", 1.0]] if not long else [["passing", 0.65], ["vision", 0.35]]
-	var base := clampf(0.97 - o.pos.distance_to(tp) / 150.0 - float(op.risk) * 0.42 - pressure_on(o) * 0.08, 0.2, 0.96)
+	var base := clampf(0.97 + PASS_ADJ - o.pos.distance_to(tp) / 150.0 - float(op.risk) * 0.42 - pressure_on(o) * 0.08, 0.2, 0.96)
 	var du := duel(o, att, icp, [["positioning", 0.6], ["decisions", 0.4]], base, 0.024)
 	var ok: bool = rng.randf() < du.p
 	o.st.p += 1
@@ -793,7 +872,7 @@ func _do_dribble(o: Pl, op: Dictionary) -> void:
 		else:
 			df.st.t += 1
 			anim(df, "slide" if rng.randf() < 0.35 else "tackle", 0.7)
-			if rng.randf() < 0.2 - at(df, "tackling") * 0.005:
+			if rng.randf() < (0.2 - at(df, "tackling") * 0.005) * FOUL_K:
 				_foul(df, o)
 				return
 			o.stun = 0.8
@@ -848,7 +927,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 			_set_restart("goalkick", k.side, Vector2(L * signf(ball.x) - 5.5 * signf(ball.x), rng.randf_range(-6, 6)))
 		return
 	var sv := duel(k, [["reflexes", 0.65], ["handling", 0.35]], sh, [["finishing", 0.6], ["composure", 0.4]] if not fl.header else [["heading", 1.0]],
-		clampf(0.43 + float(fl.dist) / 90.0, 0.38, 0.85) if not fl.get("pen", false) else 0.2, 0.025)
+		clampf(0.43 + SAVE_ADJ + float(fl.dist) / 90.0, 0.38, 0.9) if not fl.get("pen", false) else 0.2, 0.025)
 	var saved: bool = rng.randf() < sv.p
 	if saved:
 		var held: bool = rng.randf() < 0.35 + at(k, "handling") * 0.025
@@ -869,6 +948,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 	# gol
 	var sd: String = sh.side
 	score[0 if sd == "h" else 1] += 1
+	_update_lead()
 	sh.st.g += 1
 	var asst := ""
 	if last_pass.get("t", -99.0) > t - 8.0 and last_pass.get("pid", "") != sh.id and pl.has(last_pass.get("pid", "")) and pl[last_pass.pid].side == sd:
@@ -886,6 +966,8 @@ func _do_cross(o: Pl) -> void:
 	var du := duel(o, [["crossing", 1.0]], null, [], 0.42, 0.03)
 	var ok: bool = rng.randf() < du.p
 	emit("cross", o.side, o.id, "", ok, du.aa, [])
+	if ok:
+		last_pass = {"pid": o.id, "t": t}   # isabetli ortadan kafa golü: asist ortacıya
 	var spot := Vector2(L * d - rng.randf_range(5.0, 11.0) * d, rng.randf_range(-6.0, 6.0))
 	if not ok:
 		spot += Vector2(-d * rng.randf_range(0, 4), rng.randf_range(-8, 8))
@@ -952,6 +1034,11 @@ func _aerial(fl: Dictionary) -> void:
 func _clear_header(df: Pl) -> void:
 	anim(df, "header", 0.62)
 	last = df
+	if rng.randf() < CLEAR_CORNER and absf(ball.x) > L - 20.0:
+		# kafayla auta: korner
+		_set_restart("corner", other(df.side), Vector2(signf(ball.x) * (L - 0.4), signf(ball.y if ball.y != 0 else 1.0) * (W - 0.4)))
+		g_emit_corner(other(df.side))
+		return
 	var to := df.pos + Vector2(df.d * rng.randf_range(15, 28), rng.randf_range(-15, 15))
 	to = Vector2(clampf(to.x, -L + 1, L - 1), clampf(to.y, -W + 1, W - 1))
 	flight = {"from": ball, "to": to, "dur": df.pos.distance_to(to) / 16.0, "e": 0.0, "k": "clear", "h": 5.0, "recv": "", "by": df.id, "side": df.side}
@@ -975,7 +1062,7 @@ func _defend_owner(dt: float) -> void:
 				emit("press", q.side, q.id, o.id, true, du.aa, du.ta)
 				q.st.t += 1
 				anim(q, "tackle", 0.5)
-				if rng.randf() < 0.13:
+				if rng.randf() < 0.13 * FOUL_K:
 					_foul(q, o)
 					return
 				o.stun = 0.7
@@ -995,10 +1082,10 @@ func _foul(df: Pl, vic: Pl) -> void:
 	emit("foul", df.side, df.id, vic.id, true, [], [])
 	# kart: tehlikeli bölge ve son adam faulü daha ağır
 	var pc := 0.14 + (0.12 if lx > 20.0 else 0.0) + (0.1 if in_box else 0.0) - at(df, "composure") * 0.004
-	var pr := 0.006 + (0.03 if in_box and _last_man(df) else 0.0)
+	var pr := RED_P + (0.03 if in_box and _last_man(df) else 0.0)
 	if not df.gk and rng.randf() < pr:
 		_send_off(df, false)
-	elif rng.randf() < pc:
+	elif rng.randf() < pc * CARD_K * (YC2_K if df.yel > 0 else 1.0):
 		df.yel += 1
 		df.st["yc"] = int(df.st.get("yc", 0)) + 1
 		if df.yel >= 2 and not df.gk:
@@ -1368,18 +1455,9 @@ func ratings(live := false) -> Dictionary:
 	var out := {}
 	var gd: int = score[0] - score[1]
 	for q: Pl in pl.values():
-		var s: Dictionary = q.st
-		var r := 6.1
-		r += s.po * 0.025 - (s.p - s.po) * 0.06 + s.kp * 0.12
-		r += s.do * 0.12 - (s.d - s.do) * 0.05 + s.t * 0.09
-		r += s.so * 0.25 + s.g * 0.9 + s["as"] * 0.5 + s.sv * 0.3 - s.err * 0.15
-		r += s.air_ok * 0.05
 		var team_gd := gd if q.side == "h" else -gd
-		r += clampf(float(team_gd), -3.0, 3.0) * 0.15
-		if q.gk:
-			var conc: int = score[1] if q.side == "h" else score[0]
-			r += 0.4 - conc * 0.3
-		r -= float(s.get("yc", 0)) * 0.3 + float(s.get("rc", 0)) * 1.5
+		var conc: int = score[1] if q.side == "h" else score[0]
+		var r := rating_base(q.st, team_gd, q.gk, conc)
 		out[q.id] = snappedf(clampf(r + (0.0 if live else rng.randfn(0.0, 0.2)), 3.5, 9.8), 0.1)
 	return out
 
