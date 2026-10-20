@@ -1,0 +1,22 @@
+{
+  "commit": "f25ad15",
+  "date": "2026-10-16",
+  "forbidden_keys_pre": {
+    "1234": [],
+    "20231015": [],
+    "2301": [],
+    "4711": [],
+    "5678": [],
+    "9001": []
+  },
+  "note": "Dalga 3 öncesi sezon sonu kayıt boyutu (Lib.setup_game + Lib.run_season, Game.save_game). hybrid_check ve hybrid_stats bunu ≤%105 sınırı için kullanır.",
+  "save_size_after_season": {
+    "1234": 2468765,
+    "20231015": 2451370,
+    "2301": 2457699,
+    "4711": 2474410,
+    "5678": 2437966,
+    "9001": 2425414
+  },
+  "spread_pct": 2.02
+}

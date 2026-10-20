@@ -7,7 +7,7 @@ const Timeline = preload("res://sim/timeline.gd")
 const LiveEngine = preload("res://sim/live_engine.gd")
 
 const SAVE_PATH := "user://kariyer.json"
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 const WEEKS := 34
 const WORK_DAYS := 5          # Pzt-Cum
 const WED := 2                # U19 günü
@@ -513,6 +513,7 @@ func new_game(scout_name: String, lang: String, start_cc := "TR") -> void:
 		DB.apply_to_world(dbd)
 	make_fixtures()
 	make_u19_fixtures()
+	s["sim_seed"] = _new_sim_seed()
 
 func _make_club(cid: String, row: Array, league: String) -> void:
 	s.clubs[cid] = {
@@ -3021,6 +3022,8 @@ func discovered_youth() -> Array:
 func save_game() -> void:
 	## Oyuncu özellikleri dizi olarak yazılır (dosya ~yarı boyut)
 	var t0 := Time.get_ticks_msec()
+	# v0.23: para/itibar/bütçe NaN/inf ise kaydetmeden önce güvenli değere çek (kayıt bozulmasın)
+	_sanitize_numbers("kayıt")
 	var packed := {}
 	for pid in s.players:
 		var p: Dictionary = s.players[pid]
@@ -3038,6 +3041,12 @@ func save_game() -> void:
 	s.players = packed
 	var txt := JSON.stringify(s)
 	s.players = real_players
+	# v0.23 NaN koruması, ikinci kat: bilinmeyen bir alanda nan/inf kalmışsa JSON geçersiz olur ve
+	# kayıt bir daha açılmaz. Çıplak nan/inf yerine 0 yaz, logla.
+	if _nan_tokens_regex().search(txt) != null:
+		push_warning("[KAYIT] kayıtta nan/inf kaldı, 0 yazılıyor")
+		print("[KAYIT] kayıtta nan/inf kaldı, 0 yazılıyor")
+		txt = _nan_tokens_regex().sub(txt, "${1}0", true)
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(txt)
@@ -3412,16 +3421,34 @@ func _check_badges() -> void:
 			s.scout.badges.erase(id)
 
 func load_game() -> bool:
+	## v0.23: sürüm sürüm göç zinciri (SAVE_MIN_VERSION..SAVE_VERSION). v3 ve öncesi: "eski kayıt" notu.
+	## Bozuk sayı (nan/inf) içeren kayıt reddedilmez, onarılır.
 	if not has_save():
 		return false
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
 		return false
-	var data = JSON.parse_string(f.get_as_text())
+	var txt := f.get_as_text()
 	f.close()
-	if typeof(data) != TYPE_DICTIONARY or int(data.get("version", 0)) != SAVE_VERSION:
-		if typeof(data) == TYPE_DICTIONARY and int(data.get("version", 0)) < SAVE_VERSION:
-			old_save = true
+	var repaired := false
+	var data: Variant = _parse_save_text(txt)
+	if typeof(data) != TYPE_DICTIONARY:
+		# eski sürümlerde NaN/inf "nan"/"inf" olarak yazılıp kaydı geçersiz JSON yapabiliyordu
+		var fixed := _nan_tokens_regex().sub(txt, "${1}" + SAVE_BAD_NUM_TXT, true)
+		if fixed != txt:
+			data = _parse_save_text(fixed)
+			repaired = typeof(data) == TYPE_DICTIONARY
+			if repaired:
+				push_warning("[KAYIT] kayıtta nan/inf vardı, onarılarak yükleniyor")
+				print("[KAYIT] kayıtta nan/inf vardı, onarılarak yükleniyor")
+	if typeof(data) != TYPE_DICTIONARY:
+		return false
+	var ver := int(_num_or(data.get("version", 0), 0))
+	if ver < SAVE_MIN_VERSION:
+		old_save = true
+		return false
+	if ver > SAVE_VERSION:
+		print("[KAYIT] kayıt daha yeni bir sürümden (", ver, "), açılamıyor")
 		return false
 	s = data
 	for pid in s.players:
@@ -3436,15 +3463,243 @@ func load_game() -> bool:
 			for i in Data.HIDDEN.size():
 				hd[Data.HIDDEN[i]] = int(p.hid[i])
 			p.hid = hd
+	_sanitize_numbers("yükleme")
+	if repaired:
+		_replace_bad_nums(s)
 	_fix_ints()
-	# eski kayıtlar: eriyen/forvetsiz kadroları onar
-	for cid in s.clubs:
-		if not is_lazy(cid):
-			fill_squad(cid)
+	# Göç zinciri. Not: eskiden burada her yüklemede tüm kulüplere fill_squad() çalışıyordu
+	# (v0.14 öncesi kayıtlar için konmuş tek seferlik onarım). Sezon içinde transferle eriyen kadroları
+	# (oyun bunları bilerek sezon sonunda tamamlar) her yüklemede doldurup kaydı değiştiriyordu.
+	# Artık onarım yalnızca dünya yapısının değiştiği v4 -> v5 göçünde bir kez yapılıyor.
+	while ver < SAVE_VERSION:
+		var ok := true
+		match ver:
+			4:
+				ok = _migrate_4_to_5()
+			5:
+				ok = _migrate_5_to_6()
+		if not ok:
+			s = {}
+			old_save = true
+			return false
+		ver += 1
+		s.version = ver
+		print("[KAYIT] göç: v", ver - 1, " -> v", ver)
 	if not s.scout.has("rep_start"):
 		s.scout["rep_start"] = s.scout.rep
 	_ensure_v15()
+	_ensure_sim_seed()
 	return true
+
+## Kaydın kabul edilen en eski sürümü (v0.18). v3 ve öncesi: dünya tamamen farklı, göç yok.
+const SAVE_MIN_VERSION := 4
+## Yükleme onarımında nan/inf yerine yazılan işaret değeri (sonra güvenli değere çekilir)
+const SAVE_BAD_NUM := -1.0e-300
+const SAVE_BAD_NUM_TXT := "-1.0e-300"
+
+func _parse_save_text(txt: String) -> Variant:
+	## JSON.parse_string yerine: hatayı motor hatası olarak basmaz, null döner
+	var j := JSON.new()
+	if j.parse(txt) != OK:
+		return null
+	return j.data
+
+var _nan_re: RegEx = null
+
+func _nan_tokens_regex() -> RegEx:
+	## JSON.stringify NaN/inf'i çıplak nan / inf / -inf olarak yazar (geçersiz JSON)
+	if _nan_re == null:
+		_nan_re = RegEx.new()
+		_nan_re.compile("([:\\[,]\\s*)-?(?:nan|inf)(?=\\s*[,\\]\\}])")
+	return _nan_re
+
+func _num_or(v: Variant, def: Variant) -> Variant:
+	## Sayı ve sonlu ise kendisi, değilse def
+	var t := typeof(v)
+	if t == TYPE_INT:
+		return v
+	if t == TYPE_FLOAT and is_finite(v) and v != SAVE_BAD_NUM:
+		return v
+	return def
+
+func _bad_num(v: Variant) -> bool:
+	var t := typeof(v)
+	if t == TYPE_INT:
+		return false
+	if t == TYPE_FLOAT:
+		return not is_finite(v) or v == SAVE_BAD_NUM
+	return true
+
+func _fix_num(d: Dictionary, k: Variant, def: Variant, where: String) -> int:
+	if not d.has(k) or not _bad_num(d[k]):
+		return 0
+	var msg := "[KAYIT] %s: bozuk sayı %s = %s -> %s" % [where, str(k), str(d[k]), str(def)]
+	push_warning(msg)
+	print(msg)
+	d[k] = def
+	return 1
+
+func _sanitize_numbers(where: String) -> int:
+	## Para/itibar/bütçe NaN, inf ya da sayı değilse güvenli değere çek (kaydı bozmasın). Onarım sayısını döndürür.
+	if typeof(s.get("scout")) != TYPE_DICTIONARY:
+		return 0
+	var sc: Dictionary = s.scout
+	var n := 0
+	var rs: Variant = _num_or(sc.get("rep_start", 15.0), 15.0)
+	n += _fix_num(sc, "rep", clampf(float(rs), 0.0, 100.0), where + " scout")
+	n += _fix_num(sc, "rep_start", sc.get("rep", 15.0), where + " scout")
+	for k in ["money", "budget", "spent", "salary", "fatigue", "xp_eye", "xp_net"]:
+		n += _fix_num(sc, k, 0, where + " scout")
+	n += _fix_num(sc, "eye", 9, where + " scout")
+	n += _fix_num(sc, "net", 8, where + " scout")
+	n += _fix_num(sc, "integrity", 50.0, where + " scout")
+	for sub in ["arep", "spec"]:
+		if typeof(sc.get(sub)) == TYPE_DICTIONARY:
+			var d: Dictionary = sc[sub]
+			for k in d.keys():
+				n += _fix_num(d, k, 0.0, "%s scout.%s" % [where, sub])
+	if typeof(s.get("life")) == TYPE_DICTIONARY and typeof(s.life.get("rel")) == TYPE_DICTIONARY:
+		var rel: Dictionary = s.life.rel
+		for k in rel.keys():
+			n += _fix_num(rel, k, 50.0, where + " life.rel")
+	if typeof(s.get("clubs")) == TYPE_DICTIONARY:
+		for cid in s.clubs:
+			var c: Dictionary = s.clubs[cid]
+			n += _fix_num(c, "prestige", 50, "%s club %s" % [where, str(cid)])
+			n += _fix_num(c, "budget", int(round(300000.0 * exp(float(c.prestige) / 20.0) / 50000.0) * 50000), "%s club %s" % [where, str(cid)])
+	return n
+
+func _replace_bad_nums(x: Variant) -> void:
+	## Yükleme onarımı: işaret değerini taşıyan (eskiden nan/inf olan) her sayıyı 0 yap.
+	## Bilinen alanlar (para/itibar/bütçe) önce _sanitize_numbers ile anlamlı değere çekilir; bu geri kalanı yakalar.
+	if x is Dictionary:
+		for k in x:
+			var v: Variant = x[k]
+			if typeof(v) == TYPE_FLOAT and v == SAVE_BAD_NUM:
+				x[k] = 0.0
+			elif v is Dictionary or v is Array:
+				_replace_bad_nums(v)
+	elif x is Array:
+		for i in x.size():
+			var v: Variant = x[i]
+			if typeof(v) == TYPE_FLOAT and v == SAVE_BAD_NUM:
+				x[i] = 0.0
+			elif v is Dictionary or v is Array:
+				_replace_bad_nums(v)
+
+func _new_sim_seed() -> int:
+	## Dalga 3 deterministik maç tohumu. rng'den çekmez (dünya üretiminin rastgele akışı değişmesin);
+	## rng'nin o anki durumundan türetilir: aynı tohumla başlayan oyunda aynı değer.
+	var v := hash(rng.state) & 0x7FFFFFFF
+	return v if v != 0 else 1
+
+func _ensure_sim_seed() -> void:
+	if s.has("sim_seed") and not _bad_num(s.sim_seed) and int(s.sim_seed) != 0:
+		s.sim_seed = int(s.sim_seed)
+		return
+	# eski kayıt: kayıt içeriğinden deterministik türet (aynı kayıt hep aynı tohumu alır)
+	var v := hash([s.get("season", 0), s.get("next_pid", 0), str(s.scout.get("name", "")), str(s.get("start_cc", "TR")), str(s.scout.get("club_id", ""))]) & 0x7FFFFFFF
+	s["sim_seed"] = v if v != 0 else 1
+
+func _migrate_5_to_6() -> bool:
+	## v0.23: maç tohumu (s.sim_seed). Başka yapısal değişiklik yok.
+	_ensure_sim_seed()
+	return true
+
+func _migrate_4_to_5() -> bool:
+	## v0.18 (v4) -> v0.19 (v5): dünya yapısı değişti.
+	## - 32 küçük ülke "keşif ülkesi" oldu (ligleri simüle edilmez), HU2/IE2/RO2 kalktı
+	## - Arjantin (AR1, AR2) ve Suudi (SA1) ligleri, Arap/Afrika keşif ülkeleri eklendi
+	var my_cid := str(s.scout.get("club_id", ""))
+	if my_cid != "" and s.clubs.has(my_cid) and Data.is_scout_cc(club_country(my_cid)):
+		# kariyer artık oynanamayan bir ülkede: devam edemez ("eski kayıt" notu gösterilir)
+		print("[KAYIT] göç v4->v5: kulübün ülkesi (", club_country(my_cid), ") artık keşif ülkesi, kariyer taşınamıyor")
+		return false
+	# 1) ligi artık olmayan kulüpler: ülkenin keşif havuzu ligine
+	var have_cc := {}
+	var max_idx := -1
+	for cid in s.clubs:
+		var c: Dictionary = s.clubs[cid]
+		if not c.has("country"):
+			c["country"] = league_country(str(c.league))
+		var cc := str(c.country)
+		have_cc[cc] = true
+		if str(cid).begins_with("c") and str(cid).substr(1).is_valid_int():
+			max_idx = maxi(max_idx, str(cid).substr(1).to_int())
+		if not Data.LG.has(str(c.league)):
+			var lgs: Array = Data.COUNTRIES.get(cc, {}).get("leagues", [])
+			if not lgs.is_empty():
+				c.league = str(lgs[0])
+	# 2) artık simüle edilmeyen liglerin fikstür ve tabloları
+	for lg in s.fixtures.keys():
+		if not LEAGUES.has(lg):
+			s.fixtures.erase(lg)
+	for lg in s.table.keys():
+		if not LEAGUES.has(lg):
+			s.table.erase(lg)
+	# 3) kayıtta hiç kulübü olmayan yeni ülkeler: ayrıntısız (lazy) kulüpler
+	var idx := max_idx + 1
+	for cc in Data.WORLD_CLUBS:
+		if have_cc.has(cc):
+			continue
+		for row in Data.WORLD_CLUBS[cc]:
+			var cid := "c%d" % idx
+			idx += 1
+			_make_club(cid, row, str(row[6]))
+			s.clubs[cid].manager = new_manager(str(cc))
+			s.clubs[cid].country = league_country(str(row[6]))
+			s.clubs[cid]["lazy"] = true
+	# 4) yeni simüle ligler: çift devreli fikstür (make_fixtures ile aynı kurgu).
+	# Geçmiş haftaların turları oynanmamış kalır; bu ligler sezonun kalanını oynar.
+	for lg in LEAGUES:
+		if not s.fixtures.has(lg):
+			_migrate_league_fixtures(str(lg))
+	# 5) plan: kaldırılan liglere ait maç planı temizlenir
+	if typeof(s.get("plan")) == TYPE_DICTIONARY:
+		for day in ["sat", "sun"]:
+			var key := str(s.plan.get(day, ""))
+			if key != "" and not LEAGUES.has(key.split(":")[0]):
+				s.plan[day] = ""
+				s.plan["focus_" + day] = []
+				s.plan["travel_" + day] = ""
+	# 6) tek seferlik kadro onarımı (eski transfer kuralları kadroları eritmiş olabilir)
+	for cid in s.clubs:
+		if not is_lazy(cid) and not Data.is_scout_cc(club_country(cid)):
+			fill_squad(cid)
+	return true
+
+func _migrate_league_fixtures(lg: String) -> void:
+	var ids := league_clubs(lg)
+	if ids.size() < 2:
+		return
+	ids.sort()
+	var n := ids.size()
+	var rounds := []
+	var arr := ids.duplicate()
+	for r in n - 1:
+		var rnd := []
+		for i in n / 2:
+			var h: String = arr[i]
+			var a: String = arr[n - 1 - i]
+			if r % 2 == 1:
+				var t := h
+				h = a
+				a = t
+			rnd.append({"h": h, "a": a, "day": "sat" if i % 2 == 0 else "sun", "gh": -1, "ga": -1, "ev": []})
+		rounds.append(rnd)
+		var last = arr.pop_back()
+		arr.insert(1, last)
+	var second := []
+	for rnd in rounds:
+		var r2 := []
+		for m in rnd:
+			r2.append({"h": m.a, "a": m.h, "day": m.day, "gh": -1, "ga": -1, "ev": []})
+		second.append(r2)
+	s.fixtures[lg] = rounds + second
+	var tb := {}
+	for cid in ids:
+		tb[cid] = {"p": 0, "w": 0, "d": 0, "l": 0, "gf": 0, "ga": 0, "pts": 0, "form": []}
+	s.table[lg] = tb
 
 func _ensure_v15() -> void:
 	## v0.15 alanları (eski kayıtlarla uyum)
@@ -3471,7 +3726,7 @@ func _ensure_v15() -> void:
 	_ensure_v22()
 
 func _fix_ints() -> void:
-	for k in ["season", "week", "next_pid", "next_aid", "next_rid"]:
+	for k in ["version", "season", "week", "next_pid", "next_aid", "next_rid"]:
 		s[k] = int(s[k])
 	for k in ["eye", "net", "xp_eye", "xp_net", "money", "salary", "budget", "spent", "fatigue"]:
 		s.scout[k] = int(s.scout[k])
