@@ -4147,7 +4147,7 @@ func _obs_card(obs: Dictionary) -> void:
 				rb.add_child(_rating_chip(float(rt[pid])))
 
 func _rating_chip(r: float) -> Label:
-	var col := C_GREEN if r >= 7.0 else (C_INK if r >= 6.0 else C_RED)
+	var col := C_GREEN if r >= Game.rating_thr("chip_green") else (C_INK if r >= Game.rating_thr("chip_red") else C_RED)
 	var l := _lbl("%.1f" % r, 18, C_CARD, false, F_TYPEB)
 	l.add_theme_stylebox_override("normal", _sb(col, 5, 0, C_LINE, 6))
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER

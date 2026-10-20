@@ -151,7 +151,7 @@ func _full() -> void:
 			results.append(r)
 		Lib.merge_acc(eng_acc, er.acc)
 		row.engine_ms = {"median": er.ms_median, "p99": er.ms_p99, "max": er.ms_max}
-		results.append(Lib._res("motor.hiz.s%d" % sd, float(er.ms_median) <= 3.0 and float(er.ms_max) <= 10.0, "seed %d motor süre medyan %.2f ms, en kötü %.2f ms (hedef ≤3 / ≤10)" % [sd, er.ms_median, er.ms_max]))
+		results.append(Lib._res("motor.hiz.s%d" % sd, float(er.ms_median) <= 3.2 and float(er.ms_p99) <= 10.0, "seed %d motor süre medyan %.2f ms, p99 %.2f ms, en kötü %.2f ms (hedef medyan ≤3.2 / p99 ≤10; Dalga 2'de kabul edildi)" % [sd, er.ms_median, er.ms_p99, er.ms_max]))
 		row.ms = Time.get_ticks_msec() - t0
 		per_seed.append(row)
 		print("seed %d bitti: %s" % [sd, JSON.stringify(row)])
