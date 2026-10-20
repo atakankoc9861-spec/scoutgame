@@ -23,6 +23,10 @@ const GROUPS := ["GK", "DEF", "MID", "ATT"]
 const D_EDGES := [-6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0]   # 8 kova
 const MIN_EDGES := [15, 30, 45, 60, 75, 89, 90]            # 7 kova: 1-15 … 76-89, 90(+)
 const NP := 13   # reyting regresyonu: 7 gol farkı kesişimi + ovr farkı + gol + asist + GK/DEF/MID
+## Takım gücü keskinliği (Poisson yolu): d · STR_K. Hızlı motorun güç etkisi (bölen ~16.7) main'deki
+## Poisson'dan (/11) zayıf; bunun sonucu kulüp sıralaması prestijden kopuyor, menajer kovulmaları +%34.
+## 1.0 = motorla aynı eğim. CAL_STR_K ile değişir.
+const STR_K := 1.3
 
 # maç düzeyi
 var m_d := PackedFloat32Array()
@@ -49,6 +53,9 @@ func _env(k: String, d: String) -> String:
 	return v if v != "" else d
 
 func _ready() -> void:
+	if _env("CAL_MODE", "") == "thr":
+		_thresholds()
+		return
 	var seeds := []
 	for x in _env("CAL_SEEDS", "2301 4711 9001 1234 5678").split(" ", false):
 		seeds.append(int(x))
@@ -71,11 +78,100 @@ func _ready() -> void:
 	_print(out)
 	if _env("CAL_DRY", "0") != "1":
 		var path := _env("CAL_OUT", ProjectSettings.globalize_path("res://data/sim_calib.json"))
+		# eşikler ayrı adımda (CAL_MODE=thr) üretilir: varsa koru
+		var jo := JSON.new()
+		if FileAccess.file_exists(path) and jo.parse(FileAccess.get_file_as_string(path)) == OK and jo.data is Dictionary and (jo.data as Dictionary).has("thresholds"):
+			out.thresholds = jo.data.thresholds
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		f.store_string(JSON.stringify(out, "  ", false) + "\n")
 		f.close()
 		print("yazıldı: ", path)
 	print("CALIBRATE_DONE %d ms" % (Time.get_ticks_msec() - t0))
+	get_tree().quit(0)
+
+# ================================================================ eşikler (CAL_MODE=thr)
+## sim_calib.json yeni model ile oyuna yüklendikten SONRA çalışır: 3 seed × 1 otomatik sezon (34. hafta,
+## kriter 10 ölçümüyle aynı an), sezon ortalaması / tek maç reytinglerinin yüzdeliklerinden eşikler:
+##   report_good  8+ maç oynayanların üst %14'ü (main'de ≥7.0 = %13–14)
+##   report_bad   8+ maç oynayanların alt %10'u (scout-gerçekçilik önerisi; main'de <6.3 = %37)
+##   star_headline 15+ maç oynayanların üst %4'ü (main'de ≥7.35 = %5)
+##   staff_hint   60 kişilik gürültülü (sd 0.2) havuzun en iyisinin %5'lik alt ucu (main'de ≈ hep geçer)
+##   sort_prior / default_rating  maç reyting ortalaması
+##   chip_green / chip_red  tek maç reytinginin üst %20'si / alt %5'i
+func _q(arr: Array, q: float) -> float:
+	return float(arr[clampi(int(q * arr.size()), 0, arr.size() - 1)])
+
+func _thresholds() -> void:
+	var av8 := []
+	var av15 := []
+	var av3 := []
+	var rts := []
+	for sd: int in [2301, 4711, 9001]:
+		Game.rng.seed = sd
+		seed(sd)
+		Game.new_game("T", "tr")
+		Game.take_job(str(Game.job_offers_start()[0]))
+		var guard := 0
+		while int(Game.s.week) < Game.WEEKS and guard < 40:
+			guard += 1
+			Game.end_week_auto()
+		for pid in Game.s.players:
+			var p: Dictionary = Game.s.players[pid]
+			var a: int = int(p.st.apps)
+			if a < 3:
+				continue
+			var avg: float = float(p.st.rs) / a
+			av3.append(avg)
+			if a >= 8:
+				av8.append(avg)
+			if a >= 15:
+				av15.append(avg)
+		for lg in Game.s.fixtures:
+			for rnd in Game.s.fixtures[lg]:
+				for m in rnd:
+					if int(m.gh) >= 0:
+						for pid in m.get("rt", {}):
+							rts.append(float(m.rt[pid]))
+		print("seed %d: 8+ maç %d oyuncu, tek maç reyting %d" % [sd, av8.size(), rts.size()])
+	av8.sort()
+	av15.sort()
+	rts.sort()
+	var r := RandomNumberGenerator.new()
+	r.seed = 5
+	var bests := []
+	for t in 4000:
+		var bv := 0.0
+		for k in 60:
+			bv = maxf(bv, float(av3[r.randi_range(0, av3.size() - 1)]) + r.randfn(0.0, 0.2))
+		bests.append(bv)
+	bests.sort()
+	var mu := 0.0
+	for v in rts:
+		mu += v
+	mu /= maxf(1.0, float(rts.size()))
+	var thr := {"report_good": _q(av8, 0.86), "report_bad": _q(av8, 0.10), "star_headline": _q(av15, 0.96),
+		"staff_hint": _q(bests, 0.05), "sort_prior": mu, "default_rating": mu, "chip_green": _q(rts, 0.80), "chip_red": _q(rts, 0.05)}
+	for k in thr:
+		thr[k] = snappedf(float(thr[k]), 0.05)
+	var sh := func(arr: Array, v: float) -> float: return snappedf(100.0 * arr.filter(func(x): return x >= v).size() / maxf(1.0, float(arr.size())), 0.1)
+	print("eşikler: ", JSON.stringify(thr))
+	print("paylar: iyi rapor ≥%.2f %%%.1f, kötü <%.2f %%%.1f, manşet ≥%.2f %%%.1f (15+), analist >%.2f %%%.1f, yeşil çip %%%.1f, kırmızı çip %%%.1f" % [
+		thr.report_good, sh.call(av8, thr.report_good), thr.report_bad, 100.0 - sh.call(av8, thr.report_bad), thr.star_headline, sh.call(av15, thr.star_headline),
+		thr.staff_hint, sh.call(bests, thr.staff_hint), sh.call(rts, thr.chip_green), 100.0 - sh.call(rts, thr.chip_red)])
+	var path := _env("CAL_OUT", ProjectSettings.globalize_path("res://data/sim_calib.json"))
+	var j := JSON.new()
+	if j.parse(FileAccess.get_file_as_string(path)) != OK:
+		print("HATA: ", path, " okunamadı")
+		get_tree().quit(1)
+		return
+	var d: Dictionary = j.data
+	d.thresholds = thr
+	if _env("CAL_DRY", "0") != "1":
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		f.store_string(JSON.stringify(d, "  ", false) + "\n")
+		f.close()
+		print("yazıldı: ", path)
+	print("CALIBRATE_DONE")
 	get_tree().quit(0)
 
 # ================================================================ örnek toplama
@@ -367,7 +463,7 @@ func _solve(A0: Array, b0: Array) -> Array:
 ## geride olan bastırır exp(trail_k·fark). Motorun skor durumu davranışını (beraberlik çok,
 ## 4+ fark az) bağımsız Poisson'dan daha iyi taşır. λ = taban · scale · exp(±(d + home) / div).
 static func score(r: RandomNumberGenerator, d: float, P: Dictionary, sw: Array) -> Array:
-	var dd: float = d + float(P.home)
+	var dd: float = d * float(P.get("str_k", 1.0)) + float(P.home)
 	var lh: float = float(P.base_h) * exp(dd / float(P.div))
 	var la: float = float(P.base_a) * exp(-dd / float(P.div))
 	var gh := 0
@@ -428,12 +524,13 @@ func _fit_state(out: Dictionary) -> void:
 	out.slices = sw
 	var mo := _res_stats(m_gh, m_ga)
 	var P0: Dictionary = out.poisson
+	var str_k: float = float(_env("CAL_STR_K", str(STR_K)))
 	var best := {}
 	var best_e := 1e18
-	for hm in [float(P0.home), float(P0.home) + 0.4, float(P0.home) + 0.8]:
+	for hm in [float(P0.home) * str_k - 0.4, float(P0.home) * str_k, float(P0.home) * str_k + 0.4, float(P0.home) * str_k + 0.8]:
 		for lk in [0.15, 0.2, 0.25, 0.3, 0.35]:
 			for tk in [0.1, 0.15, 0.2, 0.25, 0.3]:
-				var P := {"base_h": P0.base_h, "base_a": P0.base_a, "div": P0.div, "home": hm, "lead_k": lk, "trail_k": tk}
+				var P := {"base_h": P0.base_h, "base_a": P0.base_a, "div": P0.div, "home": hm, "lead_k": lk, "trail_k": tk, "str_k": str_k}
 				var st := _sim_stats(P, sw, 1, 4242)
 				var scale: float = float(mo.gpm) / maxf(0.01, float(st.gpm))
 				P.base_h = float(P0.base_h) * scale
@@ -451,7 +548,7 @@ func _fit_state(out: Dictionary) -> void:
 	print("motor: ev %.1f ber %.1f dep %.1f 4+ %.1f 0-0 %.1f gol %.2f ev/dep %.3f" % [mo.hw, mo.dr, mo.aw, mo.big, mo.nil, mo.gpm, mo.ha])
 	print("model: ", JSON.stringify(best.st), " hata %.2f" % best.err)
 	out.poisson = {"base_h": snappedf(float(best.base_h), 0.0001), "base_a": snappedf(float(best.base_a), 0.0001),
-		"home": snappedf(float(best.home), 0.001), "div": P0.div, "lead_k": best.lead_k, "trail_k": best.trail_k,
+		"home": snappedf(float(best.home), 0.001), "div": P0.div, "lead_k": best.lead_k, "trail_k": best.trail_k, "str_k": str_k,
 		"mle": P0}
 
 func _res_stats(gh: PackedInt32Array, ga: PackedInt32Array) -> Dictionary:

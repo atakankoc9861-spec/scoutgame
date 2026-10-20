@@ -1630,10 +1630,15 @@ func _lazy_str(cid: String) -> float:
 const CALIB_PATH := "res://data/sim_calib.json"
 const FAST_OTHER_CAP := 12   # haftada oyuncunun ligi dışında en fazla 12 shortlist maçı hızlı motora
 ## sim_calib.json yoksa / bozuksa kullanılan değerler (json'un aynısı; eski 1.3/1.05, +2.0, /11 yerine)
-const CALIB_DEFAULT := {"poisson": {"base_h": 1.3158, "base_a": 1.3158, "home": 2.278, "div": 16.739, "lead_k": 0.2, "trail_k": 0.25}, "slices": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1805], "minutes": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1414, 0.0391], "scorer_w": {"GK": 0.0, "DEF": 0.5111, "MID": 1.072, "ATT": 2.6}, "no_assist": 0.2841, "rating": {"mu": [6.2517, 6.4426, 6.631, 6.8029, 6.9664, 7.1238, 7.2681], "sd": [0.5925, 0.5507, 0.5381, 0.5321, 0.5276, 0.5142, 0.5017], "k_ovr": 0.0066, "goal": 0.8807, "assist": 0.6283, "grp": {"GK": 0.3547, "DEF": 0.0648, "MID": 0.1954, "ATT": 0.0}, "cons_norm": 0.637, "lo": 3.5, "hi": 9.8}}
+const CALIB_DEFAULT := {"poisson": {"base_h": 1.3371, "base_a": 1.3371, "home": 2.441, "div": 16.739, "lead_k": 0.3, "trail_k": 0.25, "str_k": 1.3}, "slices": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1805], "minutes": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1414, 0.0391], "scorer_w": {"GK": 0.0, "DEF": 0.5111, "MID": 1.072, "ATT": 2.6}, "no_assist": 0.2841, "rating": {"mu": [6.2522, 6.443, 6.6315, 6.8038, 6.9674, 7.1243, 7.2686], "sd": [0.592, 0.5511, 0.538, 0.5321, 0.5276, 0.514, 0.5023], "k_ovr": 0.0276, "goal": 0.8779, "assist": 0.6271, "grp": {"GK": 0.3539, "DEF": 0.0642, "MID": 0.1955, "ATT": 0.0}, "cons_norm": 0.637, "lo": 3.5, "hi": 9.8}, "thresholds": {"report_good": 7.3, "report_bad": 6.75, "star_headline": 7.55, "staff_hint": 7.6, "sort_prior": 7.05, "default_rating": 7.05, "chip_green": 7.6, "chip_red": 6.0}}
 var _calib: Dictionary = {}
 var _fast_key := ""
 var _fast_set := {}
+
+## Reyting eşikleri (sim_calib.json "thresholds"; kalibrasyonda yüzdeliklerden): report_good, report_bad,
+## staff_hint, star_headline, sort_prior, default_rating, chip_green, chip_red
+func rating_thr(k: String) -> float:
+	return float(_load_calib().thresholds.get(k, CALIB_DEFAULT.thresholds.get(k, 7.0)))
 
 func _load_calib() -> Dictionary:
 	if not _calib.is_empty():
@@ -1781,7 +1786,7 @@ func _sim_fast(m: Dictionary, lg: String) -> void:
 func _sim_goals(d: float) -> Array:
 	var P: Dictionary = _load_calib().poisson
 	var sw: Array = _load_calib().slices
-	var dd: float = d + float(P.home)
+	var dd: float = d * float(P.get("str_k", 1.0)) + float(P.home)
 	var lh: float = float(P.base_h) * exp(dd / float(P.div))
 	var la: float = float(P.base_a) * exp(-dd / float(P.div))
 	var out := [[], []]
@@ -1837,7 +1842,7 @@ func _credit_stats(m: Dictionary) -> void:
 		p.st.apps += 1
 		p.st.g += goals.get(pid, 0)
 		p.st.a += assists.get(pid, 0)
-		p.st.rs += float(m.rt.get(pid, 6.0))
+		p.st.rs += float(m.rt.get(pid, rating_thr("default_rating")))
 
 ## Maç sonu sakatlıkları — üç yol için tek fonksiyon (ilk 11, sakatlığa yatkınlıkla)
 func _post_match_injuries(m: Dictionary) -> void:
@@ -2594,7 +2599,7 @@ func _staff_data(m: Dictionary) -> void:
 		if avg > bv:
 			bv = avg
 			best = pid
-	if best != "" and bv > 7.0:
+	if best != "" and bv > rating_thr("staff_hint"):
 		var p := player(best)
 		know(best)
 		m.reports = int(m.reports) + 1
@@ -2791,9 +2796,9 @@ func _season_end() -> void:
 		var score := 2.0 - absf(float(r.cur) - act_cur) * 1.5 - absf(float(r.pot) - act_pot) * 0.8 - maxf(0.0, float(r.pot) - act_pot) * 0.7
 		if p.st.apps >= 8:
 			var avg: float = p.st.rs / p.st.apps
-			if avg >= 7.0:
+			if avg >= rating_thr("report_good"):
 				score += 1.5
-			elif avg < 6.3:
+			elif avg < rating_thr("report_bad"):
 				score -= 1.5
 		elif int(p.age) > 19:
 			score -= 0.5
@@ -3154,7 +3159,7 @@ func _sort_key(pid: String, sort: String) -> float:
 		return float(p.value)
 	if sort == "known":
 		return known_fraction(pid)
-	return (float(p.st.rs) + 6.6 * 4.0) / (float(p.st.apps) + 4.0)
+	return (float(p.st.rs) + rating_thr("sort_prior") * 4.0) / (float(p.st.apps) + 4.0)
 
 func avg_rating(p: Dictionary) -> float:
 	return (p.st.rs / p.st.apps) if p.st.apps > 0 else 0.0
@@ -4042,7 +4047,7 @@ func _star_headlines() -> void:
 		if p.is_empty() or int(p.st.apps) < 15:
 			continue
 		var avg := float(p.st.rs) / float(p.st.apps)
-		if avg >= 7.35:
+		if avg >= rating_thr("star_headline"):
 			_headline("star", d.pid, [club(p.club).get("name", "?"), "%.1f" % avg])
 
 ## Keşif 11'i: kariyer boyunca bulduğun oyunculardan en güçlü kadro (4-3-3)
