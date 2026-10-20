@@ -5,6 +5,7 @@ signal changed
 
 const Timeline = preload("res://sim/timeline.gd")
 const LiveEngine = preload("res://sim/live_engine.gd")
+const QuickEngine = preload("res://sim/quick_engine.gd")
 
 const SAVE_PATH := "user://kariyer.json"
 const SAVE_VERSION := 6
@@ -1569,15 +1570,17 @@ func money_str(v) -> String:
 
 # ================================================================ maç simülasyonu
 
-func best_xi(cid: String, noise := false, youth := false) -> Array:
+func best_xi(cid: String, noise := false, youth := false, rr: RandomNumberGenerator = null) -> Array:
+	## rr: gürültü için ayrı RNG (hızlı yol: maç tohumundan, Game.rng'ye dokunmaz)
 	var c := club(cid)
 	var groups := {"GK": [], "DEF": [], "MID": [], "ATT": []}
 	var src: Array = c.u19 if youth else c.squad
+	var nr: RandomNumberGenerator = rr if rr != null else rng
 	for pid in src:
 		var p := player(pid)
 		if p.is_empty() or int(p.inj) > 0:
 			continue
-		var score := float(p.ovr) + (rng.randfn(0.0, 3.0) if noise else 0.0)
+		var score := float(p.ovr) + (nr.randfn(0.0, 3.0) if noise else 0.0)
 		groups[Data.POS_GROUP[p.pos]].append([score, pid])
 	var need := {"GK": 1, "DEF": 4, "MID": 3, "ATT": 3}
 	var xi := []
@@ -1622,14 +1625,88 @@ func team_str(xi: Array, big: bool) -> float:
 func _lazy_str(cid: String) -> float:
 	return club_level(cid) + rng.randfn(0.0, 1.5)
 
+# ---- v0.23 Dalga 3: hibrit maç yolu (izlenen = canlı motor, oyuncunun ligi + shortlist = hızlı motor,
+# kalanı = hızlı motora kalibre skor modeli). Sabitler: data/sim_calib.json (tools/dev/calibrate.gd üretir).
+const CALIB_PATH := "res://data/sim_calib.json"
+const FAST_OTHER_CAP := 12   # haftada oyuncunun ligi dışında en fazla 12 shortlist maçı hızlı motora
+## sim_calib.json yoksa / bozuksa kullanılan değerler (json'un aynısı; eski 1.3/1.05, +2.0, /11 yerine)
+const CALIB_DEFAULT := {"poisson": {"base_h": 1.3158, "base_a": 1.3158, "home": 2.278, "div": 16.739, "lead_k": 0.2, "trail_k": 0.25}, "slices": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1805], "minutes": [0.1689, 0.1687, 0.1633, 0.1629, 0.1557, 0.1414, 0.0391], "scorer_w": {"GK": 0.0, "DEF": 0.5111, "MID": 1.072, "ATT": 2.6}, "no_assist": 0.2841, "rating": {"mu": [6.2517, 6.4426, 6.631, 6.8029, 6.9664, 7.1238, 7.2681], "sd": [0.5925, 0.5507, 0.5381, 0.5321, 0.5276, 0.5142, 0.5017], "k_ovr": 0.0066, "goal": 0.8807, "assist": 0.6283, "grp": {"GK": 0.3547, "DEF": 0.0648, "MID": 0.1954, "ATT": 0.0}, "cons_norm": 0.637, "lo": 3.5, "hi": 9.8}}
+var _calib: Dictionary = {}
+var _fast_key := ""
+var _fast_set := {}
+
+func _load_calib() -> Dictionary:
+	if not _calib.is_empty():
+		return _calib
+	var c: Dictionary = CALIB_DEFAULT.duplicate(true)
+	if FileAccess.file_exists(CALIB_PATH):
+		var j := JSON.new()
+		if j.parse(FileAccess.get_file_as_string(CALIB_PATH)) == OK and j.data is Dictionary:
+			var d: Dictionary = j.data
+			for k in c:
+				if d.has(k) and typeof(d[k]) == typeof(c[k]):
+					c[k] = d[k]
+		else:
+			push_warning("sim_calib.json okunamadı, varsayılan sabitler")
+	_calib = c
+	return c
+
+## Yönlendirme (tek yer). true: maç hızlı motorla oynanır. Saf: Game.s'ye yazmaz.
+func _use_fast(m: Dictionary, lg: String) -> bool:
+	if is_lazy(str(m.h)) or is_lazy(str(m.a)):
+		return false
+	var my_lg := ""
+	if str(s.scout.get("club_id", "")) != "":
+		my_lg = str(my_club().get("league", ""))
+		if lg == my_lg:
+			return true
+	_fast_week(my_lg)
+	return _fast_set.has("%s|%s|%s" % [lg, m.h, m.a])
+
+## Bu haftanın shortlist maçları (oyuncunun ligi dışında, en fazla FAST_OTHER_CAP, sabit sırayla)
+func _fast_week(my_lg: String) -> void:
+	var sl: Array = s.scout.get("shortlist", [])
+	var key := "%d|%d|%d|%s|%d" % [int(s.get("sim_seed", 0)), int(s.season), int(s.week), my_lg, hash(sl)]
+	if key == _fast_key:
+		return
+	_fast_key = key
+	_fast_set = {}
+	var clubs := {}
+	for pid in sl:
+		var cid: String = str(player(str(pid)).get("club", ""))
+		if cid != "":
+			clubs[cid] = true
+	if clubs.is_empty():
+		return
+	for wm: Dictionary in week_matches():
+		if _fast_set.size() >= FAST_OTHER_CAP:
+			break
+		var m: Dictionary = wm.m
+		if wm.lg == my_lg or is_lazy(str(m.h)) or is_lazy(str(m.a)):
+			continue
+		if clubs.has(m.h) or clubs.has(m.a):
+			_fast_set["%s|%s|%s" % [wm.lg, m.h, m.a]] = true
+
+func _match_idx(m: Dictionary, lg: String) -> int:
+	var r := round_for_week(lg, int(s.week))
+	if r >= 0:
+		var rnd: Array = s.fixtures[lg][r]
+		for i in rnd.size():
+			if is_same(rnd[i], m):
+				return i
+	return -1
+
 func sim_match(m: Dictionary, lg: String, youth := false) -> void:
+	if not youth and _use_fast(m, lg):
+		_sim_fast(m, lg)
+		return
 	if not youth and (is_lazy(m.h) or is_lazy(m.a)):
-		# ayrıntısız kulüp: oyuncu istatistiği olmadan, kulüp seviyesinden skor
+		# ayrıntısız kulüp: oyuncu istatistiği olmadan, kulüp seviyesinden skor (aynı kalibre model)
 		var lh := _lazy_str(m.h) if is_lazy(m.h) else team_str(best_xi(m.h, true), false)
 		var la := _lazy_str(m.a) if is_lazy(m.a) else team_str(best_xi(m.a, true), false)
-		lh += 2.0
-		m.gh = _poisson(1.3 * exp((lh - la) / 11.0))
-		m.ga = _poisson(1.05 * exp((la - lh) / 11.0))
+		var sl: Array = _sim_goals(lh - la)
+		m.gh = sl[0].size()
+		m.ga = sl[1].size()
 		m.ev = []
 		_update_table(lg, m.h, m.a, m.gh, m.ga)
 		return
@@ -1637,10 +1714,9 @@ func sim_match(m: Dictionary, lg: String, youth := false) -> void:
 	var ax := best_xi(m.a, true, youth)
 	var big_h: bool = club(m.a).prestige >= 80 and not youth
 	var big_a: bool = club(m.h).prestige >= 80 and not youth
-	var sh := team_str(hx, big_h) + 2.0
-	var sa := team_str(ax, big_a)
-	var gh := _poisson(1.3 * exp((sh - sa) / 11.0))
-	var ga := _poisson(1.05 * exp((sa - sh) / 11.0))
+	var sg: Array = _sim_goals(team_str(hx, big_h) - team_str(ax, big_a))
+	var gh: int = sg[0].size()
+	var ga: int = sg[1].size()
 	m.gh = gh
 	m.ga = ga
 	m.xi_h = hx
@@ -1648,19 +1724,22 @@ func sim_match(m: Dictionary, lg: String, youth := false) -> void:
 	var ev := []
 	var goals := {}
 	var assists := {}
-	for side in [["h", hx, gh], ["a", ax, ga]]:
-		for i in side[2]:
+	for side in [["h", hx, sg[0]], ["a", ax, sg[1]]]:
+		for mn in side[2]:
 			var sc := _pick_scorer(side[1])
 			var asst := _pick_assister(side[1], sc)
 			goals[sc] = goals.get(sc, 0) + 1
 			if asst != "":
 				assists[asst] = assists.get(asst, 0) + 1
-			ev.append({"t": "g", "pid": sc, "as": asst, "side": side[0], "min": ri(1, 90)})
+			ev.append({"t": "g", "pid": sc, "as": asst, "side": side[0], "min": mn})
 	ev.sort_custom(func(x, y): return x.min < y.min)
 	m.ev = ev
+	var C := _load_calib()
+	var R: Dictionary = C.rating
 	var ratings := {}
 	for side in [[hx, gh - ga, big_h], [ax, ga - gh, big_a]]:
 		var xi: Array = side[0]
+		var b: int = clampi(int(side[1]), -3, 3) + 3
 		var avg := 0.0
 		for pid in xi:
 			avg += player(pid).ovr
@@ -1668,33 +1747,116 @@ func sim_match(m: Dictionary, lg: String, youth := false) -> void:
 		for pid in xi:
 			var p := player(pid)
 			var cons := float(p.hid.consistency)
-			var r: float = 6.4 + (float(p.ovr) - avg) / 9.0 + clampf(float(side[1]), -3.0, 3.0) * 0.18
-			r += rng.randfn(0.0, 0.95 - cons * 0.03)
+			var r: float = float(R.mu[b]) + float(R.k_ovr) * (float(p.ovr) - avg) + float(R.grp.get(Data.POS_GROUP[p.pos], 0.0))
+			r += goals.get(pid, 0) * float(R.goal) + assists.get(pid, 0) * float(R.assist)
+			r += rng.randfn(0.0, float(R.sd[b]) * maxf(0.05, 0.95 - cons * 0.03) / float(R.cons_norm))
 			if side[2]:
 				r += (float(p.hid.big_match) - 10.0) * 0.04
-			r += goals.get(pid, 0) * 0.7 + assists.get(pid, 0) * 0.4
-			r = clampf(r, 4.5, 9.8)
-			ratings[pid] = snappedf(r, 0.1)
-			if youth:
-				continue
-			p.st.apps += 1
-			p.st.g += goals.get(pid, 0)
-			p.st.a += assists.get(pid, 0)
-			p.st.rs += r
-			var ip := 0.004 + float(p.hid.injury_prone) * 0.0007
-			if rf() < ip:
-				p.inj = ri(1, 9)
-				ev.append({"t": "inj", "pid": pid, "min": ri(1, 90), "side": "h" if pid in hx else "a"})
+			ratings[pid] = snappedf(clampf(r, float(R.lo), float(R.hi)), 0.1)
 	m.rt = ratings
-	if not youth:
-		_update_table(lg, m.h, m.a, gh, ga)
+	if youth:
+		return
+	_credit_stats(m)
+	_post_match_injuries(m)
+	_update_table(lg, m.h, m.a, gh, ga)
+
+## Hızlı yol: ilk 11 ve maç, maç tohumundan (sim_seed, sezon, hafta, lig, sıra) — Game.rng kullanılmaz
+func _sim_fast(m: Dictionary, lg: String) -> void:
+	var sd: int = hash([int(s.get("sim_seed", 1)), int(s.season), int(s.week), lg, _match_idx(m, lg)])
+	var rr := RandomNumberGenerator.new()
+	rr.seed = sd
+	m.xi_h = best_xi(m.h, true, false, rr)
+	m.xi_a = best_xi(m.a, true, false, rr)
+	var r: Dictionary = QuickEngine.simulate(self, m, false, sd)
+	m.gh = int(r.gh)
+	m.ga = int(r.ga)
+	m.ev = r.ev
+	m.rt = r.rt
+	_credit_stats(m)
+	_post_match_injuries(m)
+	_update_table(lg, m.h, m.a, m.gh, m.ga)
+
+## Skor modeli: 15'erlik 6 dilim, dilim başına Poisson; önde olan yavaşlar, geride olan bastırır.
+## Dönüş: [ev gol dakikaları, dep gol dakikaları] (sıralı)
+func _sim_goals(d: float) -> Array:
+	var P: Dictionary = _load_calib().poisson
+	var sw: Array = _load_calib().slices
+	var dd: float = d + float(P.home)
+	var lh: float = float(P.base_h) * exp(dd / float(P.div))
+	var la: float = float(P.base_a) * exp(-dd / float(P.div))
+	var out := [[], []]
+	for si in sw.size():
+		var lead: int = out[0].size() - out[1].size()
+		var fh := 1.0
+		var fa := 1.0
+		if lead > 0:
+			fh = exp(-float(P.lead_k) * lead)
+			fa = exp(float(P.trail_k) * lead)
+		elif lead < 0:
+			fh = exp(float(P.trail_k) * -lead)
+			fa = exp(-float(P.lead_k) * -lead)
+		var nh := _poisson(lh * float(sw[si]) * fh)
+		var na := _poisson(la * float(sw[si]) * fa)
+		var mins := []
+		for i in nh + na:
+			mins.append(_goal_minute(si))
+		mins.sort()
+		var ih := 0
+		for i in mins.size():
+			# dakikalar dilim içinde sıralı; ev/dep payına göre karıştır
+			var home_turn: bool = ih < nh and (i - ih >= na or rf() < float(nh - ih) / float(nh + na - i))
+			if home_turn:
+				out[0].append(mins[i])
+				ih += 1
+			else:
+				out[1].append(mins[i])
+	return out
+
+## Gol dakikası: dilim (0..5) içinde; son dilimde 90(+) payı kalibrasyon histogramından
+func _goal_minute(sl: int) -> int:
+	if sl < 5:
+		return sl * 15 + ri(1, 15)
+	var mh: Array = _load_calib().minutes
+	var p90: float = float(mh[6]) / maxf(1e-6, float(mh[5]) + float(mh[6]))
+	return 90 if rf() < p90 else ri(76, 89)
+
+## apps / g / a / rs — üç yol (Poisson, hızlı, izlenen) için tek yer. Gol ve asist m.ev'den, reyting m.rt'den.
+func _credit_stats(m: Dictionary) -> void:
+	var goals := {}
+	var assists := {}
+	for e in m.ev:
+		if str(e.get("t", "")) != "g":
+			continue
+		goals[e.pid] = goals.get(e.pid, 0) + 1
+		if str(e.get("as", "")) != "":
+			assists[e["as"]] = assists.get(e["as"], 0) + 1
+	for pid in m.xi_h + m.xi_a:
+		var p := player(pid)
+		if p.is_empty():
+			continue
+		p.st.apps += 1
+		p.st.g += goals.get(pid, 0)
+		p.st.a += assists.get(pid, 0)
+		p.st.rs += float(m.rt.get(pid, 6.0))
+
+## Maç sonu sakatlıkları — üç yol için tek fonksiyon (ilk 11, sakatlığa yatkınlıkla)
+func _post_match_injuries(m: Dictionary) -> void:
+	for pid in m.xi_h + m.xi_a:
+		var p := player(pid)
+		if p.is_empty():
+			continue
+		var ip := 0.004 + float(p.hid.injury_prone) * 0.0007
+		if rf() < ip:
+			p.inj = ri(1, 9)
+			m.ev.append({"t": "inj", "pid": pid, "min": ri(1, 90), "side": "h" if pid in m.xi_h else "a"})
 
 func _pick_scorer(xi: Array) -> String:
+	var W: Dictionary = _load_calib().scorer_w
 	var tot := 0.0
 	var ws := []
 	for pid in xi:
 		var p := player(pid)
-		var gw: float = {"GK": 0.0, "DEF": 0.25, "MID": 0.9, "ATT": 2.6}[Data.POS_GROUP[p.pos]]
+		var gw: float = float(W.get(Data.POS_GROUP[p.pos], 0.0))
 		var w: float = gw * pow(float(p.attrs.finishing) / 10.0, 2.0)
 		ws.append(w)
 		tot += w
@@ -1706,7 +1868,7 @@ func _pick_scorer(xi: Array) -> String:
 	return xi[xi.size() - 1]
 
 func _pick_assister(xi: Array, scorer: String) -> String:
-	if rf() < 0.25:
+	if rf() < float(_load_calib().no_assist):
 		return ""
 	var tot := 0.0
 	var ws := []
@@ -1800,20 +1962,8 @@ func finish_live(data: Dictionary) -> void:
 	data.erase("eng")
 	if data.youth:
 		return
-	var goals := {}
-	var assists := {}
-	for e in m.ev:
-		goals[e.pid] = goals.get(e.pid, 0) + 1
-		if e["as"] != "":
-			assists[e["as"]] = assists.get(e["as"], 0) + 1
-	for pid in m.xi_h + m.xi_a:
-		var p := player(pid)
-		if p.is_empty():
-			continue
-		p.st.apps += 1
-		p.st.g += goals.get(pid, 0)
-		p.st.a += assists.get(pid, 0)
-		p.st.rs += float(m.rt.get(pid, 6.0))
+	_credit_stats(m)
+	_post_match_injuries(m)
 	if data.lg != "":
 		_update_table(data.lg, m.h, m.a, m.gh, m.ga)
 
