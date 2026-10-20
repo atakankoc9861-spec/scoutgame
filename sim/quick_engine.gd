@@ -93,6 +93,7 @@ var pDIST := PackedFloat32Array(DIST_BOX)
 var wide := PackedInt32Array()
 var n := 0
 var ids: Array = []
+var ovr_v := PackedFloat32Array()   # oyuncu ovr (yalnız maç puanı: kalite terimi)
 var side_of := PackedInt32Array()
 var role: Array = []
 var comp0 := PackedFloat32Array()
@@ -178,6 +179,7 @@ func _prepare(g, m: Dictionary, youth: bool) -> void:
 			for k in AK:
 				raw.append(clampf(float(at[k]) + fm, 1.0, 20.0))
 			ids.append(pid)
+			ovr_v.append(float(p.ovr))
 			side_of.append(hs)
 			role.append(p.pos)
 			wide.append(1 if WIDE.has(p.pos) else 0)
@@ -724,6 +726,13 @@ func _result() -> Dictionary:
 	var cards := {}
 	var rt := {}
 	var gd: int = score[0] - score[1]
+	var ov_avg := PackedFloat32Array([0.0, 0.0])
+	var ov_n := PackedFloat32Array([0.0, 0.0])
+	for i in n:
+		ov_avg[side_of[i]] += ovr_v[i]
+		ov_n[side_of[i]] += 1.0
+	for si in 2:
+		ov_avg[si] /= maxf(1.0, ov_n[si])
 	var tot := [{"kp": 0, "d": 0, "do": 0, "t": 0, "err": 0, "air": 0, "air_ok": 0, "sv": 0},
 		{"kp": 0, "d": 0, "do": 0, "t": 0, "err": 0, "air": 0, "air_ok": 0, "sv": 0}]
 	for i in n:
@@ -735,7 +744,7 @@ func _result() -> Dictionary:
 				st["rc"] = 1
 			cards[ids[i]] = {"yc": s_yc[i], "rc": s_rc[i]}
 		var si := side_of[i]
-		var r := LiveEngine.rating_base(st, gd if si == 0 else -gd, role[i] == "GK", score[1 - si])
+		var r := LiveEngine.rating_base(st, gd if si == 0 else -gd, role[i] == "GK", score[1 - si], ovr_v[i] - ov_avg[si])
 		rt[ids[i]] = snappedf(clampf(r + rng.randfn(0.0, 0.2), 3.5, 9.8), 0.1)
 		var tt: Dictionary = tot[si]
 		for k in tt:
