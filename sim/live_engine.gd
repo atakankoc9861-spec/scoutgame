@@ -31,6 +31,7 @@ const FOUL_K := 2.3            # mücadelede faul olasılığı çarpanı
 const CLEAR_CORNER := 0.35     # ceza sahasından kafayla uzaklaştırmanın korner olma olasılığı
 const RED_P := 0.001           # faul başına doğrudan kırmızı (son adam/ceza sahası ayrıca)
 const CARD_K := 1.2            # faul başına sarı kart olasılığı çarpanı
+const RATING_Q_K := 0.021      # maç puanı: takım ortalamasına göre ovr farkı başına (topsuz katkı; sonucu etkilemez)
 const BASE := {
 	"GK": Vector2(-49, 0), "CB": Vector2(-35, 0), "LB": Vector2(-31, -24), "RB": Vector2(-31, 24),
 	"DM": Vector2(-20, 0), "CM": Vector2(-13, 0), "AM": Vector2(-3, 0),
@@ -62,6 +63,7 @@ class Pl:
 	var st := {}
 	var yel := 0
 	var off := false
+	var ovr := 0.0
 
 var g
 var m: Dictionary
@@ -121,6 +123,7 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.side = sd
 			q.d = 1.0 if sd == "h" else -1.0
 			q.role = p.pos
+			q.ovr = float(p.ovr)
 			q.gk = p.pos == "GK"
 			q.base = slots[pid]
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
@@ -201,9 +204,10 @@ static func fatigue(stamina_at: float, clk: float) -> float:
 		return 0.0
 	return (10.0 - stamina_at) * 0.12 * (clk - 4200.0) / 1200.0
 
-static func rating_base(s: Dictionary, team_gd: int, is_gk: bool, conceded: int) -> float:
-	## Maç puanı (gürültüsüz): canlı ve hızlı motor aynı formülü kullanır
-	var r := 6.1
+static func rating_base(s: Dictionary, team_gd: int, is_gk: bool, conceded: int, qual := 0.0) -> float:
+	## Maç puanı (gürültüsüz): canlı ve hızlı motor aynı formülü kullanır.
+	## qual: oyuncunun ovr'si − kendi ilk 11 ortalaması (olay sayılarına yansımayan kalite: konum alma, topsuz oyun)
+	var r := 6.1 + qual * RATING_Q_K
 	r += s.po * 0.025 - (s.p - s.po) * 0.06 + s.kp * 0.12
 	r += s.do * 0.12 - (s.d - s.do) * 0.05 + s.t * 0.09
 	r += s.so * 0.25 + s.g * 0.9 + s["as"] * 0.5 + s.sv * 0.3 - s.err * 0.15
@@ -1454,10 +1458,15 @@ func run_to_end(max_steps := 200000, dt := 0.2) -> void:
 func ratings(live := false) -> Dictionary:
 	var out := {}
 	var gd: int = score[0] - score[1]
+	var ov := {"h": 0.0, "a": 0.0}
+	var on := {"h": 0, "a": 0}
+	for q: Pl in pl.values():
+		ov[q.side] += q.ovr
+		on[q.side] += 1
 	for q: Pl in pl.values():
 		var team_gd := gd if q.side == "h" else -gd
 		var conc: int = score[1] if q.side == "h" else score[0]
-		var r := rating_base(q.st, team_gd, q.gk, conc)
+		var r := rating_base(q.st, team_gd, q.gk, conc, q.ovr - float(ov[q.side]) / maxf(1.0, float(on[q.side])))
 		out[q.id] = snappedf(clampf(r + (0.0 if live else rng.randfn(0.0, 0.2)), 3.5, 9.8), 0.1)
 	return out
 
