@@ -14,11 +14,11 @@ const L := 52.5
 const W := 34.0
 # ---- kalibrasyon (v0.23 Dalga 2-F; hızlı motor sim/quick_engine.gd de bunları kullanır)
 const DUEL_K := 1.2            # düellolarda oyuncu kalitesi farkının etkisi
-const HOME_FM := 0.18          # ev sahibi avantajı (tüm özelliklere eklenen form kayması)
+const HOME_FM := 0.25          # ev sahibi avantajı (tüm özelliklere eklenen form kayması)
 const HOME_FM_Y := 0.4         # U19
 const LEAD_EASE := 1.5         # 2+ farkla önde: hücum becerilerine fazladan gol başına eksi
 const TRAIL_PUSH := 0.7        # geride: hücum becerilerine artı
-const LEVEL_LATE := 0.4        # berabere ve son bölüm: hücum becerilerine eksi
+const LEVEL_LATE := 0.7        # berabere ve son bölüm: hücum becerilerine eksi
 const LEVEL_LATE_T := 4500.0   # 75. dakika
 const YC2_K := 0.4             # sarısı olan oyuncu daha dikkatli: ikinci sarı olasılığı çarpanı
 const SAVE_ADJ := 0.14         # kurtarış tabanı düzeltmesi (isabetli şutun gole dönme oranı)

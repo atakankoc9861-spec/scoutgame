@@ -187,6 +187,8 @@ func _ready() -> void:
 		"ms_median": snappedf(ms[ms.size() / 2], 0.01) if not ms.is_empty() else 0.0,
 		"ms_p99": snappedf(ms[int(ms.size() * 0.99)], 0.01) if not ms.is_empty() else 0.0,
 		"ms_max": snappedf(ms[ms.size() - 1], 0.01) if not ms.is_empty() else 0.0,
+		"ms_first": snappedf(res.ms[0], 0.01) if not ms.is_empty() else 0.0,
+		"ms_max_after_first": snappedf(_max_after_first(res.ms), 0.01),
 		"cpu_ms_total": Time.get_ticks_msec() - t_all,
 	}
 	print("RESULT_JSON " + JSON.stringify(out2))
@@ -197,3 +199,9 @@ func _str(xi: Array) -> float:
 	for pid: String in xi:
 		t += float(Game.player(pid).ovr)
 	return t / maxf(1.0, float(xi.size()))
+
+func _max_after_first(a: Array) -> float:
+	var mx: float = 0.0
+	for i: int in range(1, a.size()):
+		mx = maxf(mx, float(a[i]))
+	return mx

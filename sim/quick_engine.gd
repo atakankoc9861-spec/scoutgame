@@ -74,7 +74,8 @@ const DIST_BOX := [14.0, 9.0, 10.5, 14.0]     # şut mesafesi (isabet/kurtarış
 const DIST_FAR := 24.0
 const PRESS_EV := 0.075                        # rakibin top kapma girişimi olasılığı (eylem başına)
 const FOUL_EV := 0.055                         # mücadelede faul olasılığı (eylem başına, savunmacının sertliğiyle)
-const Q_HOME_K := 0.17                         # bölge modelinde ev sahibi etkisi canlıdan zayıf kalıyor: ek kayma
+const Q_HOME_K := 0.1                          # bölge modelinde ev sahibi etkisi canlıdan zayıf kalıyor: ek kayma
+const Q_LEVEL_K := 0.55                        # berabere-son-dakika temkini bölge modelinde daha güçlü etkiliyor
 const RED_P := 0.0004                         # doğrudan kırmızı (faul başına; ikinci sarılar ayrıca)
 const Q_SHOT_ON_ADJ := -0.13                     # isabet tabanı düzeltmesi
 const Q_SAVE_ADJ := 0.215                        # kurtarış tabanı düzeltmesi
@@ -326,7 +327,11 @@ func _pick_def(si: int, zz: int) -> int:
 
 func _ls_update() -> void:
 	for si in 2:
-		ls_c[si] = LiveEngine.lead_shift(score[si] - score[1 - si], clock) + float(men[si] - men[1 - si]) * 0.6
+		var lead: int = score[si] - score[1 - si]
+		var sh := LiveEngine.lead_shift(lead, clock)
+		if lead == 0:
+			sh *= Q_LEVEL_K
+		ls_c[si] = sh + float(men[si] - men[1 - si]) * 0.6
 
 func _tick(secs: float) -> void:
 	clock += secs
