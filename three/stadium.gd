@@ -378,6 +378,9 @@ func build(hc1: Color, hc2: Color, ac1: Color, night := true, with_shadows := tr
 	_dugouts()
 	_surroundings()
 	_effects()
+	# v0.24 3B: statik dekor birleştirme (küçük saha cihazda dc 378). Bayrak: Game.settings.ta_merge_decor
+	if bool(Game.settings.get("ta_merge_decor", true)):
+		_merge_static()
 
 func _mat(col: Color, emissive := 0.0, rough := 0.8, metal := 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -1080,6 +1083,7 @@ func _surroundings() -> void:
 		add_child(tmi)
 	# evler: tek çatılı kutular, gece pencereler yanar
 	var wm := _shader_mat(WINDOW_SHADER)
+	wm.set_meta("merge_ok", true)   # yalnız UV kullanır: birleştirmede görüntü aynı
 	wm.set_shader_parameter("night", 1.0 if is_night() else 0.0)
 	wm.set_shader_parameter("wall", Vector3(0.55, 0.5, 0.45) if tod == "day" else Vector3(0.12, 0.11, 0.1))
 	for i in 26:
@@ -1097,6 +1101,69 @@ func _surroundings() -> void:
 		mi.rotation.y = -a + PI / 2.0
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
+
+## Aynı malzemeyi paylaşan statik ilkel kutu/silindirleri (direkler, tel örgü dikmeleri,
+## evler, kulübe koltukları, çatı makasları...) tek ArrayMesh'te birleştirir.
+## Geometri, malzeme ve dönüşüm birebir korunur; yalnız çizim çağrısı azalır.
+## Saydam/şeffaf, gölge ayarı farklı, çocuklu ya da ayna (negatif ölçek) olanlara dokunulmaz.
+const MERGE_CELL := 36.0           # m
+static var merged_count := 0       # ölçüm/test: son birleştirmede kaldırılan düğüm sayısı
+func _merge_static() -> void:
+	var groups := {}
+	for mi: MeshInstance3D in find_children("*", "MeshInstance3D", true, false):
+		if mi.get_child_count() > 0 or not (mi.mesh is PrimitiveMesh) or mi.mesh.get_surface_count() != 1:
+			continue
+		if mi.mesh.surface_get_material(0) != null or not mi.visible:
+			continue
+		var m: Material = mi.material_override
+		if m == null:
+			continue
+		if m is StandardMaterial3D:
+			var sm := m as StandardMaterial3D
+			if sm.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED or sm.uv1_triplanar or sm.uv1_world_triplanar:
+				continue
+		elif not m.has_meta("merge_ok"):
+			continue
+		var xf := _rel_xf(mi)
+		if xf.basis.determinant() <= 0.0:
+			continue
+		# hücre: yakın parçalar birleşir, uzaktakiler ayrı kalır -> kamera kırpması çalışmaya devam eder
+		var cell := Vector2i(floori(xf.origin.x / MERGE_CELL), floori(xf.origin.z / MERGE_CELL))
+		var key := "%d|%d|%d|%d|%d" % [m.get_instance_id(), mi.cast_shadow, mi.layers, cell.x, cell.y]
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append([mi, xf])
+	merged_count = 0
+	for key in groups:
+		var arr: Array = groups[key]
+		if arr.size() < 2:
+			continue
+		var st := SurfaceTool.new()
+		var first: MeshInstance3D = arr[0][0]
+		for e in arr:
+			st.append_from((e[0] as MeshInstance3D).mesh, 0, e[1])
+		var out := MeshInstance3D.new()
+		out.name = "Merged"
+		out.mesh = st.commit()
+		out.material_override = first.material_override
+		out.cast_shadow = first.cast_shadow
+		out.layers = first.layers
+		add_child(out)
+		for e in arr:
+			var mi: MeshInstance3D = e[0]
+			mi.get_parent().remove_child(mi)
+			mi.queue_free()
+			merged_count += 1
+
+## Düğümün bu stadyum köküne göre dönüşümü (ağaçta olmasa da çalışır)
+func _rel_xf(n: Node3D) -> Transform3D:
+	var xf := n.transform
+	var p := n.get_parent()
+	while p != null and p != self:
+		if p is Node3D:
+			xf = (p as Node3D).transform * xf
+		p = p.get_parent()
+	return xf
 
 func _effects() -> void:
 	if not fx_enabled:

@@ -36,6 +36,7 @@ const SH_SKIN := preload("res://assets/mh/skin.gdshader")
 const SH_EYE := preload("res://assets/mh/eye.gdshader")
 const SH_HAIR := preload("res://assets/mh/hair.gdshader")
 const SH_CLOTH := preload("res://assets/mh/cloth.gdshader")
+const TR := preload("res://three/traits3d.gd")
 
 static var LIB: AnimationLibrary
 static var SCN: PackedScene
@@ -53,6 +54,34 @@ static func _load() -> void:
 		for b in BONES:
 			r.append(a.find_track(NodePath("S:" + b), Animation.TYPE_ROTATION_3D))
 		CL[nm] = {"a": a, "r": r, "p": a.find_track(NodePath("S:pelvis"), Animation.TYPE_POSITION_3D), "len": a.length, "loop": a.loop_mode != Animation.LOOP_NONE}
+
+## Klibin vuruş ayağı: başlangıç anı çevresinde hangi uyluk daha çok savruluyor ("L"/"R")
+static var _clip_foot := {}
+static func clip_foot(clip: String) -> String:
+	_load()
+	if _clip_foot.has(clip):
+		return _clip_foot[clip]
+	var res := ""
+	if CL.has(clip):
+		var c: Dictionary = CL[clip]
+		var a: Animation = c.a
+		var t0 := 0.0
+		for k in ACT:
+			for o in ACT[k]:
+				if o[0] == clip:
+					t0 = o[1]
+		var sw := [0.0, 0.0]
+		for side in 2:
+			var tk: int = c.r[BONES.find("thigh_l" if side == 0 else "thigh_r")]
+			if tk < 0:
+				continue
+			var q0 := a.rotation_track_interpolate(tk, maxf(0.0, t0 - 0.25))
+			for i in 10:
+				var q := a.rotation_track_interpolate(tk, clampf(t0 - 0.25 + i * 0.07, 0.0, a.length))
+				sw[side] = maxf(sw[side], q0.angle_to(q))
+		res = "L" if sw[0] > sw[1] else "R"
+	_clip_foot[clip] = res
+	return res
 
 static func make_mat(col: Color, rough := 0.65) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -116,6 +145,12 @@ var bid := PackedInt32Array()
 var pel_rest := Vector3.ZERO
 var lod := false                   # maçta hafif modeller (kurulumdan önce ayarlanır)
 var look := {}                     # morph ağırlıkları (apply_look ile özelliklerden)
+var traits := {}                   # tech-art Faz 2: traits3d.for_player (boş = kapalı, eski davranış)
+var _yaw_prev := 0.0
+var _yaw_ok := false
+var _mv: Object = null             # maç görünümü (yorgunluk için motor saati; salt okunur)
+var _mv_tried := false
+var tired_w := 0.0                 # 0..1 yorgun duruş ağırlığı (ölçüm/test)
 
 var phase := 0.0          # yürüyüş döngüsü (0..1)
 var idle_t := 0.0
@@ -213,6 +248,8 @@ func _build(kit: Dictionary, skin_i: int, hair_i: int, style: int, number: int, 
 	skel = _inst.find_children("*", "Skeleton3D", true, false)[0]
 	var skin: Color = SKIN[clampi(skin_i, 0, 4)]
 	var hair: Color = HAIR[clampi(hair_i, 0, 5)]
+	if float(traits.get("grey", 0.0)) > 0.0:
+		hair = hair.lerp(TR.GREY, float(traits.grey))
 	if look.is_empty():
 		look = look_for(style, skin_i)
 	# saç: koyu tenlilerde kısa/kazınmış/kıvırcık ağırlıklı
@@ -299,10 +336,18 @@ func _apply_morphs() -> void:
 			if bi >= 0:
 				mi.set_blend_shape_value(bi, w)
 	_inst.scale = Vector3.ONE * float(look.get("_h", 1.0))
+	if skel != null and traits.has("head"):
+		var hb := skel.find_bone("head")
+		if hb >= 0:
+			skel.set_bone_pose_scale(hb, Vector3.ONE * float(traits.head))
 
 ## Oyuncu verisinden vücut tipi (build'den önce ya da sonra çağrılabilir)
 func apply_look(p: Dictionary) -> void:
 	look = look_for(int(p.get("seed", 0)), int(p.get("skin", 1)), p)
+	traits = TR.for_player(p)
+	if not traits.is_empty():
+		TR.body_morphs(look, traits, p)
+		look["_h"] = float(traits.scale)
 	if _inst != null:
 		_apply_morphs()
 
@@ -333,6 +378,8 @@ func play(name: String, dur := 0.5, side := 1.0) -> void:
 		return
 	var opts: Array = ACT[key]
 	var pick: Array = opts[(mirror_seed + int(Time.get_ticks_msec() / 997)) % opts.size()] if name in ["celebrate"] else opts[mirror_seed % opts.size()]
+	if traits.has("foot") and name in ["kick", "shot"]:
+		pick = pick_for_foot(opts, str(traits.foot), mirror_seed)
 	if not CL.has(pick[0]):
 		return
 	action = name
@@ -344,12 +391,26 @@ func play(name: String, dur := 0.5, side := 1.0) -> void:
 	if name in ["celebrate", "knee_slide"]:
 		action_dur = maxf(action_dur, dur)
 
+## Tercih edilen ayağa uyan seçenek (birden çok varsa tohumla seçilir; uyan yoksa ilk seçenek)
+static func pick_for_foot(opts: Array, foot: String, seed_i: int) -> Array:
+	var ok: Array = []
+	for o in opts:
+		if clip_foot(o[0]) == foot:
+			ok.append(o)
+	if ok.is_empty():
+		return opts[posmod(seed_i, opts.size())]
+	return ok[posmod(seed_i, ok.size())]
+
 func is_busy() -> bool:
 	return action != "" and action_t < action_dur
 
 func tick(delta: float, spd: float, anim_speed := 1.0) -> void:
 	speed = spd
 	idle_t += delta * anim_speed
+	if not traits.is_empty():
+		_turn(delta)
+		# adım: ölçekli model klibin doğal hızına s kat daha hızlı ulaşır -> karışım/döngü spd/s ile
+		spd /= float(traits.scale)
 	# yürüyüş fazı: iki komşu klibin döngü sürelerinin karışımıyla ilerler
 	var i := 0
 	while i < LOCO.size() - 2 and spd > LOCO[i + 1][1]:
@@ -377,8 +438,78 @@ func tick(delta: float, spd: float, anim_speed := 1.0) -> void:
 	if lod and _thin_skip():
 		return
 	_apply(lo[0], hi[0], w)
+	if not traits.is_empty() and lod:
+		_tired(delta)
 	if face_on and delta > 0.0:
 		_face(delta)
+
+## Çeviklik: maç görünümünün bu karedeki dönüş adımını (lerp) kazançla büyütür/küçültür.
+## Kazanç, hedefi aşmayacak şekilde 1/f ile sınırlı (f = match_view lerp oranı). delta=0 (tekrar,
+## başlangıç yerleşimi) ya da ışınlanma benzeri büyük sıçrama referansı sıfırlar.
+func _turn(delta: float) -> void:
+	var g := float(traits.get("turn", 1.0))
+	if delta <= 0.0 or not lod or not is_inside_tree() or not visible:
+		_yaw_ok = false
+		return
+	var cur := rotation.y
+	if _yaw_ok and absf(g - 1.0) > 0.001 and not (action == "dive" and is_busy()):
+		var d := wrapf(cur - _yaw_prev, -PI, PI)
+		if absf(d) < 2.0:
+			var f := minf(1.0, 0.2 + delta * 8.0)
+			rotation.y = _yaw_prev + d * minf(g, 1.0 / f)
+	_yaw_prev = rotation.y
+	_yaw_ok = true
+
+## Maç saati (motor clock, sn); maç görünümü yoksa -1
+func _clock() -> float:
+	if not _mv_tried:
+		_mv_tried = true
+		var n := get_parent()
+		while n != null:
+			if "eng" in n and n.get("eng") != null:
+				_mv = n
+				break
+			n = n.get_parent()
+	if _mv == null or not is_instance_valid(_mv):
+		return -1.0
+	var e = _mv.get("eng")
+	if e == null or not ("clock" in e):
+		return -1.0
+	return float(e.clock)
+
+## Yorgun duruş: 70'ten sonra düşük kondisyonlu oyuncu yavaşken öne eğilir, başı düşer
+func _tired(delta: float) -> void:
+	var want := 0.0
+	var clk := _clock()
+	if clk > 0.0:
+		want = TR.tired(float(traits.get("stamina", 10.0)), clk)
+	if delta > 0.0:
+		tired_w = move_toward(tired_w, want, delta * 0.5)
+	var amt := tired_w * clampf(1.0 - speed / 3.0, 0.25, 1.0)
+	if action != "":
+		amt *= 1.0 - clampf(action_t / 0.1, 0.0, 1.0)
+	if amt < 0.01 or skel == null:
+		return
+	# omurga ve baş: karakterin sağ ekseni etrafında öne eğil (iskelet uzayı -> kemik yerel)
+	for k in [1, 2, 5]:
+		var par := skel.get_bone_parent(bid[k])
+		var pb := skel.get_bone_global_pose(par).basis if par >= 0 else Basis()
+		var axis := (pb.inverse() * _skel_right()).normalized()
+		var ang := amt * (0.16 if k != 5 else 0.22)
+		skel.set_bone_pose_rotation(bid[k], Quaternion(axis, ang) * skel.get_bone_pose_rotation(bid[k]))
+
+var _sk_right := Vector3.ZERO
+func _skel_right() -> Vector3:
+	if _sk_right == Vector3.ZERO:
+		# kök (bu düğüm) +X ekseninin iskelet uzayındaki karşılığı; ölçek dışı dönüşler
+		var b := Basis()
+		var n: Node = skel
+		while n != null and n != _inst:
+			if n is Node3D:
+				b = (n as Node3D).transform.basis.orthonormalized() * b
+			n = n.get_parent()
+		_sk_right = (b.inverse() * Vector3.RIGHT).normalized()
+	return _sk_right
 
 const THIN_DIST := 35.0            # m; bunun ötesindeki oyuncular seyreltilir
 static var thin_skipped := 0       # ölçüm/test sayacı (atlanan _apply)
