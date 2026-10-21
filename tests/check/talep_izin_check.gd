@@ -22,6 +22,7 @@ func run_check() -> void:
 	_check_i18n()
 	_check_cap_season()
 	_check_cap_stress()
+	_check_budget()
 	_check_decline()
 	_check_permit()
 	_check_migrate()
@@ -80,6 +81,26 @@ func _check_cap_season() -> void:
 	if not Game.s.season_summary.is_empty():
 		Game.dismiss_summary()
 	Game.finish_week()
+
+func _check_budget() -> void:
+	## Bütçesi erimiş kulüp ilk 11 talebi göndermez (Atakan: Bremen 100 bin €'ya "ilk 11, 2,5★" istedi)
+	var me := Game.my_club()
+	var keep_b: Variant = me.budget
+	var keep_a: Array = Game.s.assign.duplicate(true)
+	me.budget = 60000
+	Game.s.assign = []
+	for i in 30:
+		Game.s.assign = []
+		Game.make_assignments(1)
+		for a: Dictionary in Game.s.assign:
+			check(a.kind != "first11", "bütçe 60 bin iken ilk 11 talebi açıldı (sınır %s)" % str(a.get("max_value")))
+	Game.s.assign = []
+	check(Game._organic_assign("first11", "CB", "inj", "x", true, 8).is_empty(), "bütçesiz kulüp acil ilk 11 talebi açtı")
+	me.budget = 50000000
+	Game.s.assign = []
+	check(not Game._organic_assign("first11", "CB", "inj", "x", true, 8).is_empty(), "zengin kulüp ilk 11 talebi açamadı")
+	me.budget = keep_b
+	Game.s.assign = keep_a
 
 func _check_cap_stress() -> void:
 	## Her kaynağı zorla: sezon brifingi ×5, organik ×10 (sakatlık tetikli), 4. hafta ek talep

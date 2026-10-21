@@ -1396,6 +1396,8 @@ func make_assignments(n: int) -> void:
 		if not req_room():
 			break
 		var kind: String = pick(["first11", "first11", "prospect", "backup", "wonderkid"])
+		if kind == "first11" and not _can_afford_first11(c, int(avg) + 2, 0.6):
+			kind = "prospect"  # bütçesi erimiş kulüp ilk 11'e oyuncu istemez: genç/ucuz arar
 		var grp: String = pick(["DEF", "MID", "ATT", "DEF", "ATT", "GK"])
 		if kind == "wonderkid" and grp == "GK":
 			grp = "ATT"
@@ -3720,9 +3722,19 @@ func _has_req(why: String, ref: String) -> bool:
 			return true
 	return false
 
+## İlk 11 talebi ancak kalan bütçe, istenen seviyedeki bir oyuncunun piyasa değerinin yarısını karşılıyorsa açılır
+## (v0.24: Bremen'in 100 bin €'ya "ilk 11 oyuncusu, 2,5★" istemesi — bütçe önceki imzalarla erimişti).
+func _first11_value(min_ovr: int) -> float:
+	return 120000.0 * exp((min_ovr + 6 - 50.0) / 7.5)
+
+func _can_afford_first11(c: Dictionary, min_ovr: int, share: float) -> bool:
+	return float(c.budget) * share >= 0.5 * _first11_value(min_ovr)
+
 func _organic_assign(kind: String, pos: String, why: String, ref: String, urgent: bool, weeks: int) -> Dictionary:
 	var c := my_club()
 	var avg := club_avg_ovr(c.id)
+	if kind == "first11" and not _can_afford_first11(c, int(avg) + (0 if urgent else 2), 0.7 if urgent else 0.6):
+		return {}  # bütçe yok: kulüp ilk 11 talebi göndermez
 	var a := {"id": "a%d" % s.next_aid, "pos": pos, "kind": kind, "status": "open",
 		"deadline": min(WEEKS, s.week + weeks), "season": s.season, "why": why, "ref": ref, "urgent": urgent}
 	s.next_aid += 1
@@ -3763,7 +3775,8 @@ func _organic_requests() -> void:
 	for row in top.slice(0, 13):
 		var p := player(row[1])
 		if int(p.inj) >= 5 and not _has_req("inj", row[1]):
-			_organic_assign("first11", p.pos, "inj", row[1], true, 8)
+			if _organic_assign("first11", p.pos, "inj", row[1], true, 8).is_empty():
+				return
 			add_news("n_req_inj", [pname(p), int(p.inj), T.t("pos_" + p.pos)], true, "career")
 			return
 	# 2) büyük kulüp ilk 11'den oyuncu kapar (transfer dönemi)
@@ -3804,7 +3817,8 @@ func _organic_requests() -> void:
 			if Data.POS_GROUP[ps] == grp:
 				poss.append(ps)
 		var pos: String = pick(poss)
-		_organic_assign("first11", pos, "style", me.manager.name, false, 12)
+		if _organic_assign("first11", pos, "style", me.manager.name, false, 12).is_empty():
+			return
 		add_news("n_req_style", [me.manager.name, T.t("style_" + me.manager.style), T.t("pos_" + pos)], true, "career")
 		return
 	# 5) zayıf halka
@@ -3820,8 +3834,8 @@ func _organic_requests() -> void:
 				worst = pid
 		if worst != "":
 			var p := player(worst)
-			_organic_assign("first11", p.pos, "weak", str(s.season), false, 10)
-			add_news("n_req_weak", [T.t("pos_" + p.pos), pname(p)], true, "career")
+			if not _organic_assign("first11", p.pos, "weak", str(s.season), false, 10).is_empty():
+				add_news("n_req_weak", [T.t("pos_" + p.pos), pname(p)], true, "career")
 
 # ================================================================ keşif tarihçesi + Kaçanlar Müzesi (v0.15)
 
