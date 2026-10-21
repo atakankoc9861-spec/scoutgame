@@ -881,6 +881,12 @@ func _lights() -> void:
 	var on := is_night()
 	var lamp := _mat(Color(1.0, 0.98, 0.92), 7.0 if on else 0.4)
 	var hq := Game.quality() != "low" and fx_enabled
+	# tech-art Faz 1: tüm lamba kutuları tek mesh (aynı malzeme) -> ~4–24 draw call yerine 1.
+	# Geometri birebir aynı; bayrakla kapatılabilir (Game.settings.ta_merge_lamps=false).
+	var merge_lamps := bool(Game.settings.get("ta_merge_lamps", true))
+	var lamp_box := BoxMesh.new()
+	lamp_box.size = Vector3(1.6, 1.0, 0.2)
+	var lamp_st := SurfaceTool.new()
 	var spots: Array = []
 	match tier:
 		0:
@@ -921,7 +927,11 @@ func _lights() -> void:
 		var rows := 3 if cols > 1 else 2
 		for ix in cols:
 			for iy in rows:
-				_box(Vector3(1.6, 1.0, 0.2), Vector3(-(cols - 1) * 1.1 + ix * 2.2, -1.1 * (rows - 1) / 2.0 + iy * 1.1, -0.35), lamp, Vector3.ZERO, head)
+				var lp := Vector3(-(cols - 1) * 1.1 + ix * 2.2, -1.1 * (rows - 1) / 2.0 + iy * 1.1, -0.35)
+				if merge_lamps:
+					lamp_st.append_from(lamp_box, 0, head.transform * Transform3D(Basis(), lp))
+				else:
+					_box(Vector3(1.6, 1.0, 0.2), lp, lamp, Vector3.ZERO, head)
 		if on:
 			var omni := OmniLight3D.new()
 			omni.position = p * 0.75 + Vector3(0, h * 0.65, 0)
@@ -935,6 +945,13 @@ func _lights() -> void:
 				_flare(head.position + (Vector3(-p.x, 0, -p.z).normalized() * 0.8), 8.0 + cols * 3.0, 0.9 if tod == "night" else 0.55)
 				if Game.quality() == "high" or tier <= 1:
 					_beam(self, head.position, Vector3(p.x * 0.35, 0, p.z * 0.2), 0.016 if weather == "clear" else 0.02)
+	if merge_lamps and not spots.is_empty():
+		var lamps := MeshInstance3D.new()
+		lamps.name = "Lamps"
+		lamps.mesh = lamp_st.commit()
+		lamps.material_override = lamp
+		lamps.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(lamps)
 
 func _led_boards() -> void:
 	var back := _mat(Color(0.05, 0.05, 0.06))

@@ -372,9 +372,36 @@ func tick(delta: float, spd: float, anim_speed := 1.0) -> void:
 		if nod_t > 0.9:
 			nod_t = -1.0
 	_head_yaw_cur = lerpf(_head_yaw_cur, head_yaw, minf(1.0, delta * 5.0))
+	# tech-art Faz 1: maçta (lod) kameradan uzak oyuncunun kemik yazımı 2 karede 1.
+	# Zaman/faz her karede ilerler (senkron bozulmaz), yalnız poz örneklemesi seyrelir.
+	if lod and _thin_skip():
+		return
 	_apply(lo[0], hi[0], w)
 	if face_on and delta > 0.0:
 		_face(delta)
+
+const THIN_DIST := 35.0            # m; bunun ötesindeki oyuncular seyreltilir
+static var thin_skipped := 0       # ölçüm/test sayacı (atlanan _apply)
+var _thin_slot := -1
+
+## Bu kare poz yazımı atlanacak mı? Bayrak: Game.settings.ta_anim_thin (varsayılan açık).
+## Aksiyon (şut/dalış) sırasında ve kamera yokken asla atlanmaz.
+func _thin_skip() -> bool:
+	if not bool(Game.settings.get("ta_anim_thin", true)):
+		return false
+	if action != "" or not is_inside_tree():
+		return false
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return false
+	if global_position.distance_squared_to(cam.global_position) < THIN_DIST * THIN_DIST:
+		return false
+	if _thin_slot < 0:
+		_thin_slot = get_instance_id() & 1   # oyuncuları iki kareye dağıt (yük dengesi)
+	if (Engine.get_process_frames() & 1) == _thin_slot:
+		return false
+	thin_skipped += 1
+	return true
 
 func _sample_loop(c: Dictionary, t: float, k: int) -> Quaternion:
 	var a: Animation = c.a
