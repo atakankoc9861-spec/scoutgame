@@ -1391,8 +1391,8 @@ const SEASON_TASKS := 2
 const ORGANIC_OPEN_MAX := 2
 ## Üst itibarda büyüme yavaşlar (beklenti artar): sezon kazancının REP_SOFT_CAP üstündeki kısmı
 ## REP_SOFT_MULT ile çarpılır. Hedef: iyi scout 3. sezon sonu <=85, zirve 5. sezondan sonra.
-const REP_SOFT_CAP := 70.0
-const REP_SOFT_MULT := 0.6
+const REP_SOFT_CAP := 62.0
+const REP_SOFT_MULT := 0.5
 
 func _fit_assign(a: Dictionary) -> void:
 	## Kulübün istediği profil piyasada yoksa (büyük kulüpte ilk 11 = lig ortalamasının çok üstü)
