@@ -216,8 +216,8 @@ func _check_fixture(fx: String) -> void:
 	check(changed == 0, "%s yüklemede %d oyuncunun kulübü/ovr'si değişti" % [tag, changed])
 	var n0: int = r.players.size()
 	var n1: int = Game.s.players.size()
-	if v0 == Game.SAVE_VERSION - 1 and r.has("legends_seeded"):
-		# güncel biçimdeki v5 (0.22): göç dünyaya hiçbir şey eklememeli
+	if v0 >= 5 and r.has("legends_seeded"):
+		# v5 (0.22) ve sonrası: göç dünyaya hiçbir şey eklememeli (eski "SAVE_VERSION - 1" v7 ile v6'yı hedefliyordu, v5 kontrolü sessizce düşüyordu)
 		check(n1 == n0, "%s oyuncu sayısı yüklemede değişti: %d -> %d" % [tag, n0, n1])
 	log_info("%s: oyuncu %d -> %d (eski kayıtta efsane tohumlama/onarım eklemeleri), kulüp %d -> %d" % [tag, n0, n1, r.clubs.size(), Game.s.clubs.size()])
 	check(typeof(Game.s.get("sim_seed")) == TYPE_INT and int(Game.s.sim_seed) != 0, tag + " sim_seed yok")

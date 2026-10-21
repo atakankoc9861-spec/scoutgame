@@ -1,5 +1,5 @@
 {
- "_doc": "Tech-art Faz 0 render ölçümü (v0.24 1B). tests/baseline/render_probe.tscn: xvfb-run + --rendering-driver opengl3 --fixed-fps 60, Mesa llvmpipe, 720x1280. Maç akışı intro sonrası durdurulur (deterministik). Değerler 8 karenin en büyüğü. before = main f713afd, after = v024/ta-faz01. Mobil GPU değil: oranlar anlamlı; telefonda Watch perf satırıyla (sol üst köşeye 2 sn'de 5 dokunuş) doğrulanmalı.",
+ "_doc": "Tech-art ölçümü (render_probe.tscn): xvfb-run + --rendering-driver opengl3 --fixed-fps 60, Mesa llvmpipe, 720x1280. Maç akışı intro sonrası durdurulur. Değerler 8 karenin en büyüğü. before = main c79fdc0, after = v024/ta-faz2 (3B: traits3d + statik dekor birleştirme ta_merge_decor). match_day_t3* = U19/küçük saha (cihazda en ağır sahne). Mobil GPU değil: oranlar anlamlı; telefonda Watch perf satırıyla doğrulanmalı. faz01 = önceki Faz 0+1 ölçümü (f713afd -> ta-faz01).",
  "env": {
   "godot": "4.5.1",
   "driver": "opengl3 (Compatibility)",
@@ -9,68 +9,38 @@
  "before": {
   "match_night_t0": {
    "draw_calls": 279,
-   "objects": 390,
-   "primitives": 152044,
-   "texture_mem_mb": 53.11,
-   "video_mem_mb": 88.78
-  },
-  "match_night_t0_stand": {
-   "draw_calls": 263,
-   "objects": 374,
-   "primitives": 134008,
-   "texture_mem_mb": 53.11,
-   "video_mem_mb": 88.78
-  },
-  "match_day_t2": {
-   "draw_calls": 272,
-   "objects": 383,
-   "primitives": 155748,
-   "texture_mem_mb": 45.77,
-   "video_mem_mb": 81.44
-  },
-  "stadium_night_t0": {
-   "draw_calls": 159,
-   "objects": 159,
-   "primitives": 9366,
-   "texture_mem_mb": 42.79,
-   "video_mem_mb": 61.52
-  },
-  "stadium_night_t2": {
-   "draw_calls": 143,
-   "objects": 143,
-   "primitives": 30286,
-   "texture_mem_mb": 42.79,
-   "video_mem_mb": 61.52
-  },
-  "stage_training": {
-   "draw_calls": 72,
-   "objects": 72,
-   "primitives": 29341,
-   "texture_mem_mb": 47.76,
-   "video_mem_mb": 66.73
-  }
- },
- "after": {
-  "match_night_t0": {
-   "draw_calls": 279,
-   "objects": 390,
-   "primitives": 152044,
+   "objects": 391,
+   "primitives": 152050,
    "texture_mem_mb": 39.27,
    "video_mem_mb": 74.95
   },
   "match_night_t0_stand": {
    "draw_calls": 263,
-   "objects": 374,
-   "primitives": 134008,
+   "objects": 375,
+   "primitives": 134014,
    "texture_mem_mb": 39.27,
    "video_mem_mb": 74.95
   },
   "match_day_t2": {
    "draw_calls": 272,
-   "objects": 383,
-   "primitives": 155748,
+   "objects": 384,
+   "primitives": 155754,
    "texture_mem_mb": 31.94,
    "video_mem_mb": 67.61
+  },
+  "match_day_t3": {
+   "draw_calls": 271,
+   "objects": 383,
+   "primitives": 154983,
+   "texture_mem_mb": 31.94,
+   "video_mem_mb": 67.53
+  },
+  "match_day_t3_tv": {
+   "draw_calls": 258,
+   "objects": 370,
+   "primitives": 149977,
+   "texture_mem_mb": 31.94,
+   "video_mem_mb": 67.53
   },
   "stadium_night_t0": {
    "draw_calls": 136,
@@ -86,6 +56,13 @@
    "texture_mem_mb": 28.95,
    "video_mem_mb": 47.69
   },
+  "stadium_night_t3": {
+   "draw_calls": 112,
+   "objects": 112,
+   "primitives": 29169,
+   "texture_mem_mb": 28.95,
+   "video_mem_mb": 47.61
+  },
   "stage_training": {
    "draw_calls": 72,
    "objects": 72,
@@ -94,57 +71,171 @@
    "video_mem_mb": 52.89
   }
  },
- "delta": {
+ "after": {
   "match_night_t0": {
-   "draw_calls": 0,
-   "objects": 0,
-   "primitives": 0,
-   "texture_mem_mb": -13.84,
-   "video_mem_mb": -13.83
+   "draw_calls": 277,
+   "objects": 389,
+   "primitives": 152146,
+   "texture_mem_mb": 39.27,
+   "video_mem_mb": 74.99
   },
   "match_night_t0_stand": {
-   "draw_calls": 0,
-   "objects": 0,
-   "primitives": 0,
-   "texture_mem_mb": -13.84,
-   "video_mem_mb": -13.83
+   "draw_calls": 262,
+   "objects": 374,
+   "primitives": 134134,
+   "texture_mem_mb": 39.27,
+   "video_mem_mb": 74.99
   },
   "match_day_t2": {
-   "draw_calls": 0,
-   "objects": 0,
-   "primitives": 0,
-   "texture_mem_mb": -13.83,
-   "video_mem_mb": -13.83
+   "draw_calls": 267,
+   "objects": 379,
+   "primitives": 155934,
+   "texture_mem_mb": 31.94,
+   "video_mem_mb": 67.65
+  },
+  "match_day_t3": {
+   "draw_calls": 265,
+   "objects": 377,
+   "primitives": 155091,
+   "texture_mem_mb": 31.94,
+   "video_mem_mb": 67.57
+  },
+  "match_day_t3_tv": {
+   "draw_calls": 253,
+   "objects": 365,
+   "primitives": 150085,
+   "texture_mem_mb": 31.94,
+   "video_mem_mb": 67.57
   },
   "stadium_night_t0": {
-   "draw_calls": -23,
-   "objects": -23,
-   "primitives": 288,
-   "texture_mem_mb": -13.84,
-   "video_mem_mb": -13.83
+   "draw_calls": 97,
+   "objects": 97,
+   "primitives": 9858,
+   "texture_mem_mb": 28.95,
+   "video_mem_mb": 47.73
   },
   "stadium_night_t2": {
-   "draw_calls": -17,
-   "objects": -17,
-   "primitives": 216,
-   "texture_mem_mb": -13.84,
-   "video_mem_mb": -13.83
+   "draw_calls": 72,
+   "objects": 72,
+   "primitives": 30706,
+   "texture_mem_mb": 28.95,
+   "video_mem_mb": 47.73
+  },
+  "stadium_night_t3": {
+   "draw_calls": 60,
+   "objects": 60,
+   "primitives": 29325,
+   "texture_mem_mb": 28.95,
+   "video_mem_mb": 47.65
   },
   "stage_training": {
-   "draw_calls": 0,
-   "objects": 0,
-   "primitives": 0,
-   "texture_mem_mb": -13.84,
-   "video_mem_mb": -13.84
+   "draw_calls": 66,
+   "objects": 66,
+   "primitives": 29449,
+   "texture_mem_mb": 33.92,
+   "video_mem_mb": 52.93
   }
  },
- "textures": {
-  "skin_detail.png": "1024² RGBA8 kayıpsız mipsiz (4.0 MB VRAM) -> VRAM HQ (BPTC / ASTC 4x4) + mip (1.33 MB)",
-  "skin_detail2.png": "aynı (4.0 -> 1.33 MB)",
-  "ads/atlas.png": "1024x1792 kayıpsız mipsiz (~7.3 MB VRAM) -> VRAM (S3TC / ETC2) + mip (1.17 MB)",
-  "apk_ctex_bytes": {
-   "before_lossless": 1853998,
-   "after_etc2_astc": 4019772
+ "device_v024a1": {
+  "_doc": "Atakan'ın telefonu, bkz. render_device_v024a1.md",
+  "match_tv_t0": {
+   "draw_calls": 330,
+   "primitives": 199000
+  },
+  "match_stand_u19": {
+   "draw_calls": 378,
+   "primitives": 234000
+  }
+ },
+ "faz01": {
+  "_doc": "Tech-art Faz 0 render ölçümü (v0.24 1B). tests/baseline/render_probe.tscn: xvfb-run + --rendering-driver opengl3 --fixed-fps 60, Mesa llvmpipe, 720x1280. Maç akışı intro sonrası durdurulur (deterministik). Değerler 8 karenin en büyüğü. before = main f713afd, after = v024/ta-faz01. Mobil GPU değil: oranlar anlamlı; telefonda Watch perf satırıyla (sol üst köşeye 2 sn'de 5 dokunuş) doğrulanmalı.",
+  "before": {
+   "match_night_t0": {
+    "draw_calls": 279,
+    "objects": 390,
+    "primitives": 152044,
+    "texture_mem_mb": 53.11,
+    "video_mem_mb": 88.78
+   },
+   "match_night_t0_stand": {
+    "draw_calls": 263,
+    "objects": 374,
+    "primitives": 134008,
+    "texture_mem_mb": 53.11,
+    "video_mem_mb": 88.78
+   },
+   "match_day_t2": {
+    "draw_calls": 272,
+    "objects": 383,
+    "primitives": 155748,
+    "texture_mem_mb": 45.77,
+    "video_mem_mb": 81.44
+   },
+   "stadium_night_t0": {
+    "draw_calls": 159,
+    "objects": 159,
+    "primitives": 9366,
+    "texture_mem_mb": 42.79,
+    "video_mem_mb": 61.52
+   },
+   "stadium_night_t2": {
+    "draw_calls": 143,
+    "objects": 143,
+    "primitives": 30286,
+    "texture_mem_mb": 42.79,
+    "video_mem_mb": 61.52
+   },
+   "stage_training": {
+    "draw_calls": 72,
+    "objects": 72,
+    "primitives": 29341,
+    "texture_mem_mb": 47.76,
+    "video_mem_mb": 66.73
+   }
+  },
+  "after": {
+   "match_night_t0": {
+    "draw_calls": 279,
+    "objects": 390,
+    "primitives": 152044,
+    "texture_mem_mb": 39.27,
+    "video_mem_mb": 74.95
+   },
+   "match_night_t0_stand": {
+    "draw_calls": 263,
+    "objects": 374,
+    "primitives": 134008,
+    "texture_mem_mb": 39.27,
+    "video_mem_mb": 74.95
+   },
+   "match_day_t2": {
+    "draw_calls": 272,
+    "objects": 383,
+    "primitives": 155748,
+    "texture_mem_mb": 31.94,
+    "video_mem_mb": 67.61
+   },
+   "stadium_night_t0": {
+    "draw_calls": 136,
+    "objects": 136,
+    "primitives": 9654,
+    "texture_mem_mb": 28.95,
+    "video_mem_mb": 47.69
+   },
+   "stadium_night_t2": {
+    "draw_calls": 126,
+    "objects": 126,
+    "primitives": 30502,
+    "texture_mem_mb": 28.95,
+    "video_mem_mb": 47.69
+   },
+   "stage_training": {
+    "draw_calls": 72,
+    "objects": 72,
+    "primitives": 29341,
+    "texture_mem_mb": 33.92,
+    "video_mem_mb": 52.89
+   }
   }
  }
 }

@@ -22,6 +22,7 @@ func _proxy_dc(root: Node) -> int:
 
 func _stadium(merge: bool) -> Node3D:
 	Game.settings["ta_merge_lamps"] = merge
+	Game.settings["ta_merge_decor"] = false   # v0.24 3B genel dekor birleştirmesi ayrı ölçülür (traits3d_check)
 	var sd: Node3D = Stadium.new()
 	add_child(sd)
 	sd.configure(0, "night", "clear")
@@ -53,6 +54,7 @@ func run_check() -> void:
 	log_info("stadyum tier0 gece vekil draw call: %d -> %d (lamba kutusu %d -> 1)" % [dc_off, dc_on, lamp_boxes])
 	b.free()
 	Game.settings.erase("ta_merge_lamps")
+	Game.settings.erase("ta_merge_decor")
 
 	# --- uzak oyuncu animasyon seyreltme
 	var cam := Camera3D.new()
