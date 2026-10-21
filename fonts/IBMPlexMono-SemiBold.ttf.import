@@ -2,13 +2,13 @@
 
 importer="font_data_dynamic"
 type="FontFile"
-uid="uid://dabbfus7gt2x7"
-path="res://.godot/imported/SpecialElite.ttf-fe9170926e452a88f3eddd1a10d65b18.fontdata"
+uid="uid://b7q6g20w84a4"
+path="res://.godot/imported/IBMPlexMono-SemiBold.ttf-0a5a699a541ae21c2776fbdca0bc0223.fontdata"
 
 [deps]
 
-source_file="res://fonts/SpecialElite.ttf"
-dest_files=["res://.godot/imported/SpecialElite.ttf-fe9170926e452a88f3eddd1a10d65b18.fontdata"]
+source_file="res://fonts/IBMPlexMono-SemiBold.ttf"
+dest_files=["res://.godot/imported/IBMPlexMono-SemiBold.ttf-0a5a699a541ae21c2776fbdca0bc0223.fontdata"]
 
 [params]
 

@@ -2,6 +2,8 @@ extends Control
 ## Gözcü arayüz kiti: "scout dosyası" görsel dili.
 ## Kâğıt dokulu kartlar, klasör sekmeleri, mühürler, polaroidler, bilet kartları, el yazısı notlar.
 ## main.gd bu sınıftan türer; tüm ekranlar buradaki yardımcıları kullanır.
+## v0.24: renk/yazı/stil tokenları ui/theme_v24.gd (seçenek A "Gece Dosyası"), hareket ui/motion.gd.
+## C_* ve F_* adları geriye uyum için korunur (main.gd bunlarla çalışır).
 
 const RangeBar = preload("res://ui/range_bar.gd")
 const Stars = preload("res://ui/stars.gd")
@@ -9,26 +11,28 @@ const Icon = preload("res://ui/icon.gd")
 const Crest = preload("res://ui/crest.gd")
 const Avatar = preload("res://ui/avatar.gd")
 const Radar = preload("res://ui/radar.gd")
+const TV = preload("res://ui/theme_v24.gd")
+const Motion = preload("res://ui/motion.gd")
 
-# --- palet: kâğıt üstü
-const C_PAPER := Color("#efe6d1")
-const C_CARD := Color("#f8f3e7")
-const C_MANILA := Color("#dcc391")
-const C_MANILA_D := Color("#bfa065")
-const C_INK := Color("#27241e")
-const C_INK2 := Color("#6a6150")
-const C_LINE := Color(0.15, 0.12, 0.08, 0.14)
-const C_RED := Color("#b3261e")
-const C_BLUE := Color("#1f4e8c")
-const C_GREEN := Color("#2c7a39")
-const C_HL := Color("#f3d65b")
-const C_BRASS := Color("#c9a24a")
+# --- palet: kâğıt üstü (takma adlar → theme_v24.gd)
+const C_PAPER := TV.PAPER
+const C_CARD := TV.CARD
+const C_MANILA := TV.MANILA
+const C_MANILA_D := TV.MANILA_D
+const C_INK := TV.INK
+const C_INK2 := TV.INK2
+const C_LINE := TV.LINE
+const C_RED := TV.STAMP
+const C_BLUE := TV.BLUE
+const C_GREEN := TV.GOOD
+const C_HL := TV.HL
+const C_BRASS := TV.BRASS
 # --- palet: koyu (deri, masa)
-const C_LEATHER := Color("#2b1e17")
-const C_LEATHER2 := Color("#3b2a20")
-const C_DESK := Color("#15100c")
-const C_CREAM := Color("#f1e6cf")
-const C_CREAM2 := Color("#b8a888")
+const C_LEATHER := TV.LEATHER
+const C_LEATHER2 := TV.LEATHER2
+const C_DESK := TV.DESK
+const C_CREAM := TV.CREAM
+const C_CREAM2 := TV.CREAM2
 # eski adlar (bazı yardımcılar için)
 const C_ACCENT := C_BRASS
 const C_TEXT := C_INK
@@ -54,32 +58,27 @@ var _tex_cache := {}
 # ================================================================ yazı tipleri ve tema
 
 func _load_fonts() -> void:
+	## Seçenek A: Barlow (gövde), Barlow Condensed (başlık/düğme/sayı), IBM Plex Mono (etiket/mühür), Caveat (el notu).
+	## Oswald, Courier Prime ve Special Elite çıktı (mühürlerde ğ/ş/ı/İ karışık görünüyordu).
 	var sys := SystemFont.new()
 	sys.font_names = PackedStringArray(["Roboto", "Noto Sans", "Noto Sans Symbols 2", "sans-serif"])
-	var table := [["F_BODY", "Barlow-Medium"], ["F_SEMI", "Barlow-SemiBold"], ["F_HEAD", "Oswald-Bold"], ["F_HEADR", "Oswald-Regular"],
-		["F_TYPE", "CourierPrime-Regular"], ["F_TYPEB", "CourierPrime-Bold"], ["F_HAND", "Caveat-Bold"], ["F_STAMP", "SpecialElite"],
-		["F_DISP", "BarlowCondensed-ExtraBold"]]
-	for pair in table:
-		var f: FontFile = load("res://fonts/%s.ttf" % pair[1])
+	var table := [["F_BODY", TV.FONT_BODY, 0], ["F_SEMI", TV.FONT_SEMI, 0], ["F_HEAD", TV.FONT_HEAD, TV.TRACK_HEAD],
+		["F_HEADR", TV.FONT_HEADR, TV.TRACK_HEAD], ["F_TYPE", TV.FONT_MONO, TV.TRACK_MONO], ["F_TYPEB", TV.FONT_MONOB, TV.TRACK_MONO],
+		["F_HAND", TV.FONT_HAND, 0], ["F_STAMP", TV.FONT_MONOB, TV.TRACK_STAMP], ["F_DISP", TV.FONT_DISP, 0]]
+	for row in table:
+		var f: FontFile = load("res://fonts/%s.ttf" % row[1])
 		f.fallbacks = [sys]
-		set(pair[0], f)
+		if int(row[2]) != 0:
+			var fv := FontVariation.new()
+			fv.base_font = f
+			fv.spacing_glyph = int(row[2])
+			fv.fallbacks = [sys]
+			set(row[0], fv)
+		else:
+			set(row[0], f)
 
 func _sb(col: Color, radius := 12, border := 0, bcol := C_LINE, pad := 14, shadow := 0) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = col
-	sb.set_corner_radius_all(radius)
-	sb.set_border_width_all(border)
-	sb.border_color = bcol
-	sb.content_margin_left = pad
-	sb.content_margin_right = pad
-	sb.content_margin_top = pad * 0.7
-	sb.content_margin_bottom = pad * 0.7
-	if shadow > 0:
-		sb.shadow_size = shadow
-		sb.shadow_color = Color(0, 0, 0, 0.28)
-		sb.shadow_offset = Vector2(0, 3)
-	sb.anti_aliasing = true
-	return sb
+	return TV.flat(col, radius, border, bcol, pad, shadow)
 
 func _make_theme() -> Theme:
 	var th := Theme.new()
@@ -88,7 +87,7 @@ func _make_theme() -> Theme:
 	th.set_color("font_color", "Label", C_INK)
 	th.set_font("font", "Button", F_HEAD)
 	th.set_font_size("font_size", "Button", 24)
-	th.set_stylebox("normal", "Button", _sb(C_CARD, 10, 2, C_INK, 14))
+	th.set_stylebox("normal", "Button", _sb(C_CARD, TV.R_BTN, 2, C_INK, 14))
 	th.set_stylebox("hover", "Button", _sb(C_CARD.darkened(0.03), 10, 2, C_INK, 14))
 	th.set_stylebox("pressed", "Button", _sb(C_HL, 10, 2, C_INK, 14))
 	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
@@ -186,8 +185,8 @@ func _paper_tex(base: Color, radius := 8, shadow := 7, grain := 0.05, fiber := t
 				c.a = clampf(-d + 0.5, 0.0, 1.0)
 				img.set_pixel(x, y, c)
 			else:
-				var sh := pow(clampf(1.0 - d / float(shadow), 0.0, 1.0), 2.0) * 0.32
-				img.set_pixel(x, y, Color(0, 0, 0, sh))
+				var sh := pow(clampf(1.0 - d / float(shadow), 0.0, 1.0), 2.0) * 0.36
+				img.set_pixel(x, y, Color(TV.SHADOW, sh))
 	var tex := ImageTexture.create_from_image(img)
 	_tex_cache[key] = tex
 	return tex
@@ -285,41 +284,20 @@ func _press_fx(b: Control) -> void:
 	if b is BaseButton:
 		b.button_down.connect(func():
 			_haptic(8)
-			var tw := b.create_tween()
-			tw.tween_property(b, "scale", Vector2(0.96, 0.96), 0.07))
-		b.button_up.connect(func():
-			var tw := b.create_tween()
-			tw.tween_property(b, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+			Motion.press_down(b))
+		b.button_up.connect(func(): Motion.press_up(b))
 
 # ================================================================ düğmeler
 
 func _btn_styles(kind: String) -> Dictionary:
-	## normal/hover/pressed stil + yazı rengi + yazı tipi boyutu
-	match kind:
-		"primary":
-			return {"n": _sb(C_INK, 10, 0, C_LINE, 18, 4), "h": _sb(C_INK.lightened(0.1), 10, 0, C_LINE, 18, 4),
-				"p": _sb(Color("#000000"), 10, 0, C_LINE, 18), "fc": C_CREAM, "fs": 28, "min": 80}
-		"red":
-			return {"n": _sb(C_RED, 10, 0, C_LINE, 18, 4), "h": _sb(C_RED.lightened(0.1), 10, 0, C_LINE, 18, 4),
-				"p": _sb(C_RED.darkened(0.2), 10, 0, C_LINE, 18), "fc": C_CREAM, "fs": 28, "min": 80}
-		"brass":
-			return {"n": _sb(C_BRASS, 10, 0, C_LINE, 18, 6), "h": _sb(C_BRASS.lightened(0.1), 10, 0, C_LINE, 18, 6),
-				"p": _sb(C_BRASS.darkened(0.15), 10, 0, C_LINE, 18), "fc": C_LEATHER, "fs": 28, "min": 80}
-		"dark":
-			return {"n": _sb(Color(1, 1, 1, 0.06), 10, 1, Color(C_CREAM, 0.25), 16), "h": _sb(Color(1, 1, 1, 0.1), 10, 1, Color(C_CREAM, 0.35), 16),
-				"p": _sb(Color(C_BRASS, 0.3), 10, 2, C_BRASS, 16), "fc": C_CREAM, "fs": 22, "min": 64}
-		"toggle_on":
-			return {"n": _sb(C_HL, 10, 2, C_INK, 12), "h": _sb(C_HL, 10, 2, C_INK, 12),
-				"p": _sb(C_HL.darkened(0.1), 10, 2, C_INK, 12), "fc": C_INK, "fs": 21, "min": 58}
-		"ghost":
-			return {"n": _sb(Color(0, 0, 0, 0), 10, 1, Color(C_INK, 0.35), 12), "h": _sb(Color(C_INK, 0.05), 10, 1, Color(C_INK, 0.5), 12),
-				"p": _sb(C_HL, 10, 2, C_INK, 12), "fc": C_INK, "fs": 21, "min": 58}
-		"danger":
-			return {"n": _sb(Color(C_RED, 0.06), 10, 2, C_RED, 12), "h": _sb(Color(C_RED, 0.1), 10, 2, C_RED, 12),
-				"p": _sb(Color(C_RED, 0.2), 10, 2, C_RED, 12), "fc": C_RED, "fs": 21, "min": 58}
-	# small (varsayılan)
-	return {"n": _sb(C_CARD, 10, 2, C_INK, 12), "h": _sb(Color("#fffaf0"), 10, 2, C_INK, 12),
-		"p": _sb(C_HL, 10, 2, C_INK, 12), "fc": C_INK, "fs": 21, "min": 58}
+	## normal/hover/pressed stil + yazı rengi + yazı tipi boyutu (theme_v24.gd::button)
+	## primary/brass: pirinç CTA · red: mühür kırmızısı · ink: mürekkep · dark: deri üstü ·
+	## toggle_on / ghost / danger / small: kâğıt üstü ikincil düğmeler
+	return TV.button(kind)
+
+func _cta_shine(b: Control) -> void:
+	## CTA ışık süpürmesi (modulate nabzı yerine; sakin modda yok). Ekranda en fazla 1–2 CTA'da kullan.
+	Motion.shine(b)
 
 func _btn(text: String, cb: Callable, kind := "small", parent: Control = null, icon := "") -> Button:
 	var b := Button.new()
@@ -379,8 +357,10 @@ func _card(parent: Control = null, kind := "card", pad := 18) -> VBoxContainer:
 			pc.add_theme_stylebox_override("panel", _sb(Color(0.08, 0.06, 0.05, 0.82), 12, 1, Color(C_CREAM, 0.15), pad, 6))
 		"hl":
 			pc.add_theme_stylebox_override("panel", _paper_style(Color("#fbf0bd"), pad, 6, 6))
+		"memo":
+			pc.add_theme_stylebox_override("panel", _paper_style(TV.MEMO, pad, TV.R_CARD, TV.SHADOW_CARD))
 		_:
-			pc.add_theme_stylebox_override("panel", _paper_style(C_CARD, pad, 6, 6))
+			pc.add_theme_stylebox_override("panel", _paper_style(C_CARD, pad, TV.R_CARD, TV.SHADOW_CARD))
 	if kind == "memo":
 		var lines := Control.new()
 		lines.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -407,7 +387,7 @@ func _accent_top(v: VBoxContainer, col: Color) -> void:
 	var strip := Control.new()
 	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	strip.draw.connect(func():
-		strip.draw_rect(Rect2(-4, -10, strip.size.x + 8, 6), col, true))
+		strip.draw_rect(Rect2(-4, -10, strip.size.x + 8, 5), col, true))
 	pc.add_child(strip)
 	pc.move_child(strip, 0)
 
@@ -419,7 +399,7 @@ func _title(text: String, parent: Control = null, sz := 40, icon := "") -> Label
 		var ic = Icon.new().setup(icon, C_INK, sz * 0.8)
 		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(ic)
-	var l := _lbl(text.to_upper(), sz, C_INK, false, F_HEAD)
+	var l := _lbl(TV.upper(text, T.lang), sz, C_INK, false, F_HEAD)
 	var hl := Control.new()
 	hl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hl.show_behind_parent = true
@@ -443,7 +423,7 @@ func _section(text: String, parent: Control = null, icon := "") -> void:
 		var ic = Icon.new().setup(icon, C_RED, 24)
 		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		h.add_child(ic)
-	h.add_child(_lbl(text.to_upper(), 22, C_INK, true, F_HEAD))
+	h.add_child(_lbl(TV.upper(text, T.lang), 22, C_INK, true, F_HEAD))
 	v.add_child(h)
 	v.add_child(_dash_rule(Color(C_INK, 0.35)))
 	(parent if parent else page).add_child(v)
@@ -502,6 +482,9 @@ func _bar(parent: Control, frac: float, col: Color, h := 12.0) -> Control:
 		c.draw_rect(Rect2(Vector2.ZERO, Vector2(c.size.x * state.f, c.size.y)), col, true)
 		c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(C_INK, 0.5), false, 1.0))
 	parent.add_child(c)
+	if Motion.calm():
+		state.f = clampf(frac, 0.0, 1.0)
+		return c
 	var tw := c.create_tween()
 	tw.tween_method(func(v):
 		state.f = v
@@ -549,15 +532,15 @@ func _stamp(text: String, col := C_RED, deg := -9.0, sz := 30) -> Control:
 	## Lastik mühür: çift çerçeve, eskitilmiş mürekkep
 	var c := Control.new()
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var t := text.to_upper()
+	var t := TV.upper(text, T.lang)
 	var w := F_STAMP.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x + 34
 	c.custom_minimum_size = Vector2(w, sz + 26)
 	var seed := hash(text)
 	c.draw.connect(func():
 		var r := Rect2(Vector2(3, 3), c.size - Vector2(6, 6))
-		var ink := Color(col, 0.82)
+		var ink := Color(col, 0.85)
 		c.draw_rect(r, ink, false, 3.0)
-		c.draw_rect(r.grow(-6), ink, false, 1.5)
+		c.draw_rect(r.grow(-6), ink, false, 1.2)
 		c.draw_string(F_STAMP, Vector2(17, c.size.y / 2.0 + sz * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, sz, ink)
 		# mürekkep boşlukları
 		var rr := RandomNumberGenerator.new()
@@ -568,14 +551,8 @@ func _stamp(text: String, col := C_RED, deg := -9.0, sz := 30) -> Control:
 	return _tilt(c, deg)
 
 func _stamp_slam(st: Control) -> void:
-	## Mühür vurma animasyonu
-	st.pivot_offset = st.custom_minimum_size / 2.0
-	st.scale = Vector2(2.2, 2.2)
-	st.modulate.a = 0.0
-	var tw := st.create_tween().set_parallel(true)
-	tw.tween_property(st, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_property(st, "modulate:a", 1.0, 0.12)
-	tw.chain().tween_callback(func():
+	## Mühür vurma animasyonu (2.4 kattan iner, ezilir, oturur; sakin modda anında)
+	Motion.stamp_slam(st, func():
 		_haptic(35)
 		Sfx.play("stamp", -6.0))
 
@@ -734,7 +711,7 @@ func _stat_box(parent: Control, value: String, label: String, col := C_INK) -> v
 	var vl := _lbl(value, 34, col, false, F_HEAD)
 	vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(vl)
-	var tl := _lbl(label.to_upper(), 15, C_INK2, false, F_TYPEB)
+	var tl := _lbl(TV.upper(label, T.lang), 15, C_INK2, false, F_TYPEB)
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(tl)
 	parent.add_child(v)
