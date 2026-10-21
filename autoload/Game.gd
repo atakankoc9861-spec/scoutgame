@@ -592,7 +592,7 @@ func take_job(cid: String) -> void:
 	s.scout["rep_start"] = s.scout.rep
 	s.assign = []
 	add_news("n_hired", [c.name, c.manager.name], true, "career")
-	make_assignments(3)
+	make_assignments(SEASON_TASKS)
 	save_game()
 
 func league_clubs(lg: String) -> Array:
@@ -1344,7 +1344,7 @@ func make_assignments(n: int) -> void:
 				poss.append(p)
 		var pos: String = pick(poss)
 		var a := {"id": "a%d" % s.next_aid, "pos": pos, "kind": kind, "status": "open",
-			"deadline": min(WEEKS, s.week + ri(8, 16)), "season": s.season}
+			"deadline": min(WEEKS, s.week + ri(ASSIGN_WEEKS[0], ASSIGN_WEEKS[1])), "season": s.season}
 		s.next_aid += 1
 		match kind:
 			"first11":
@@ -1364,7 +1364,94 @@ func make_assignments(n: int) -> void:
 				a.min_ovr = int(avg) - 4
 				a.max_value = int(minf(c.budget * 0.2, 600000))
 		a.max_value = max(100000, int(round(a.max_value / 50000.0) * 50000))
+		_fit_assign(a)
 		s.assign.append(a)
+
+## v0.24 (2A) görev ulaşılabilirliği [PLACEHOLDER]: rapor için en az 2 izleme + video/görüşme +
+## kurul kararı ~3-4 hafta sürer; 10 haftadan kısa görev iyi oyuncuda bile düşüyordu.
+const ASSIGN_WEEKS := [10, 16]
+## Ülke içinde koşulları gerçekten karşılayan en az bu kadar aday olmalı (yoksa çıta iner)
+const ASSIGN_MIN_CANDS := 5
+## Süre dolarken izlenen uygun aday varsa bir kez uzatma (hafta) [PLACEHOLDER]
+const ASSIGN_EXTEND := 4
+## İtibar ekonomisi (v0.24, [PLACEHOLDER]): asıl ilerleme yolu rapor -> imza -> isabet olsun.
+## İmza bir scout'un ana başarı ölçütüdür (eskiden +1, manşetten az getiriyordu).
+const SIGN_REP := 3.0
+## Süresi dolan görev: hiç aday sunmadıysan -1, sunup reddedildiyse -0,5 (eskiden her durumda -2)
+const EXPIRE_REP := 1.0
+const EXPIRE_REP_TRIED := 0.5
+## Sezon sonu iş değerlendirmesi: sahada görünmek (maç) ve rapor yazmak ağda itibar kurar, tavanlı
+const WORK_REP_PER_MATCH := 0.08
+const WORK_REP_PER_REPORT := 0.6
+const WORK_REP_CAP := 10.0
+## Sezon başı brifingi: 2 öncelik; sezon içinde kulübün gerçek ihtiyaçları (sakatlık, satış...) ekler.
+## 3 sabit + 4-6 organik görev iyi oyuncuda bile sezonda 5-10 düşen görev demekti.
+const SEASON_TASKS := 2
+## Aynı anda açık en fazla organik talep (eskiden 3): kulüp scout'a her şeyi birden yüklemez
+const ORGANIC_OPEN_MAX := 2
+## Üst itibarda büyüme yavaşlar (beklenti artar): sezon kazancının REP_SOFT_CAP üstündeki kısmı
+## REP_SOFT_MULT ile çarpılır. Hedef: iyi scout 3. sezon sonu <=85, zirve 5. sezondan sonra.
+const REP_SOFT_CAP := 70.0
+const REP_SOFT_MULT := 0.6
+
+func _fit_assign(a: Dictionary) -> void:
+	## Kulübün istediği profil piyasada yoksa (büyük kulüpte ilk 11 = lig ortalamasının çok üstü)
+	## çıta, ülke içindeki en iyi ASSIGN_MIN_CANDS. adaya iner. Gerçekte de sportif direktör
+	## "piyasada olanın en iyisini" ister; prestij arttıkça izin verilen esneme büyür.
+	var me := my_club()
+	if me.is_empty():
+		return
+	var cc := club_country(me.id)
+	var grp: String = Data.POS_GROUP[a.pos]
+	var extra := 0
+	if a.kind == "prospect":
+		extra = 20
+	elif a.kind == "wonderkid":
+		extra = 34
+	var lim := int(float(a.max_value) * 1.15)
+	var bud := int(me.get("budget", 0))
+	var vals := []
+	for pid in s.players:
+		var p = s.players[pid]
+		# harika çocuk (<=17) altyapıda gizlidir ama U19 maçlarında bulunabilir: görünürlük şartı yok
+		if p.club == "" or p.club == me.id or is_lazy(p.club) or (not visible(p) and a.kind != "wonderkid"):
+			continue
+		if Data.POS_GROUP[p.pos] != grp or int(p.age) > int(a.max_age):
+			continue
+		if club_country(p.club) != cc:
+			continue
+		var fee := est_fee(pid)
+		if fee > lim or fee > bud:
+			continue
+		vals.append((int(p.pa) if extra > 0 else int(p.ovr)) - extra)
+	vals.sort()
+	vals.reverse()
+	if vals.size() >= ASSIGN_MIN_CANDS and int(vals[ASSIGN_MIN_CANDS - 1]) >= int(a.min_ovr):
+		return
+	var relax := 4 + int(float(me.get("prestige", 50)) / 15.0)
+	var floor_v := int(a.min_ovr) - relax
+	var kth: int = int(vals[mini(ASSIGN_MIN_CANDS, vals.size()) - 1]) if not vals.is_empty() else floor_v
+	a.min_ovr = clampi(kth, floor_v, int(a.min_ovr))
+
+func _assign_extend(a: Dictionary) -> bool:
+	## Süre dolunca bir kez: elinde izlediğin (seen>=1), koşullara uyan bir aday varsa kulüp
+	## ASSIGN_EXTEND hafta daha bekler (gerçekte sportif direktör "adayın var mı?" diye sorar).
+	if bool(a.get("ext", false)) or s.week + ASSIGN_EXTEND > WEEKS:
+		return false
+	var grp: String = Data.POS_GROUP[a.pos]
+	for pid in s.scout.knowledge:
+		var p := player(pid)
+		if p.is_empty() or p.club == "" or p.club == s.scout.club_id:
+			continue
+		if Data.POS_GROUP[p.pos] != grp or int(p.age) > int(a.max_age):
+			continue
+		if int(s.scout.knowledge[pid].get("seen", 0)) < 1 or fee_ok(pid, a.id) != "":
+			continue
+		a["ext"] = true
+		a.deadline = s.week + ASSIGN_EXTEND
+		add_news("n_assign_extended", [T.t("pos_" + a.pos), ASSIGN_EXTEND], true, "career")
+		return true
+	return false
 
 func club_avg_ovr(cid: String) -> float:
 	if is_lazy(cid):
@@ -1518,7 +1605,7 @@ func _decide_report(r: Dictionary) -> void:
 		add_news("n_urgent_done", [pname(p)], true, "good")
 	area_gain(area_of_club(seller.id), 5.0)
 	s.scout.money += 250
-	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
+	s.scout.rep = minf(100.0, s.scout.rep + SIGN_REP)
 
 func _transfer(pid: String, to: String, fee: int) -> void:
 	_hl_transfer(pid, to, fee)
@@ -2192,15 +2279,23 @@ func _week_events() -> void:
 		if s.week == WINDOWS[1][0] or s.week == 1:
 			_ai_transfers()
 	for a in s.assign:
+		if a.status == "open" and s.week > int(a.deadline) and _assign_extend(a):
+			continue
 		if a.status == "open" and s.week > int(a.deadline):
 			a.status = "expired"
-			s.scout.rep = maxf(0.0, s.scout.rep - 2.0)
+			# v0.24 (2A): aday sunduysan (kurul reddetti) suç yarı yarıya kulübün
+			var tried := false
+			for r in s.scout.reports:
+				if r.aid == a.id and r.rec == "sign":
+					tried = true
+					break
+			s.scout.rep = maxf(0.0, s.scout.rep - (EXPIRE_REP_TRIED if tried else EXPIRE_REP))
 			add_news("n_assign_expired", [a.pos], true, "bad")
 	var open := 0
 	for a in s.assign:
 		if a.status in ["open", "submitted"]:
 			open += 1
-	if open < 2 and s.week <= WEEKS - 6 and s.week % 4 == 0 and _organic_open() == 0:
+	if open < 2 and s.week <= WEEKS - int(ASSIGN_WEEKS[0]) and s.week % 4 == 0 and _organic_open() == 0:
 		make_assignments(1)
 		add_news("n_new_assign", [], true, "career")
 	if s.week == 12 or s.week == 24:
@@ -2767,6 +2862,10 @@ func board_mood_key() -> String:
 
 # ================================================================ sezon sonu
 
+## v0.24 (2A) [PLACEHOLDER]: bir sezonda en fazla bu kadar prestij basamağı atlanır (hedef: iyi scout
+## 3. sezonda ~70, zirve 5. sezondan sonra). Gerçekte de kulüpler küçük kulüpten doğrudan zirveye scout almaz.
+const OFFER_STEP_MAX := 14
+
 func _season_end() -> void:
 	if s.has("hl_log"):
 		_star_headlines()
@@ -2827,6 +2926,16 @@ func _season_end() -> void:
 		_rep_track(r, rp, sc2, stars(float(rp.pa)))
 		r.evals = 3
 	_check_badges()
+	# v0.24 (2A): yıllık iş değerlendirmesi (tembel scout ~0 alır)
+	var work := clampf(float(s.scout.get("season_watched", 0)) * WORK_REP_PER_MATCH + float(s.scout.get("season_reports", 0)) * WORK_REP_PER_REPORT, 0.0, WORK_REP_CAP)
+	s.scout.rep = minf(100.0, s.scout.rep + work)
+	summ["work_rep"] = snappedf(work, 0.1)
+	summ["hl_rep"] = snappedf(hl_rep_season(), 0.1)
+	var hi := maxf(REP_SOFT_CAP, float(s.scout.get("rep_start", summ.rep_before)))
+	if s.scout.rep > hi:
+		var trim: float = (s.scout.rep - hi) * (1.0 - REP_SOFT_MULT)
+		s.scout.rep -= trim
+		summ["rep_soft"] = snappedf(trim, 0.1)
 	if s.scout.spent > s.scout.budget:
 		var over := float(s.scout.spent - s.scout.budget) / maxf(1.0, float(s.scout.budget))
 		s.scout.rep = maxf(0.0, s.scout.rep - minf(over * 8.0, 5.0))
@@ -2894,14 +3003,16 @@ func _season_end() -> void:
 		var home_c := club_country(cid) == club_country(mine.id)
 		var ar := area_rep(area_of_club(cid))
 		var chance := 0.35 + ar * 0.003 if home_c else 0.0006 + ar * 0.002
-		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 + ar * 0.15 and rf() < chance:
+		if s.scout.rep >= 10.0 and c.prestige > mine.prestige and c.prestige <= s.scout.rep + 35 + ar * 0.15 and c.prestige <= mine.prestige + OFFER_STEP_MAX and rf() < chance:
 			s.offers.append(cid)
 	s.offers.shuffle()
 	s.offers.sort_custom(func(a, b): return int(club_country(a) == club_country(mine.id)) > int(club_country(b) == club_country(mine.id)))
 	s.offers = s.offers.slice(0, 3)
 	var rep_start: float = float(s.scout.get("rep_start", summ.rep_before))
 	var lazy: bool = int(s.scout.get("season_reports", 0)) == 0 and int(s.scout.get("season_watched", 0)) < 6
-	summ.fired = (s.scout.rep < float(mine.prestige) * 0.15 and s.scout.rep < rep_start - 4) or (lazy and rf() < 0.6)
+	# v0.24 (2A): eski "rep < rep_start-4" itibar 0'dayken imkânsızdı; taban 5
+	var dropped: bool = s.scout.rep < maxf(5.0, rep_start - 4.0)
+	summ.fired = (dropped and (s.scout.rep < float(mine.prestige) * 0.15 or s.scout.rep < 5.0)) or (lazy and (s.scout.rep < rep_start or rf() < 0.6))
 	if summ.fired:
 		add_news("n_fired", [mine.name], true, "bad")
 		if s.offers.is_empty():
@@ -2930,7 +3041,7 @@ func _season_end() -> void:
 	make_fixtures()
 	make_u19_fixtures()
 	if not summ.fired:
-		make_assignments(3)
+		make_assignments(SEASON_TASKS)
 
 func _promotions() -> Dictionary:
 	## Her ülkede kademeler arası yükselme/düşme. Dönüş: {cc, up{t: [..]}, down{t: [..]}, by{cc: {up, down}}}
@@ -3113,7 +3224,7 @@ func dismiss_summary() -> void:
 	s.season_summary = {}
 	s.offers = []
 	if s.scout.club_id != "" and s.assign.is_empty():
-		make_assignments(3)
+		make_assignments(SEASON_TASKS)
 	save_game()
 
 # ================================================================ arama
@@ -3297,6 +3408,7 @@ func _organic_assign(kind: String, pos: String, why: String, ref: String, urgent
 			a.min_ovr = int(avg) - 4
 			a.max_value = int(minf(c.budget * 0.2, 600000))
 	a.max_value = max(100000, int(round(a.max_value / 50000.0) * 50000))
+	_fit_assign(a)
 	s.assign.append(a)
 	var ready := shadow_of(pos).size()
 	if ready > 0:
@@ -3305,7 +3417,7 @@ func _organic_assign(kind: String, pos: String, why: String, ref: String, urgent
 
 func _organic_requests() -> void:
 	## Kulübün gerçek durumundan doğan talepler: sakatlık, satış, yaşlanma, hoca isteği, zayıf halka
-	if s.scout.club_id == "" or s.week > WEEKS - 5 or _organic_open() >= 3:
+	if s.scout.club_id == "" or s.week > WEEKS - 5 or _organic_open() >= ORGANIC_OPEN_MAX:
 		return
 	var me := my_club()
 	var xi := best_xi(me.id)
@@ -3319,7 +3431,7 @@ func _organic_requests() -> void:
 	for row in top.slice(0, 13):
 		var p := player(row[1])
 		if int(p.inj) >= 5 and not _has_req("inj", row[1]):
-			_organic_assign("first11", p.pos, "inj", row[1], true, 6)
+			_organic_assign("first11", p.pos, "inj", row[1], true, 8)
 			add_news("n_req_inj", [pname(p), int(p.inj), T.t("pos_" + p.pos)], true, "career")
 			return
 	# 2) büyük kulüp ilk 11'den oyuncu kapar (transfer dönemi)
@@ -3336,7 +3448,7 @@ func _organic_requests() -> void:
 			var fee := int(p.value * rng.randf_range(1.2, 1.6))
 			_transfer(pid, bc, fee)
 			add_news("n_req_sold", [club(bc).name, pname(p), money_str(fee)], true, "career")
-			_organic_assign("first11", p.pos, "sold", pid, true, 7)
+			_organic_assign("first11", p.pos, "sold", pid, true, 9)
 			return
 	# 3) yaşlanan as: halef
 	if s.week in [9, 21]:
@@ -3971,13 +4083,59 @@ func _ensure_v21() -> void:
 	if not s.has("tut"):
 		s["tut"] = {"step": 6, "on": false, "v": 2}
 
+## v0.24 (2A): "senin keşfin" = rapor yazdığın ya da ilk keşfi sana ait oyuncu.
+## Odaklı maç izlemesi ("match"), ekip keşfi ("staff"), ihbar ("tip"), menajer ("agent") sayılmaz:
+## gerçekte basın keşfi raporu yazana / oyuncuyu ilk bulana yazar, maçta görene değil.
+const MY_FIND_HOW := ["report", "trip", "tournament", "deadline"]
+## Sezonda manşetten gelebilecek en fazla itibar [PLACEHOLDER]: ~2 isabetli imza değerinde,
+## asıl ilerleme yolu (rapor -> imza -> isabet) önde kalsın.
+const HL_REP_CAP := 6.0
+
 func is_my_find(pid: String) -> bool:
-	if not discovery(pid).is_empty():
-		return true
 	for r in s.scout.reports:
 		if r.pid == pid:
 			return true
+	return _disc_is_mine(discovery(pid))
+
+func _disc_is_mine(d: Dictionary) -> bool:
+	if d.is_empty():
+		return false
+	var how := str(d.get("how", ""))
+	if how in MY_FIND_HOW:
+		return true
+	# U19 maçında sahadaki herkes "keşif" sayılmaz: yalnız odakla izlediğin (seen>=1) genç
+	if how == "u19":
+		return int(s.scout.knowledge.get(d.pid, {}).get("seen", 0)) >= 1
 	return false
+
+func _my_find_pids() -> Array:
+	## Manşet adayları: rapor yazılanlar + ilk keşfi sana ait olanlar (tekrarsız)
+	var out := []
+	var seen := {}
+	for r in s.scout.reports:
+		if not seen.has(r.pid):
+			seen[r.pid] = true
+			out.append(r.pid)
+	for d in s.scout.get("disc_log", []):
+		if not seen.has(d.pid) and _disc_is_mine(d):
+			seen[d.pid] = true
+			out.append(d.pid)
+	return out
+
+func _hl_rep_add(v: float) -> void:
+	## Manşet itibarı sezon tavanıyla (HL_REP_CAP)
+	if int(s.scout.get("hl_rep_season", -1)) != int(s.season):
+		s.scout["hl_rep_season"] = int(s.season)
+		s.scout["hl_rep"] = 0.0
+	var room := maxf(0.0, HL_REP_CAP - float(s.scout.get("hl_rep", 0.0)))
+	var g := minf(v, room)
+	if g <= 0.0:
+		return
+	s.scout["hl_rep"] = float(s.scout.get("hl_rep", 0.0)) + g
+	s.scout.rep = minf(100.0, s.scout.rep + g)
+
+func hl_rep_season() -> float:
+	return float(s.scout.get("hl_rep", 0.0)) if int(s.scout.get("hl_rep_season", -1)) == int(s.season) else 0.0
 
 func _headline(kind: String, pid: String, args: Array) -> void:
 	var d := discovery(pid)
@@ -3993,12 +4151,13 @@ func _headline(kind: String, pid: String, args: Array) -> void:
 	if s.headlines.size() < 4:
 		s.headlines.append(h)
 	add_news("n_hl_" + kind, [pname(player(pid))] + args, true, "headline")
-	# manşet itibar getirir: herkes keşfi kimin yaptığını konuşur
-	s.scout.rep = minf(100.0, s.scout.rep + 1.0)
+	# manşet itibar getirir: herkes keşfi kimin yaptığını konuşur (sezonda en fazla HL_REP_CAP)
+	var g := 1.0
 	if s.has("life"):
 		life_rel("press", 4.0)
 		if float(s.life.rel.press) >= 70.0:
-			s.scout.rep = minf(100.0, s.scout.rep + 0.5)
+			g += 0.5
+	_hl_rep_add(g)
 
 func pop_headline() -> Dictionary:
 	if s.get("headlines", []).is_empty():
@@ -4017,13 +4176,13 @@ func _hl_transfer(pid: String, to: String, fee: int) -> void:
 func _callups() -> void:
 	## Milli ara: keşiflerinden milli takıma çağrılan var mı (ülkesinin en iyi 23'ü)
 	var by_nat := {}
-	for d in s.scout.get("disc_log", []):
-		var p := player(d.pid)
-		if p.is_empty() or int(p.age) < 18 or s.scout.caps.has(d.pid):
+	for fpid in _my_find_pids():
+		var p := player(fpid)
+		if p.is_empty() or int(p.age) < 18 or s.scout.caps.has(fpid):
 			continue
 		if not by_nat.has(p.nat):
 			by_nat[p.nat] = []
-		by_nat[p.nat].append(d.pid)
+		by_nat[p.nat].append(fpid)
 	for nat in by_nat:
 		var ovrs := []
 		for pid in s.players:
@@ -4042,13 +4201,13 @@ func _callups() -> void:
 				_headline("callup", pid, [Data.country_name(nat)])
 
 func _star_headlines() -> void:
-	for d in s.scout.get("disc_log", []):
-		var p := player(d.pid)
+	for fpid in _my_find_pids():
+		var p := player(fpid)
 		if p.is_empty() or int(p.st.apps) < 15:
 			continue
 		var avg := float(p.st.rs) / float(p.st.apps)
 		if avg >= rating_thr("star_headline"):
-			_headline("star", d.pid, [club(p.club).get("name", "?"), "%.1f" % avg])
+			_headline("star", fpid, [club(p.club).get("name", "?"), "%.1f" % avg])
 
 ## Keşif 11'i: kariyer boyunca bulduğun oyunculardan en güçlü kadro (4-3-3)
 const XI_SLOTS := [["GK", ["GK"]], ["LB", ["LB"]], ["CB", ["CB"]], ["CB", ["CB"]], ["RB", ["RB"]],
