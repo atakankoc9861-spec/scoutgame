@@ -1,0 +1,9 @@
+{
+  "n_sacked_week": ["Bu hafta %s kulüpte teknik direktör değişti.", "Managers changed at %s clubs this week."],
+  "n_kids_week": ["Evlatlarından bu hafta %s haber var.", "%s updates from your finds this week."],
+  "news_pinned": ["Sabit: teklifler ve görevler", "Pinned: offers and tasks"],
+  "news_more": ["+%s haber daha", "+%s more"],
+  "nk_kids": ["Evlatlarım", "My finds"],
+  "nk_headline": ["Manşet", "Headline"],
+  "nk_rumor": ["Söylenti", "Rumour"]
+}
