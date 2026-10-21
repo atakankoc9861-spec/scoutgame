@@ -1,0 +1,7 @@
+{
+  "mv_hl_seek": ["Özet: sıradaki pozisyon… %s'", "Highlights: next chance… %s'"],
+  "mv_ht_q": ["İkinci yarıyı nasıl izlemek istersin?", "How do you want to watch the second half?"],
+  "mv_ht_watch": ["2. yarıyı izle", "Watch 2nd half"],
+  "mv_ht_summary": ["Özetle", "Highlights only"],
+  "mv_ht_skip": ["Atla", "Skip"]
+}
