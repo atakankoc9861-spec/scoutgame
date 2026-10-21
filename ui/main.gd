@@ -483,10 +483,11 @@ func _stat_pill(parent: Control, icon: String, key: String, val: float, fmt: Str
 			l.text = fmt % int(round(v))
 	setter.call(prev)
 	if absf(prev - val) > 0.01:
-		var tw := create_tween()
+		# tween'ler düğümlere bağlı: etiket/kapsül silinince tween de durur (eski: kökten tween silinmiş etikete yazıp SCRIPT ERROR veriyordu)
+		var tw := l.create_tween()
 		tw.tween_method(setter, prev, val, 0.6).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		pc.pivot_offset = Vector2(60, 20)
-		var tw2 := create_tween()
+		var tw2 := pc.create_tween()
 		tw2.tween_property(pc, "scale", Vector2(1.08, 1.08), 0.12)
 		tw2.tween_property(pc, "scale", Vector2.ONE, 0.25)
 
