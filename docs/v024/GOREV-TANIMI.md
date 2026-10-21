@@ -64,3 +64,45 @@ run_tests.sh yeşil; yeni *_check.gd yeşil; logda SCRIPT ERROR yok; TR/EN eşit
 ## Ertelenenler
 Faz 4 portre kiti (GPU ortamı), Faz 5 model işleri (Blender kaynağı yok), mobil sprite seyirci (v0.25 telemetriye göre), whimsy kalan 17 an, UI seçeneği B'nin kalanı, human.gd/footballer.gd temizliği, reklam/IAP SDK, müzik, yeni içerik.
 Bütçe daralırsa 5B ve 6A v0.25'e kayabilir; öncelik Dalga 1–4.
+
+---
+# REVİZYON (21 Ekim 2026) — Dalga 4–7 yukarıdakinin yerine geçer
+Atakan'ın a2 telefon geri bildirimi sonrası (maç süresi, Analist Gözü, top hatası, talepler, izin, bölge seçici, yüz/forma/tribün). Dalga 1–3 tamam (main d7c3ee5). 4K tamam (d3ed119).
+
+## Kararlar
+- Maç süresi: Özet ~5 dk, Anlar ~3 dk, Normal ~12 dk; devre arası "2. yarıyı izle / özetle / atla"; anlar devre başına tavanlı.
+- İzinsiz ülke = sadece video (aramada "sadece video" etiketi; antrenman/maç/seyahat kilitli; do_training izin kontrolü).
+- Analist Gözü (Atakan seviyor, kısılmasın, işe yarasın): maçta 4–5 (iki yarıya yayılmış, arka arkaya değil), tam durdurma yok → 0,25 ağır çekim, üstten analist kamerası (pas yolları, boş adam, baskı), doğru cevap futbol mantığından + kısa gerekçe, doğru okuma odak oyuncunun ilgili özelliğinin bilgisini artırır, yalnız odak oyuncu anlarında.
+- Yüzler: v0.25'te CC0 hat; v0.24'te yalnız forma + tribün (kod).
+- Talep tavanı ortak 3, "şimdi yapamam" reddi küçük bedelle; bölge seçici bayrak + europe.gd harita vurgusu + açık bölge adları.
+- Yeni (Atakan onayladı): "Bu maçta öğrendiklerin" ekranı (v0.24), kayıt yedeği (v0.24), monetizasyon tasarım dokümanı (v0.24, uygulama sonra); video klip oynanışı ve gizli özellikler + sinematik görüşmeler v0.25.
+- Not edilenler: haftalık oturum süresi hedefi, düşük segment Android testi, Google Play şartları (hedef API, gizlilik, veri güvenliği) yayından önce, kapsam şişmesine dikkat.
+
+## Dalga 4 — Maç temposu ve kurallar
+- 4K [K] top asılı kalma — TAMAM.
+- 4A Maç temposu — godot-gameplay-scripter — v024/mac-tempo. Yalnız three/match_view.gd (_current_rate, _tick_seek, _moment_track, devre arası) + tests/check/tempo_check.gd (önce yazılır). Dokunmaz: sim/*, Game.gd, ui/*. Özet: yalnız şut/gol/büyük fırsat 1x, gerisi görüntüsüz hızlı atlanır; Anlar: devre başına ≤4 an, sona yaklaşınca 2. yarıya mutlaka geçer; devre arası seçimi; video 5 an aynen.
+- 4B Talep tavanı + izin + bölge seçici — game-designer — v024/talep-izin. Game.gd (make_assignments, _organic_requests, ~2347 +1 talep, yeni assign_decline, do_training, arama), autoload/Data.gd (ZONES + bölge adları), ui/main.gd (yalnız başkan bölge seçimi, arama etiketi, talep kartı reddet), ui/europe.gd. Dokunmaz: three/*, sim/*.
+Birleştirme: 4K → 4B → 4A.
+Kapı: testler yeşil, SCRIPT ERROR yok, TR/EN eşit; engine_check ölü top ball_h=0; tempo_check Özet ≤6 dk, Anlar ≤4 dk, Normal ≤14 dk, 2. yarıya her modda ulaşılıyor; bot [K]: açık talep hiç >3 değil, iyi botta düşen ≤3/sezon, 0 NaN, kayıt turu temiz; izinsiz ülkede do_training "need_board_abroad", video çalışıyor; bölge ekranı görüntüsü (bayrak + vurgulu harita).
+
+## Dalga 5 — Analist Gözü + "Öğrendiklerin"
+Arayüz: 5A maç sonu verisine fe["_eye_reads"] = [{pid, attr, ok}] yazar; 5B okur.
+- 5A Analist Gözü — godot-gameplay-scripter (+ gozcu-scout-gercekcilik okuyucu) — v024/analist-gozu. sim/eye_logic.gd (yeni, saf mantık), three/match_view.gd (_eye_*, analist kamerası), tests/check/eye_check.gd (önce). sim/live_engine.gd yalnız okuma (eye_preview). Dokunmaz: Game.gd, ui/*.
+- 5B Öğrendiklerin + bilgi kazancı — game-designer — v024/ogrendiklerin. Game.gd (finish_live/finish_video bilgi farkı, _eye_reads → vision/decisions/passing, maç başı tavan), ui/main.gd (_scr_result), ui/range_bar.gd (daralma animasyonu). Dokunmaz: three/*, sim/*.
+Birleştirme: 5B → 5A, sonra ara APK a3 [K].
+Kapı: testler yeşil; eye_check elle kurulmuş pozisyonlar (boş adam + açık yol = doğru; riskli ara pası yanlış; TR/EN gerekçe); 50 maç ekransız: 4–5 soru, her yarıda ≥2, arka arkaya yok, hız hiç 0 değil; doğru okuma bilgiyi artırır, tavan aşılmaz, kayıt turu temiz; telefonda analist kamerası donma/siyah ekran yok, Özet ~5 dk, öğrendiklerin ekranı görünüyor.
+
+## Dalga 6 — Ekonomi, görsellik, yedek
+- 6A Ekonomi + docs/v024/MONETIZASYON.md — economy-designer — v024/ekonomi. Game.gd (life_buy kademeleri, sürekli giderler). Doküman: ödüllü reklam/IAP nereye (parayla güçlenme yok; örn. ek video hakkı), çevrimdışı, fiyat/sıklık.
+- 6B Forma + tribün — technical-artist — v024/forma-tribun. three/mocap_man.gd (forma kumaş shader'ı, numara/isim baskısı), three/stadium.gd (sprite seyirci, telefonda bayrakla). Dokunmaz: match_view.gd, Game.gd, ui/*.
+- 6K [K] Kayıt yedeği — v024/yedek. ui/screens/backup.gd (yeni), ui/main.gd (ayarlara 2 buton). Dışa aktar user://kariyer.json → seçilen konum; içe aktar → doğrula → SAVE_PATH → load_game() + göç; Game.gd değişmez; Godot yerel dosya seçici, çalışmazsa Download.
+Birleştirme: 6K → 6A → 6B.
+Kapı: testler yeşil; bot [K] iyi bot parası 3. sezon 10–25 bin, tembel ≤15 bin, ilerleme korunuyor; yedek dışa→içe aynı durum (test), bozuk dosya red, telefonda elle bir kez; maç dc ≤ Faz 0 +%5, telefonda fps düşmüyor, safe3d'de sprite seyirci kapalı; MONETIZASYON.md Atakan okudu.
+
+## Dalga 7 — Ana ekran (opsiyonel) + sürüm
+- 7A (OPSİYONEL) sekme geçişi + ana ekran özeti (UI planı 3,5) — godot-gameplay-scripter — v024/ui-ana. ui/main.gd (_sheet, _refresh_soft, _home_summary, _refresh_topbar), ui/kit.gd. Haftalık limit dolarsa v0.25.
+- 7K [K] sürüm: 0.24, code = son ara APK + 1; release keystore; v0.24 etiketi; docs/v024/PLAY-KONTROL.md (hedef API, gizlilik politikası, veri güvenliği — not, yayın yok).
+Son kapı: testler + bot yeşil; Atakan telefonda 1 sezon; mümkünse düşük segment Android'de 1 maç; v0.23 kaydı açılıyor; yedek dışa/içe.
+
+## v0.25'e kalanlar
+Video klip oynanışı; gizli özellikleri görüşmeye bağlama + sinematik görüşmeler (Data.HIDDEN zaten var, Game.gd ~1132/~1184); yüz hattı (CC0); maç HUD yeniden tasarımı; whimsy anları; monetizasyon kodu; haftalık oturum süresi hedefi.
