@@ -1,0 +1,487 @@
+extends "res://tests/check/check_base.gd"
+## v0.23 Dalga 4 bot playtest: BOT_POLICY=decent|lazy, BOT_SEASONS=3, CHECK_SEED, BOT_OUT=csv yolu
+
+var policy := "decent"
+var seasons := 3
+var out_path := ""
+var rows: Array = []
+var reported := {}      # pid|aid -> true
+var monitor_done := {}
+var targets: Array = []
+var stall0 := false
+
+func watchdog_sec() -> float:
+	return 5400.0
+
+func run_check() -> void:
+	policy = OS.get_environment("BOT_POLICY") if OS.get_environment("BOT_POLICY") != "" else "decent"
+	if OS.get_environment("BOT_SEASONS").is_valid_int():
+		seasons = OS.get_environment("BOT_SEASONS").to_int()
+	out_path = OS.get_environment("BOT_OUT")
+	var t0 := Time.get_ticks_msec()
+	Game.new_game("Bot", "tr")
+	print("BOT new_game ms=%d policy=%s" % [Time.get_ticks_msec() - t0, policy])
+	var offers: Array = Game.job_offers_start()
+	if not check(not offers.is_empty(), "başlangıç teklifi yok"):
+		return
+	Game.take_job(str(offers[0]))
+	var s0 := int(Game.s.season)
+	for si in seasons:
+		await _play_season(s0 + si, si)
+	_write_csv()
+
+func _play_season(season: int, si: int) -> void:
+	var st := {"bot": policy, "seed": Game.rng.seed, "season": si + 1, "club": str(Game.my_club().get("short", "?")),
+		"prestige": int(Game.my_club().get("prestige", 0)), "league": str(Game.my_club().get("league", "")),
+		"rep_start": snappedf(float(Game.s.scout.rep), 0.1), "salary_start": int(Game.s.scout.salary), "money_start": int(Game.s.scout.money),
+		"budget": int(Game.s.scout.budget)}
+	var ms: Array = []
+	var fin_ms: Array = []
+	var live_l: Array = []
+	var day_l: Array = []
+	var news_keys := {}
+	var news_full := {}
+	var ev_kinds := {}
+	var reports := 0
+	var monitors := 0
+	var videos := 0
+	var meets := 0
+	var board_ok := 0
+	var board_n := 0
+	var hired := 0
+	var life_buys := 0
+	var lg_good := -1.0
+	var lg_bad := -1.0
+	var inj_watched := 0
+	var errs0 := _catcher.count
+	var fails0 := _fails.size()
+	var min_money := int(Game.s.scout.money)
+	var weeks := 0
+	while int(Game.s.season) == season and weeks < Game.WEEKS + 3:
+		if int(Game.s.week) == Game.WEEKS:
+			var r := _league_thr_share()
+			lg_good = r[0]
+			lg_bad = r[1]
+		if policy == "decent":
+			var a := _decent_week()
+			reports += a.reports
+			monitors += a.monitors
+			videos += a.videos
+			meets += a.meets
+			board_n += a.board_n
+			board_ok += a.board_ok
+			hired += a.hired
+			life_buys += a.life
+		var head: Variant = Game.s.news[0] if not Game.s.news.is_empty() else null
+		var inj_before := _inj_set()
+		var wt := Time.get_ticks_msec()
+		var live_ms := 0
+		var day_ms := 0
+		for day: String in ["sat", "sun"]:
+			var d0 := Time.get_ticks_msec()
+			var key := Game.play_day(day)
+			day_ms += Time.get_ticks_msec() - d0
+			if key != "":
+				var l0 := Time.get_ticks_msec()
+				var data := Game.watch_match_data(key)
+				Game.finish_live(data)
+				var fe := {}
+				for pid: Variant in Game.s.plan["focus_" + day]:
+					fe[pid] = range(data.tl.size())
+				Game.apply_watch(data, fe)
+				live_ms += Time.get_ticks_msec() - l0
+		var f0 := Time.get_ticks_msec()
+		Game.finish_week()
+		fin_ms.append(Time.get_ticks_msec() - f0)
+		live_l.append(live_ms)
+		day_l.append(day_ms)
+		ms.append(Time.get_ticks_msec() - wt)
+		weeks += 1
+		inj_watched += _new_inj_in_watched(inj_before)
+		for n: Dictionary in Game.s.news:
+			if head != null and is_same(n, head):
+				break
+			var k := str(n.key)
+			news_keys[k] = int(news_keys.get(k, 0)) + 1
+			var fk := k + "|" + str(n.args)
+			news_full[fk] = int(news_full.get(fk, 0)) + 1
+		for e: Dictionary in Game.s.get("events", []).duplicate():
+			var kk := str(e.get("kind", ""))
+			if kk == "dilemma" or e.has("type") and kk != "life":
+				kk = "dilemma_" + str(e.get("type", ""))
+			ev_kinds[kk] = int(ev_kinds.get(kk, 0)) + 1
+			if policy == "decent":
+				_resolve_event(e)
+		min_money = mini(min_money, int(Game.s.scout.money))
+		check_scout_state("%s s%d w%d" % [policy, si + 1, int(Game.s.week)])
+		await get_tree().process_frame
+	# sezon sonu
+	var sm: Dictionary = Game.s.season_summary
+	var evals: Array = sm.get("evals", [])
+	var eg := 0
+	var eb := 0
+	var e8 := 0
+	for e: Dictionary in evals:
+		if int(e.apps) >= 8:
+			e8 += 1
+			if float(e.avg) >= Game.rating_thr("report_good"):
+				eg += 1
+			elif float(e.avg) < Game.rating_thr("report_bad"):
+				eb += 1
+	var stat := {}
+	for r: Dictionary in Game.s.scout.reports:
+		if int(r.season) == season:
+			stat[str(r.status)] = int(stat.get(str(r.status), 0)) + 1
+	ms.sort()
+	st.weeks = weeks
+	fin_ms.sort()
+	live_l.sort()
+	day_l.sort()
+	st.finish_ms_med = fin_ms[fin_ms.size() / 2]
+	st.finish_ms_max = fin_ms[-1]
+	st.live2_ms_med = live_l[live_l.size() / 2]
+	st.playday_ms_med = day_l[day_l.size() / 2]
+	st.week_ms_med = ms[ms.size() / 2] if not ms.is_empty() else 0
+	st.week_ms_p90 = ms[int(ms.size() * 0.9)] if not ms.is_empty() else 0
+	st.week_ms_max = ms[-1] if not ms.is_empty() else 0
+	st.rep_end = snappedf(float(sm.get("rep_after", Game.s.scout.rep)), 0.1)
+	st.money_end = int(Game.s.scout.money)
+	st.money_min = min_money
+	st.spent_over = bool(sm.get("over_budget", false))
+	st.reports_sign = reports
+	st.reports_monitor = monitors
+	st.rep_status = str(stat).replace(",", ";")
+	st.signed = int(stat.get("signed", 0)) + int(stat.get("agreed", 0))
+	st.rejected = int(stat.get("rejected", 0))
+	st.evals = evals.size()
+	st.evals_8apps = e8
+	st.evals_good = eg
+	st.evals_bad = eb
+	st.lg_good_pct = snappedf(lg_good * 100.0, 0.1)
+	st.lg_bad_pct = snappedf(lg_bad * 100.0, 0.1)
+	st.videos = videos
+	st.meets = meets
+	st.board = "%d/%d" % [board_ok, board_n]
+	st.staff_n = Game.s.get("staff", []).size()
+	st.hired = hired
+	st.staff_hint = int(news_keys.get("n_staff_data", 0))
+	st.staff_report_news = int(news_keys.get("n_staff_report", 0))
+	var hl := 0
+	for k: String in news_keys:
+		if k.begins_with("n_hl_"):
+			hl += int(news_keys[k])
+	st.headlines = hl
+	st.task_expired = int(news_keys.get("n_assign_expired", 0))
+	st.new_assign = int(news_keys.get("n_new_assign", 0))
+	st.organic = int(news_keys.get("n_req_inj", 0)) + int(news_keys.get("n_req_sold", 0)) + int(news_keys.get("n_req_succ", 0)) + int(news_keys.get("n_req_style", 0)) + int(news_keys.get("n_req_weak", 0))
+	st.tips = int(news_keys.get("n_tip", 0))
+	st.rumors = int(news_keys.get("n_rumor", 0))
+	st.inj_watched = inj_watched
+	st.life_buys = life_buys
+	st.fired = bool(sm.get("fired", false))
+	st.offers = Game.s.offers.size()
+	st.events = str(ev_kinds).replace(",", ";")
+	# en çok tekrar eden haber (anahtar + argüman aynı)
+	var top_k := ""
+	var top_n := 0
+	for k: String in news_full:
+		if int(news_full[k]) > top_n:
+			top_n = int(news_full[k])
+			top_k = k
+	st.dup_news_top = "%s x%d" % [top_k.left(60).replace(",", ";"), top_n]
+	var key_top := []
+	for k: String in news_keys:
+		key_top.append([int(news_keys[k]), k])
+	key_top.sort_custom(func(x, y): return x[0] > y[0])
+	st.news_total = 0
+	for k: String in news_keys:
+		st.news_total += int(news_keys[k])
+	st.news_top5 = " ".join(key_top.slice(0, 5).map(func(x): return "%s=%d" % [x[1], x[0]]))
+	# kayıt boyutu + katı tur
+	Game.save_game()
+	st.save_kb = int(FileAccess.get_file_as_string(Game.SAVE_PATH).length() / 1024)
+	var f1 := _fails.size()
+	check_save_roundtrip("%s sezon %d" % [policy, si + 1])
+	st.roundtrip_fails = _fails.size() - f1
+	# iş kararı
+	var accepted := ""
+	if bool(sm.get("fired", false)):
+		if not Game.s.offers.is_empty():
+			accepted = str(Game.s.offers[0])
+			Game.accept_offer(accepted)
+		else:
+			Game.dismiss_summary()
+	elif policy == "decent" and not Game.s.offers.is_empty():
+		var best := ""
+		var bp := int(Game.my_club().get("prestige", 0))
+		for cid: Variant in Game.s.offers:
+			if int(Game.club(str(cid)).prestige) > bp:
+				bp = int(Game.club(str(cid)).prestige)
+				best = str(cid)
+		if best != "":
+			accepted = best
+			Game.accept_offer(best)
+		else:
+			Game.dismiss_summary()
+	else:
+		Game.dismiss_summary()
+	st.accepted = ("%s(p%d)" % [Game.club(accepted).short, int(Game.club(accepted).prestige)]) if accepted != "" else ""
+	st.salary_next = int(Game.s.scout.salary)
+	st.errors = _catcher.count - errs0
+	st.fails = _fails.size() - fails0
+	st.stall_file = FileAccess.file_exists(Watch.STALL_FILE)
+	reported = {}
+	rows.append(st)
+	print("BOT_SEASON ", JSON.stringify(st))
+
+func _inj_set() -> Dictionary:
+	var d := {}
+	for day: String in ["sat", "sun"]:
+		var key: String = str(Game.s.plan.get(day, ""))
+		if key == "":
+			continue
+		var m := Game.get_match(key)
+		for cid: Variant in [m.h, m.a]:
+			for pid: Variant in Game.club(str(cid)).squad:
+				d[pid] = int(Game.player(str(pid)).get("inj", 0))
+	return d
+
+func _new_inj_in_watched(before: Dictionary) -> int:
+	var n := 0
+	for pid: Variant in before:
+		var p := Game.player(str(pid))
+		# finish_week bir hafta düşürür; 0 iken şimdi >0 ise yeni sakatlık
+		if not p.is_empty() and int(before[pid]) == 0 and int(p.get("inj", 0)) > 0:
+			n += 1
+	return n
+
+func _league_thr_share() -> Array:
+	var lg: String = str(Game.my_club().get("league", ""))
+	var n := 0
+	var g := 0
+	var b := 0
+	for cid: String in Game.league_clubs(lg):
+		for pid: Variant in Game.club(cid).squad:
+			var p := Game.player(str(pid))
+			if p.is_empty() or int(p.st.apps) < 8:
+				continue
+			n += 1
+			var avg := float(p.st.rs) / float(p.st.apps)
+			if avg >= Game.rating_thr("report_good"):
+				g += 1
+			elif avg < Game.rating_thr("report_bad"):
+				b += 1
+	return [float(g) / maxf(1.0, n), float(b) / maxf(1.0, n)]
+
+func _resolve_event(e: Dictionary) -> void:
+	var k := str(e.get("kind", ""))
+	if e.has("type") and k != "life":
+		Game.resolve_dilemma(e, false)
+		return
+	if k == "deadline":
+		for c: Dictionary in e.get("calls", []):
+			Game.resolve_deadline_call(c, false)
+	elif k == "life":
+		Game.life_family_choice(true)
+	Game.s.events.erase(e)
+
+## "İyi oyuncu" haftası
+func _decent_week() -> Dictionary:
+	var out := {"reports": 0, "monitors": 0, "videos": 0, "meets": 0, "board_n": 0, "board_ok": 0, "hired": 0, "life": 0}
+	var sc: Dictionary = Game.s.scout
+	var w := int(Game.s.week)
+	# ekip
+	if Game.s.has("staff_pool"):
+		while Game.s.staff.size() < Game.staff_slots() and not Game.s.staff_pool.is_empty():
+			var left: int = int(sc.budget) - int(sc.spent)
+			var weeks_left: int = maxi(1, Game.WEEKS - w)
+			var best: Dictionary = {}
+			for m: Dictionary in Game.s.staff_pool:
+				if (Game.staff_cost() + int(m.salary)) * weeks_left > left * 0.6:
+					continue
+				if best.is_empty() or int(m.eye) > int(best.eye):
+					best = m
+			if best.is_empty():
+				break
+			if Game.hire_staff(str(best.id)) != "staff_hired":
+				break
+			out.hired += 1
+	var regs: Array = Game.regions().filter(func(r): return not Game.region_abroad(str(r)))
+	var ri := 0
+	for m: Dictionary in Game.s.get("staff", []):
+		if str(m.region) == "" and m.role == "scout":
+			Game.assign_staff(str(m.id), str(regs[ri % regs.size()]))
+			ri += 1
+	# başkan
+	if w >= 1 and Game.board_can_meet() == "":
+		var topic := ""
+		if int(Game.board().slots) < 3 and w <= 20:
+			topic = "staff"
+		elif w >= 22 and float(sc.rep) >= 30.0 and int(Game.board().asked.get("raise", 0)) == 0:
+			topic = "raise"
+		elif w % 6 == 0:
+			topic = "report"
+		if topic != "":
+			out.board_n += 1
+			if bool(Game.board_request(topic).get("ok", false)):
+				out.board_ok += 1
+	# hayat
+	var money := int(sc.money)
+	if int(Game.s.life.get("suit", 0)) == 0 and money > 2500:
+		if Game.life_buy("suit"):
+			out.life += 1
+	elif int(Game.s.life.get("home", 0)) == 0 and money > 8000:
+		if Game.life_buy("home"):
+			out.life += 1
+	elif int(Game.s.life.get("car", 0)) == 0 and money > 12000:
+		if Game.life_buy("car"):
+			out.life += 1
+	# hedefler: açık görevlere uyan, kendi ülkendeki oyuncular (görünen bilgiyle: mevki, yaş, tahmini bonservis)
+	var open: Array = Game.s.assign.filter(func(a): return str(a.status) == "open")
+	var mc := Game.my_country()
+	var tg := {}
+	for a: Dictionary in open:
+		var grp: String = Data.POS_GROUP[a.pos]
+		var cands: Array = Game.search({"country": mc, "grp": grp, "max_age": int(a.max_age), "sort": "rating"})
+		var n := 0
+		for pid: Variant in cands:
+			if Game.fee_ok(str(pid), str(a.id)) != "":
+				continue
+			tg[str(pid)] = str(a.id)
+			n += 1
+			if n >= 6:
+				break
+	targets = tg.keys()
+	# shortlist (en fazla 12)
+	for pid: String in targets:
+		if not (pid in sc.shortlist) and sc.shortlist.size() < 12:
+			Game.toggle_shortlist(pid)
+	# raporlar
+	for a: Dictionary in open:
+		var need := Game.assignment_need_stars(a)
+		var grp2: String = Data.POS_GROUP[a.pos]
+		var best_pid := ""
+		var best_claim := -1.0
+		var best_cp := []
+		for pid: Variant in sc.knowledge:
+			var p := Game.player(str(pid))
+			if p.is_empty() or str(p.club) == str(sc.club_id) or str(p.club) == "":
+				continue
+			if Data.POS_GROUP[p.pos] != grp2 or int(p.age) > int(a.max_age):
+				continue
+			if reported.has(str(pid) + "|" + str(a.id)) or Game.fee_ok(str(pid), str(a.id)) != "":
+				continue
+			if Game.known_fraction(str(pid)) < 0.35 or int(sc.knowledge[pid].get("seen", 0)) < 2:
+				continue
+			var cp := _cur_pot(str(pid))
+			var claim: float = cp[1] if a.kind in ["prospect", "wonderkid"] else cp[0]
+			if claim >= need and claim > best_claim:
+				best_claim = claim
+				best_pid = str(pid)
+				best_cp = cp
+		if best_pid != "":
+			var kn: Dictionary = sc.knowledge[best_pid]
+			if not bool(kn.get("met", false)) and Game.free_days() > 0 and Game.can_talk(best_pid):
+				if bool(Game.do_meet(best_pid).get("ok", false)):
+					out.meets += 1
+			Game.submit_report(best_pid, str(a.id), best_cp[0], best_cp[1], "sign", _tags(best_pid))
+			reported[best_pid + "|" + str(a.id)] = true
+			out.reports += 1
+	# izleme raporu: 6 haftada bir, iyi bilinen ama görevsiz bir oyuncu
+	if w % 6 == 3:
+		for pid: Variant in sc.knowledge:
+			if monitor_done.has(pid) or Game.player(str(pid)).is_empty() or str(Game.player(str(pid)).club) == str(sc.club_id):
+				continue
+			if Game.known_fraction(str(pid)) >= 0.5:
+				var cp := _cur_pot(str(pid))
+				Game.submit_report(str(pid), "", cp[0], cp[1], "monitor", _tags(str(pid)))
+				monitor_done[pid] = true
+				out.monitors += 1
+				break
+	# video: az bilinen 2 hedef
+	var vt: Array = targets.filter(func(pid): return Game.known_fraction(pid) < 0.35 and not Game.player(pid).get("youth", false))
+	for pid: String in vt.slice(0, 2):
+		if Game.free_days() <= 1:
+			break
+		if bool(Game.do_video(pid).get("ok", false)):
+			out.videos += 1
+	# maç planı
+	_plan_weekend()
+	return out
+
+func _cur_pot(pid: String) -> Array:
+	var cur := 2.5
+	var o := Game.ovr_range(pid)
+	if not o.is_empty():
+		cur = Game.stars((o[0] + o[1]) / 2.0)
+	var pr := Game.pa_range(pid)
+	var pot: float = maxf(cur, Game.stars((pr[0] + pr[1]) / 2.0)) if not pr.is_empty() else cur
+	return [cur, pot]
+
+func _tags(pid: String) -> Array:
+	var p := Game.player(pid)
+	var t := []
+	for a: Variant in Data.POS_WEIGHTS[p.pos]:
+		var r := Game.attr_range(pid, str(a))
+		if r.is_empty():
+			continue
+		var mid: float = (r[0] + r[1]) / 2.0
+		if mid >= 14:
+			t.append("+" + str(a))
+		elif mid <= 9:
+			t.append("-" + str(a))
+	return t.slice(0, 3)
+
+func _plan_weekend() -> void:
+	var mc := Game.my_country()
+	var used := {}
+	var tset := {}
+	for pid: String in targets:
+		tset[pid] = true
+	for pid: Variant in Game.s.scout.shortlist:
+		if not tset.has(pid):
+			tset[pid] = false
+	for day: String in ["sat", "sun"]:
+		var best_key := ""
+		var best_sc := -1.0
+		var best_sq: Array = []
+		for wm: Dictionary in Game.week_matches():
+			if str(wm.m.day) != day or int(wm.m.gh) >= 0 or Game.league_country(str(wm.lg)) != mc:
+				continue
+			var key: String = Game.match_key(str(wm.lg), int(wm.idx))
+			if used.has(key) or Game.match_abroad(key) or Game.is_lazy(str(wm.m.h)) or Game.is_lazy(str(wm.m.a)):
+				continue
+			var sq: Array = Game.club(str(wm.m.h)).squad + Game.club(str(wm.m.a)).squad
+			var sc := 0.0
+			for pid: Variant in sq:
+				if tset.has(pid):
+					sc += 2.0 if tset[pid] else 1.0
+			sc += 0.01 * float(Game.tier(str(wm.lg)) == 1)
+			if sc > best_sc:
+				best_sc = sc
+				best_key = key
+				best_sq = sq
+		if best_key == "" or not Game.plan_match(day, best_key):
+			continue
+		used[best_key] = true
+		var fs: Array = best_sq.filter(func(pid): return tset.has(pid))
+		fs.sort_custom(func(x, y): return Game.known_fraction(x) < Game.known_fraction(y))
+		for pid: Variant in fs:
+			Game.toggle_focus(day, str(pid))
+		# boş odak: kadrodan genç/rastgele
+		var i := 0
+		while Game.s.plan["focus_" + day].size() < Game.focus_cap(day) and i < best_sq.size():
+			var fp := str(best_sq[(i * 7) % best_sq.size()])
+			if not (fp in Game.s.plan["focus_" + day]):
+				Game.toggle_focus(day, fp)
+			i += 1
+
+func _write_csv() -> void:
+	if out_path == "" or rows.is_empty():
+		return
+	var keys: Array = rows[0].keys()
+	var f := FileAccess.open(out_path, FileAccess.WRITE)
+	f.store_line(",".join(PackedStringArray(keys.map(func(k): return str(k)))))
+	for r: Dictionary in rows:
+		f.store_line(",".join(PackedStringArray(keys.map(func(k): return str(r.get(k, ""))))))
+	f.close()
