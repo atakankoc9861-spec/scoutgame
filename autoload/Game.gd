@@ -8,7 +8,7 @@ const LiveEngine = preload("res://sim/live_engine.gd")
 const QuickEngine = preload("res://sim/quick_engine.gd")
 
 const SAVE_PATH := "user://kariyer.json"
-const SAVE_VERSION := 6
+const SAVE_VERSION := 7
 const WEEKS := 34
 const WORK_DAYS := 5          # Pzt-Cum
 const WED := 2                # U19 günü
@@ -153,10 +153,49 @@ func find_entity(name: String) -> Dictionary:
 		_name_idx_n = s.players.size()
 	return _name_idx.get(name, {})
 
-func add_news(key: String, args: Array = [], important := false, kind := "") -> void:
-	s.news.push_front({"season": s.season, "week": s.week, "key": key, "args": args, "imp": important, "kind": kind})
-	if s.news.size() > 160:
-		s.news.resize(160)
+## v0.24 (3A): haber akışı. Liste tavanı NEWS_CAP; teklif ve görev haberleri NEWS_PIN_WEEKS hafta
+## "sabit": tavan dolsa da önce bunlar dışındaki en eski haberler düşer, haber ekranı bunları üstte gösterir.
+const NEWS_CAP := 160
+const NEWS_PIN_WEEKS := 8
+const NEWS_PIN_KEYS := ["n_staff_poach", "n_new_assign", "n_assign_expired", "n_assign_extended", "n_urgent_done",
+	"n_req_inj", "n_req_sold", "n_req_succ", "n_req_style", "n_req_weak", "n_req_ready", "n_hired", "n_fired"]
+## Özet haberde (items) en fazla bu kadar alt satır saklanır
+const NEWS_ITEMS_MAX := 12
+
+## items: özet haberin alt satırları [[anahtar, [argümanlar]], ...] (haftalık evlatlar, kovulmalar)
+func add_news(key: String, args: Array = [], important := false, kind := "", items: Array = []) -> void:
+	var n := {"season": s.season, "week": s.week, "key": key, "args": args, "imp": important, "kind": kind}
+	if not items.is_empty():
+		n["items"] = items.slice(0, NEWS_ITEMS_MAX)
+		n["n_items"] = items.size()
+	s.news.push_front(n)
+	if s.news.size() > NEWS_CAP:
+		_trim_news(NEWS_CAP)
+
+func _abs_week(season: Variant, week: Variant) -> int:
+	return int(season) * (WEEKS + 2) + int(week)
+
+func news_age_weeks(n: Dictionary) -> int:
+	return _abs_week(s.season, s.week) - _abs_week(n.get("season", s.season), n.get("week", s.week))
+
+func news_pinned(n: Dictionary) -> bool:
+	return str(n.get("key", "")) in NEWS_PIN_KEYS and news_age_weeks(n) <= NEWS_PIN_WEEKS
+
+func pinned_news() -> Array:
+	## Haber ekranının üstündeki sabit haberler (en yeni önce)
+	var out := []
+	for n in s.get("news", []):
+		if news_pinned(n):
+			out.append(n)
+	return out
+
+func _trim_news(cap: int) -> void:
+	## En eski sabit olmayan haberlerden başlayarak tavana indir (sıra korunur)
+	var i: int = s.news.size() - 1
+	while s.news.size() > cap and i >= 0:
+		if not news_pinned(s.news[i]):
+			s.news.remove_at(i)
+		i -= 1
 
 func title_key() -> String:
 	var k := "title_0"
@@ -2207,12 +2246,21 @@ func _learn_from_agg(pid: String, ag: Dictionary, weight: float) -> void:
 		kn.pa_k = snappedf(minf(0.85, kn.pa_k + weight * 0.12 * eye_factor()), 0.001)
 		kn.pa_e = snappedf(lerpf(float(kn.pa_e), rng.randfn(0.0, 4.0), weight * 0.25), 0.1)
 
+const FX_DROP_KEYS := ["xi_h", "xi_a", "rt"]
+
 func finish_week() -> Dictionary:
 	var result := {"obs": s.last_obs}
 	# hafta sonu oynanmamış maçları tamamla
-	for wm in week_matches():
+	var wms := week_matches()
+	for wm in wms:
 		if int(wm.m.gh) < 0:
 			sim_match(wm.m, wm.lg)
+	# v0.24 (3A): biten haftanın maçlarında ilk 11 ve reyting listeleri artık okunmuyor (istatistik işlendi,
+	# izlenen maçın raporu last_obs'ta kendi kopyasını tutuyor; fikstür ekranları yalnız skor/gün okur).
+	# Kayıtta sezon sonuna doğru ~400 KB tutuyordu.
+	for wm in wms:
+		for k in FX_DROP_KEYS:
+			wm.m.erase(k)
 	for pid in s.players:
 		var p = s.players[pid]
 		if p.inj > 0:
@@ -2233,6 +2281,7 @@ func finish_week() -> Dictionary:
 	if s.week > WEEKS:
 		result.season_end = true
 		_season_end()
+		_prune_logs()
 	s.last_obs = []
 	save_game()
 	changed.emit()
@@ -2412,6 +2461,7 @@ func _market_ok(buyer: Dictionary, seller: Dictionary, p: Dictionary) -> bool:
 	return rf() < chance
 
 func _manager_sackings() -> void:
+	var others := []
 	for lg in LEAGUES:
 		if not s.table.has(lg):
 			continue
@@ -2425,14 +2475,35 @@ func _manager_sackings() -> void:
 				var c := club(cid)
 				var old: String = c.manager.name
 				c.manager = new_manager()
-				add_news("n_sacked", [c.name, old, c.manager.name], cid == s.scout.club_id, "club")
+				if cid == s.scout.club_id:
+					add_news("n_sacked", [c.name, old, c.manager.name], true, "club")
+				else:
+					others.append(["n_sacked", [c.name, old, c.manager.name]])
+	# v0.24 (3A): diğer kulüplerin kovulmaları tek satırda (alt satırlar haberin içinde)
+	if others.size() == 1:
+		add_news("n_sacked", others[0][1], false, "club")
+	elif others.size() > 1:
+		# kendi ligindekiler önce
+		var my_names := {}
+		for cid in league_clubs(my_club().get("league", "")):
+			my_names[str(club(cid).name)] = true
+		var mine_first := others.filter(func(x): return my_names.has(str(x[1][0])))
+		mine_first.append_array(others.filter(func(x): return not my_names.has(str(x[1][0]))))
+		add_news("n_sacked_week", [others.size()], false, "club", mine_first)
 
 func _flavor_news() -> void:
+	## v0.24 (3A): aynı genç bu sezon zaten haber olduysa sıradakine geç (aynı haber 4–7 kez çıkıyordu)
+	var told := {}
+	for n in s.news:
+		if int(n.get("season", 0)) != int(s.season):
+			break
+		if n.get("key", "") == "n_young_star" and not n.get("args", []).is_empty():
+			told[str(n.args[0])] = true
 	var best := ""
 	var bv := 0.0
 	for pid in s.players:
 		var p = s.players[pid]
-		if int(p.age) <= 21 and p.st.apps >= 3:
+		if int(p.age) <= 21 and p.st.apps >= 3 and not told.has(pname(p)):
 			var avg: float = p.st.rs / p.st.apps
 			if avg > bv:
 				bv = avg
@@ -3285,31 +3356,124 @@ func discovered_youth() -> Array:
 
 # ================================================================ kayıt
 
+## Kayıt paketleme önbelleği (pid -> [içerik özeti, paket]); yalnız bellekte
+var _pack_cache_pl := {}
+var _pack_cache_kn := {}
+var _pack_cache_fx := {}
+
+const FX_KEYS := ["h", "a", "day", "gh", "ga", "ev"]
+
+func _pack_round(rnd: Array) -> Array:
+	var out := []
+	for m in rnd:
+		if m is Dictionary and m.size() == FX_KEYS.size() and m.has_all(FX_KEYS):
+			out.append([m.h, m.a, m.day, m.gh, m.ga, m.ev])
+		else:
+			out.append(m)
+	return out
+
+func _unpack_fixtures() -> void:
+	if not (s.get("fixtures") is Dictionary):
+		return
+	for lg in s.fixtures:
+		for rnd in s.fixtures[lg]:
+			for i in rnd.size():
+				var m: Variant = rnd[i]
+				if m is Array and m.size() == FX_KEYS.size():
+					rnd[i] = {"h": m[0], "a": m[1], "day": m[2], "gh": m[3], "ga": m[4], "ev": m[5]}
+
 func save_game() -> void:
 	## Oyuncu özellikleri dizi olarak yazılır (dosya ~yarı boyut)
 	var t0 := Time.get_ticks_msec()
 	# v0.23: para/itibar/bütçe NaN/inf ise kaydetmeden önce güvenli değere çek (kayıt bozulmasın)
 	_sanitize_numbers("kayıt")
+	# v0.24 (3A): paketleme önbelleği. Bir hafta içinde oyuncuların/bilgi kayıtlarının çoğu değişmez;
+	# içerik özeti (C++ recursive hash) aynıysa önceki paket yeniden kullanılır (kayıt ~%30 hızlı).
+	# Oyuncuda st/value/club her hafta değişir; önbellek yalnız paketlenen alt alanlar içindir
+	# (attrs, hid, hist): [attrs özeti, attrs dizisi, hid özeti, hid dizisi, hist özeti, hist paketi].
 	var packed := {}
+	var pcache := {}
 	for pid in s.players:
 		var p: Dictionary = s.players[pid]
 		var q := p.duplicate(false)
-		var aa := []
-		for a in Data.ATTRS:
-			aa.append(int(p.attrs[a]))
-		var hh := []
-		for h in Data.HIDDEN:
-			hh.append(int(p.hid[h]))
-		q.attrs = aa
-		q.hid = hh
+		var c: Array = _pack_cache_pl.get(pid, [])
+		if c.is_empty():
+			c = [0, null, 0, null, 0, null]
+		var ah: int = p.attrs.hash()
+		if c[1] == null or int(c[0]) != ah:
+			var aa := []
+			for a in Data.ATTRS:
+				aa.append(int(p.attrs[a]))
+			c[0] = ah
+			c[1] = aa
+		var hdh: int = p.hid.hash()
+		if c[3] == null or int(c[2]) != hdh:
+			var hh := []
+			for h in Data.HIDDEN:
+				hh.append(int(p.hid[h]))
+			c[2] = hdh
+			c[3] = hh
+		q.attrs = c[1]
+		q.hid = c[3]
+		var hist: Array = p.get("hist", [])
+		if not hist.is_empty():
+			var hsh: int = hist.hash()
+			if c[5] == null or int(c[4]) != hsh:
+				c[4] = hsh
+				c[5] = _pack_hist(hist)
+			q.hist = c[5]
 		packed[pid] = q
+		pcache[pid] = c
+	_pack_cache_pl = pcache
+	# v0.24 (3A, kayıt v7): bilgi kayıtları da dizi (dosyanın ~%25'i, sezonda en çok büyüyen alan)
+	var real_kn: Dictionary = s.scout.knowledge
+	var kn_packed := {}
+	var kcache := {}
+	for pid in real_kn:
+		var kn: Dictionary = real_kn[pid]
+		var kh := kn.hash()
+		var ko: Array = _pack_cache_kn.get(pid, [])
+		if not ko.is_empty() and int(ko[0]) == kh:
+			kn_packed[pid] = ko[1]
+			kcache[pid] = ko
+			continue
+		var kq := _pack_kn(kn)
+		kn_packed[pid] = kq
+		kcache[pid] = [kh, kq]
+	_pack_cache_kn = kcache
+	# fikstür maçları [h, a, day, gh, ga, ev] (tur değişmediyse önceki paket)
+	var real_fx: Dictionary = s.fixtures
+	var fx_packed := {}
+	var fcache := {}
+	for lg in real_fx:
+		var rounds: Array = real_fx[lg]
+		var old_l: Array = _pack_cache_fx.get(lg, [])
+		var out_l := []
+		var new_l := []
+		for ri_ in rounds.size():
+			var rnd: Array = rounds[ri_]
+			var rh := rnd.hash()
+			if ri_ < old_l.size() and int(old_l[ri_][0]) == rh:
+				out_l.append(old_l[ri_][1])
+				new_l.append(old_l[ri_])
+				continue
+			var pr := _pack_round(rnd)
+			out_l.append(pr)
+			new_l.append([rh, pr])
+		fx_packed[lg] = out_l
+		fcache[lg] = new_l
+	_pack_cache_fx = fcache
 	var real_players: Dictionary = s.players
 	s.players = packed
+	s.scout.knowledge = kn_packed
+	s.fixtures = fx_packed
 	var txt := JSON.stringify(s)
 	s.players = real_players
+	s.scout.knowledge = real_kn
+	s.fixtures = real_fx
 	# v0.23 NaN koruması, ikinci kat: bilinmeyen bir alanda nan/inf kalmışsa JSON geçersiz olur ve
 	# kayıt bir daha açılmaz. Çıplak nan/inf yerine 0 yaz, logla.
-	if _nan_tokens_regex().search(txt) != null:
+	if _maybe_bad_tokens(txt) and _nan_tokens_regex().search(txt) != null:
 		push_warning("[KAYIT] kayıtta nan/inf kaldı, 0 yazılıyor")
 		print("[KAYIT] kayıtta nan/inf kaldı, 0 yazılıyor")
 		txt = _nan_tokens_regex().sub(txt, "${1}0", true)
@@ -3318,6 +3482,82 @@ func save_game() -> void:
 		f.store_string(txt)
 		f.close()
 	print("[BC] kayit ms ", Time.get_ticks_msec() - t0, " boyut ", txt.length())
+
+var _quick_bad_re: RegEx = null
+
+func _maybe_bad_tokens(txt: String) -> bool:
+	## Hızlı ön süzgeç (3 MB'ta tam regex ~45 ms, bu ~19 ms): stringify boşluk yazmaz, çıplak nan/inf'ten
+	## sonra hep "," "]" ya da "}" gelir; isimlerdeki "nan" (Kenan) ardından tırnak gelir, takılmaz.
+	## Metin içinde "nan," gibi yanlış alarmda kesin karar _nan_tokens_regex'te.
+	if _quick_bad_re == null:
+		_quick_bad_re = RegEx.new()
+		_quick_bad_re.compile("(?:nan|inf)[,\\]}]")
+	return _quick_bad_re.search(txt) != null
+
+## v7 kayıt biçimi: fikstür maçı [h, a, day, gh, ga, ev] (FX_KEYS); hist girdisi [season, club, apps, g, a, avg]; knowledge.e/k ATTRS sırasında tam sayı
+## dizisi (KN_SCALE), ev ATTRS sırasında [num, den] tam sayı ya da 0 (yok). Yükleme türüne bakar: v6 sözlükleri olduğu gibi kalır.
+const HIST_KEYS := ["season", "club", "apps", "g", "a", "avg"]
+
+func _pack_hist(hist: Array) -> Array:
+	var out := []
+	for h in hist:
+		if h is Dictionary and h.size() == HIST_KEYS.size() and h.has_all(HIST_KEYS):
+			out.append([h.season, h.club, h.apps, h.g, h.a, h.avg])
+		else:
+			out.append(h)
+	return out
+
+func _unpack_hist(hist: Array) -> void:
+	for i in hist.size():
+		var h: Variant = hist[i]
+		if h is Array and h.size() == HIST_KEYS.size():
+			hist[i] = {"season": h[0], "club": h[1], "apps": h[2], "g": h[3], "a": h[4], "avg": h[5]}
+
+## Bilgi değerleri oyunda zaten yuvarlı (e 0.01, k 0.001, ev 0.00001 adımlı: observe/_apply_evidence);
+## dosyada bu adımın tam sayı katı olarak yazılır (kayıpsız, ~%45 daha kısa).
+const KN_SCALE := {"e": 100.0, "k": 1000.0}
+const KN_EV_SCALE := 100000.0
+
+func _pack_kn(kn: Dictionary) -> Dictionary:
+	var q := kn.duplicate(false)
+	for f in KN_SCALE:
+		var d: Variant = kn.get(f)
+		if d is Dictionary and d.size() == Data.ATTRS.size() and d.has_all(Data.ATTRS):
+			var sc: float = KN_SCALE[f]
+			var arr := []
+			for a in Data.ATTRS:
+				arr.append(roundi(float(d[a]) * sc))
+			q[f] = arr
+	var ev: Variant = kn.get("ev")
+	if ev is Dictionary and ev.keys().all(func(a): return a in Data.ATTRS):
+		var arr2 := []
+		for a in Data.ATTRS:
+			var x: Variant = ev.get(a, null)
+			if x is Array and x.size() == 2:
+				arr2.append([roundi(float(x[0]) * KN_EV_SCALE), roundi(float(x[1]) * KN_EV_SCALE)])
+			else:
+				arr2.append(0)
+		q["ev"] = arr2
+	return q
+
+func _unpack_kn(kn: Dictionary) -> void:
+	for f in KN_SCALE:
+		var arr: Variant = kn.get(f)
+		if arr is Array and arr.size() == Data.ATTRS.size():
+			var step: float = 1.0 / float(KN_SCALE[f])
+			var d := {}
+			for i in Data.ATTRS.size():
+				d[Data.ATTRS[i]] = snappedf(float(arr[i]) * step, step)
+			kn[f] = d
+	var ev: Variant = kn.get("ev")
+	if ev is Array and ev.size() == Data.ATTRS.size():
+		var st := 1.0 / KN_EV_SCALE
+		var d2 := {}
+		for i in Data.ATTRS.size():
+			var x: Variant = ev[i]
+			if x is Array and x.size() == 2:
+				d2[Data.ATTRS[i]] = [snappedf(float(x[0]) * st, st), snappedf(float(x[1]) * st, st)]
+		kn["ev"] = d2
 
 # ================================================================ organik talepler + gölge kadro (v0.15)
 
@@ -3505,8 +3745,53 @@ func log_discovery(pid: String, how: String, by := "") -> void:
 		return
 	s.scout.disc_log.append({"pid": pid, "season": s.season, "week": s.week, "how": how, "by": by,
 		"club": p.club, "age": int(p.age), "ovr": int(p.ovr), "lg": club(p.club).get("league", "")})
-	if s.scout.disc_log.size() > 400:
-		s.scout.disc_log.pop_front()
+	if s.scout.disc_log.size() > DISC_CAP:
+		_drop_old_disc(s.scout.disc_log.size() - DISC_CAP)
+
+## v0.24 (3A): keşif tarihçesi tavanı yalnız "maçta gördüm/ekip/ihbar" kayıtlarına uygulanır.
+## Senin keşiflerin (is_my_find: rapor, gezi, turnuva, son gün, odakla izlenen U19) ve Kaçanlar Müzesi
+## adayları (lost) hiç silinmez: efsaneler/whimsy/manşetler oyuncu başına ilk keşif kaydını okur.
+const DISC_CAP := 400
+
+func _disc_keep(d: Dictionary) -> bool:
+	return d.has("lost") or _disc_is_mine(d)
+
+func _drop_old_disc(n: int) -> void:
+	var log: Array = s.scout.disc_log
+	var i := 0
+	while n > 0 and i < log.size():
+		if _disc_keep(log[i]):
+			i += 1
+		else:
+			log.remove_at(i)
+			n -= 1
+
+func _prune_logs() -> void:
+	## Sezon sonu + v6->v7 göçü: artık var olmayan oyuncuların "gördüm" kayıtları, evlat olmayanların
+	## kids_state'i ve tavanı aşan haberler budanır. Okuyucular: discovery/is_my_find/_my_find_pids,
+	## _museum_check, finds_xi/finds_value, _make_deadline, _kids_week, _star_headlines, arşiv ekranı.
+	var sc: Dictionary = s.scout
+	if sc.has("disc_log"):
+		var kept := []
+		for d in sc.disc_log:
+			if _disc_keep(d) or s.players.has(str(d.pid)):
+				kept.append(d)
+		sc.disc_log = kept
+		if kept.size() > DISC_CAP:
+			_drop_old_disc(kept.size() - DISC_CAP)
+	if s.has("kids_state"):
+		var mine := {}
+		for pid in _my_find_pids():
+			mine[pid] = true
+		var ks: Dictionary = s.kids_state
+		for k in ks.keys():
+			var pid := str(k).trim_suffix("_thx").trim_suffix("_vs")
+			if not mine.has(pid):
+				ks.erase(k)
+		if s.has("kids_feed"):
+			s.kids_feed = s.kids_feed.filter(func(it): return mine.has(str(it.get("pid", ""))))
+	if s.has("news") and s.news.size() > NEWS_CAP:
+		_trim_news(NEWS_CAP)
 
 func discovery(pid: String) -> Dictionary:
 	for d in s.scout.get("disc_log", []):
@@ -3730,6 +4015,13 @@ func load_game() -> bool:
 			for i in Data.HIDDEN.size():
 				hd[Data.HIDDEN[i]] = int(p.hid[i])
 			p.hid = hd
+		if p.get("hist") is Array:
+			_unpack_hist(p.hist)
+	_unpack_fixtures()
+	if typeof(s.get("scout")) == TYPE_DICTIONARY and s.scout.get("knowledge") is Dictionary:
+		for pid in s.scout.knowledge:
+			if s.scout.knowledge[pid] is Dictionary:
+				_unpack_kn(s.scout.knowledge[pid])
 	_sanitize_numbers("yükleme")
 	if repaired:
 		_replace_bad_nums(s)
@@ -3745,6 +4037,8 @@ func load_game() -> bool:
 				ok = _migrate_4_to_5()
 			5:
 				ok = _migrate_5_to_6()
+			6:
+				ok = _migrate_6_to_7()
 		if not ok:
 			s = {}
 			old_save = true
@@ -3867,6 +4161,42 @@ func _ensure_sim_seed() -> void:
 	# eski kayıt: kayıt içeriğinden deterministik türet (aynı kayıt hep aynı tohumu alır)
 	var v := hash([s.get("season", 0), s.get("next_pid", 0), str(s.scout.get("name", "")), str(s.get("start_cc", "TR")), str(s.scout.get("club_id", ""))]) & 0x7FFFFFFF
 	s["sim_seed"] = v if v != 0 else 1
+
+func _migrate_6_to_7() -> bool:
+	## v0.24 (3A): kayıt v7. Bilgi (knowledge e/k/ev) ve oyuncu geçmişi (hist) dosyada dizi olarak
+	## yazılır (yükleme her sürümde türüne bakıp açar, burada iş yok). Haber/keşif/evlat kayıtları budanır:
+	## eski "maçta gördüm" evlat haberleri akıştan, senin keşfin olmayanlar kids_state/kids_feed'den çıkar.
+	if typeof(s.get("scout")) != TYPE_DICTIONARY:
+		return false
+	if not s.has("news") or not (s.news is Array):
+		s["news"] = []
+	if s.has("kids_feed") and s.kids_feed is Array:
+		var mine := {}
+		for pid in _my_find_pids():
+			mine[pid] = true
+		s.news = s.news.filter(func(n): return str(n.get("kind", "")) != "kids" or _news_kid_mine(n, mine))
+	# geçmiş turların ilk 11/reyting listeleri (finish_week artık her hafta siliyor)
+	if s.get("fixtures") is Dictionary:
+		for lg in s.fixtures:
+			var cur := round_for_week(str(lg), int(s.week))
+			var rounds: Array = s.fixtures[lg]
+			for r in rounds.size():
+				if cur >= 0 and r >= cur:
+					break
+				for m in rounds[r]:
+					if m is Dictionary and int(m.get("gh", -1)) >= 0:
+						for k in FX_DROP_KEYS:
+							m.erase(k)
+	_prune_logs()
+	return true
+
+func _news_kid_mine(n: Dictionary, mine: Dictionary) -> bool:
+	## eski tekil evlat haberi: argümandaki isim senin keşiflerinden birine mi ait
+	var a: Array = n.get("args", [])
+	if a.is_empty():
+		return false
+	var e := find_entity(str(a[0]))
+	return mine.has(str(e.get("player", "")))
 
 func _migrate_5_to_6() -> bool:
 	## v0.23: maç tohumu (s.sim_seed). Başka yapısal değişiklik yok.
@@ -4916,37 +5246,57 @@ func _kids_week() -> void:
 	if not s.has("kids_state"):
 		s["kids_state"] = {}
 	var ks: Dictionary = s.kids_state
-	for d in s.scout.get("disc_log", []):
-		var p := player(d.pid)
+	# v0.24 (3A): yalnız SENİN bulduğun oyuncular (rapor yazdığın ya da ilk keşfi sana ait: is_my_find);
+	# maçta görülen/ekip/ihbar keşifleri evlat sayılmaz. Haberler tek tek değil haftalık özet olarak düşer.
+	var week_items := []
+	var my_lg: String = my_club().get("league", "")
+	for pid in _my_find_pids():
+		var p := player(pid)
 		if p.is_empty() or p.club == "":
 			continue
 		var cur := {"apps": int(p.st.apps), "g": int(p.st.g), "club": str(p.club), "ovr": int(p.ovr), "youth": bool(p.youth)}
-		if not ks.has(d.pid):
-			ks[d.pid] = cur
+		if not ks.has(pid):
+			ks[pid] = cur
 			continue
-		var old: Dictionary = ks[d.pid]
+		var old: Dictionary = ks[pid]
 		var nm := pname(p)
 		if int(old.apps) == 0 and cur.apps > 0 and not cur.youth:
-			_kid_feed(d.pid, "kf_debut", [nm, club(p.club).get("name", "?")])
+			_kid_feed(pid, "kf_debut", [nm, club(p.club).get("name", "?")], week_items)
 		if int(old.g) == 0 and cur.g > 0:
-			_kid_feed(d.pid, "kf_first_goal", [nm])
+			_kid_feed(pid, "kf_first_goal", [nm], week_items)
 		elif int(old.g) < 10 and cur.g >= 10:
-			_kid_feed(d.pid, "kf_ten_goals", [nm])
+			_kid_feed(pid, "kf_ten_goals", [nm], week_items)
 		if old.club != cur.club and not old.club.is_empty():
-			_kid_feed(d.pid, "kf_moved", [nm, club(p.club).get("name", "?")])
+			_kid_feed(pid, "kf_moved", [nm, club(p.club).get("name", "?")], week_items)
 		if bool(old.youth) and not cur.youth:
-			_kid_feed(d.pid, "kf_promoted", [nm])
-		if int(old.ovr) < 70 and cur.ovr >= 70 and not ks.get(d.pid + "_thx", false):
-			ks[d.pid + "_thx"] = true
-			_kid_feed(d.pid, "kf_thanks", [nm])
+			_kid_feed(pid, "kf_promoted", [nm], week_items)
+		if int(old.ovr) < 70 and cur.ovr >= 70 and not ks.get(pid + "_thx", false):
+			ks[pid + "_thx"] = true
+			_kid_feed(pid, "kf_thanks", [nm], week_items)
 		# senin kulübüne karşı: aynı ligde rakip kulüpte
-		if cur.club != s.scout.club_id and club(cur.club).get("league", "") == my_club().get("league", "") and not ks.get(d.pid + "_vs", false) and int(p.st.apps) >= 3:
-			ks[d.pid + "_vs"] = true
-			_kid_feed(d.pid, "kf_vs", [nm, club(cur.club).get("name", "?")])
-		ks[d.pid] = cur
+		if cur.club != s.scout.club_id and club(cur.club).get("league", "") == my_lg and not ks.get(pid + "_vs", false) and int(p.st.apps) >= 3:
+			ks[pid + "_vs"] = true
+			_kid_feed(pid, "kf_vs", [nm, club(cur.club).get("name", "?")], week_items)
+		ks[pid] = cur
+	if week_items.is_empty():
+		return
+	var imp := false
+	for it in week_items:
+		if it[0] in KIDS_IMP_KEYS:
+			imp = true
+	if week_items.size() == 1:
+		add_news(week_items[0][0], week_items[0][1], imp, "kids")
+	else:
+		# önemli olanlar (teşekkür, karşında, ilk maç) önce
+		var first := week_items.filter(func(x): return x[0] in KIDS_IMP_KEYS)
+		first.append_array(week_items.filter(func(x): return not (x[0] in KIDS_IMP_KEYS)))
+		add_news("n_kids_week", [week_items.size()], imp, "kids", first)
 
-func _kid_feed(pid: String, key: String, args: Array) -> void:
+const KIDS_IMP_KEYS := ["kf_thanks", "kf_vs", "kf_debut"]
+
+func _kid_feed(pid: String, key: String, args: Array, week_items: Array = []) -> void:
+	## Evlatlarım kartı tek tek gösterir (kids_feed); haber akışına haftalık özet gider (week_items)
 	s.kids_feed.push_front({"season": s.season, "week": s.week, "pid": pid, "key": key, "args": args})
 	if s.kids_feed.size() > 40:
 		s.kids_feed.resize(40)
-	add_news(key, args, key in ["kf_thanks", "kf_vs", "kf_debut"], "kids")
+	week_items.append([key, args])

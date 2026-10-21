@@ -3765,7 +3765,22 @@ func _clipping(parent: Control, n: Dictionary, big: bool) -> void:
 		v.add_child(_lbl(T.t(n.key, n.args), 30, C_INK, true, F_HEAD))
 	else:
 		v.add_child(_lbl(T.t(n.key, n.args), 19 if not n.imp else 20, C_INK, true, F_SEMI if n.imp else F_BODY))
-	_entity_links(v, n.args)
+	# v0.24 (3A): özet haber (haftalık evlatlar, kovulmalar): alt satırlar, kısa liste
+	var items: Array = n.get("items", [])
+	if items.is_empty():
+		_entity_links(v, n.args)
+		return
+	var shown := items.slice(0, 4 if not big else 6)
+	var link_args := []
+	for it in shown:
+		if not (it is Array) or it.size() < 2:
+			continue
+		v.add_child(_typed("• " + T.t(str(it[0]), it[1]), 16, C_INK, true))
+		link_args.append_array(it[1])
+	var more := int(n.get("n_items", items.size())) - shown.size()
+	if more > 0:
+		v.add_child(_typed(T.t("news_more", [more]), 14, C_INK2))
+	_entity_links(v, link_args)
 
 ## Metindeki kulüp/oyuncu isimleri için tıklanabilir etiketler (FM tarzı)
 func _entity_links(parent: Control, args: Array) -> void:
@@ -3839,8 +3854,16 @@ func _world_news() -> void:
 		_btn(f[1], func():
 			news_filter = key
 			_refresh(), "toggle_on" if news_filter == key else "small", fl).custom_minimum_size = Vector2(0, 50)
+	# v0.24 (3A): teklif ve görev haberleri 8 hafta üstte sabit
+	var pinned: Array = Game.pinned_news() if news_filter in ["", "career"] else []
+	if not pinned.is_empty():
+		_section(T.t("news_pinned"), null, "pin")
+		for n in pinned:
+			_clipping(page, n, false)
 	var items := []
 	for n in Game.s.news:
+		if n in pinned:
+			continue
 		var k: String = n.get("kind", "")
 		var ok := news_filter == ""
 		match news_filter:
@@ -3855,8 +3878,11 @@ func _world_news() -> void:
 		if ok:
 			items.append(n)
 	if items.is_empty():
-		_empty(page, "news", T.t("no_news"))
+		if pinned.is_empty():
+			_empty(page, "news", T.t("no_news"))
 		return
+	if not pinned.is_empty():
+		_section(T.t("latest"), null, "news")
 	_clipping(page, items[0], true)
 	for n in items.slice(1, 60):
 		_clipping(page, n, false)
