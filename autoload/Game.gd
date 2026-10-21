@@ -1112,8 +1112,25 @@ func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec")
 
 const FOCUS_GROUPS := {"phy": ["phy"], "men": ["men"], "tec": ["tec", "gk"], "all": ["phy", "men", "tec", "gk"]}
 
+func onsite_block(pid: String) -> String:
+	## v0.24 (4B): sahada yapılan işler (antrenman ziyareti, kulüpte/evde görüşme) yurtdışında başkan
+	## izni ister. İzinsiz ülkede yalnız video analizi (do_video) ve telefonla kaynak (do_source) açık.
+	var p := player(pid)
+	if p.is_empty() or str(p.get("club", "")) == "":
+		return ""
+	if not board_abroad_ok(club_country(p.club)):
+		return "need_board_abroad"
+	return ""
+
+func video_only(pid: String) -> bool:
+	## Arama listesindeki "sadece video" etiketi
+	return onsite_block(pid) != ""
+
 func do_training(pid: String, focus := "all", sparks := 0) -> Dictionary:
 	## sparks: gözlem sırasında yakalanan kıvılcım anları (0-3)
+	var blk := onsite_block(pid)
+	if blk != "":
+		return {"ok": false, "msg": blk}
 	if free_days() <= 0:
 		return {"ok": false, "msg": "no_wp"}
 	var p := player(pid)
@@ -1162,6 +1179,9 @@ func _obs_lines(pid: String, groups: Array, n: int) -> Array:
 	return out
 
 func do_meet(pid: String, topics: Array = []) -> Dictionary:
+	var blk := onsite_block(pid)
+	if blk != "":
+		return {"ok": false, "msg": blk}
 	if free_days() <= 0:
 		return {"ok": false, "msg": "no_wp"}
 	var p := player(pid)
@@ -1373,6 +1393,8 @@ func make_assignments(n: int) -> void:
 	var c := my_club()
 	var avg := club_avg_ovr(c.id)
 	for i in n:
+		if not req_room():
+			break
 		var kind: String = pick(["first11", "first11", "prospect", "backup", "wonderkid"])
 		var grp: String = pick(["DEF", "MID", "ATT", "DEF", "ATT", "GK"])
 		if kind == "wonderkid" and grp == "GK":
@@ -1428,6 +1450,53 @@ const WORK_REP_CAP := 10.0
 const SEASON_TASKS := 2
 ## Aynı anda açık en fazla organik talep (eskiden 3): kulüp scout'a her şeyi birden yüklemez
 const ORGANIC_OPEN_MAX := 2
+## v0.24 (4B) ortak talep tavanı [PLACEHOLDER, bot: düşen ≤3/sezon]: sezon brifingi + 4 haftalık ek talep
+## + organik talepler TOPLAMDA en fazla bu kadar açık (open/submitted). Dalga 2 süreleri uzattı
+## (10-16 hf), üç kaynak ayrı ayrı tavanlıyken aynı anda 5-6 talep açık kalıyordu. Gerçekte de bir
+## sportif direktör tek scout'a 3'ten fazla eşzamanlı öncelik vermez.
+const REQ_OPEN_MAX := 3
+## "Şimdi yapamam": açık talebi geri çevirme. Sezonda en fazla DECLINE_MAX, başkan morali -DECLINE_MOOD.
+## İtibar cezası yok (süresi dolan talep -1 itibar): dürüstçe "kapasitem yok" demek sessizce
+## düşürmekten iyidir; ama sınırsız olursa talepler anlamsızlaşır.
+const DECLINE_MAX := 2
+const DECLINE_MOOD := 3
+
+func req_open_count() -> int:
+	## Tüm kaynaklardan açık talep (rapor yönetimde olanlar da sayılır: kulüp hâlâ bekliyor)
+	var n := 0
+	for a in s.get("assign", []):
+		if a.status in ["open", "submitted"]:
+			n += 1
+	return n
+
+func req_room() -> bool:
+	return req_open_count() < REQ_OPEN_MAX
+
+func declines_left() -> int:
+	var d: Dictionary = s.get("req_decl", {})
+	if int(d.get("season", -1)) != int(s.season):
+		return DECLINE_MAX
+	return maxi(0, DECLINE_MAX - int(d.get("n", 0)))
+
+func assign_decline(aid: String) -> Dictionary:
+	## "Şimdi yapamam": açık talebi geri çevir. {ok, msg}
+	var a: Dictionary = {}
+	for x in s.assign:
+		if x.id == aid:
+			a = x
+			break
+	if a.is_empty() or a.status != "open":
+		return {"ok": false, "msg": "decline_not_open"}
+	if declines_left() <= 0:
+		return {"ok": false, "msg": "decline_limit"}
+	var used := DECLINE_MAX - declines_left()
+	s["req_decl"] = {"season": int(s.season), "n": used + 1}
+	a.status = "declined"
+	var b := board()
+	b.mood = clampi(int(b.mood) - DECLINE_MOOD, 0, 100)
+	add_news("n_assign_declined", [T.t("pos_" + a.pos)], false, "career")
+	changed.emit()
+	return {"ok": true, "msg": "decline_ok", "left": declines_left()}
 ## Üst itibarda büyüme yavaşlar (beklenti artar): sezon kazancının REP_SOFT_CAP üstündeki kısmı
 ## REP_SOFT_MULT ile çarpılır. Hedef: iyi scout 3. sezon sonu <=85, zirve 5. sezondan sonra.
 const REP_SOFT_CAP := 62.0
@@ -2344,7 +2413,7 @@ func _week_events() -> void:
 	for a in s.assign:
 		if a.status in ["open", "submitted"]:
 			open += 1
-	if open < 2 and s.week <= WEEKS - int(ASSIGN_WEEKS[0]) and s.week % 4 == 0 and _organic_open() == 0:
+	if open < 2 and req_room() and s.week <= WEEKS - int(ASSIGN_WEEKS[0]) and s.week % 4 == 0 and _organic_open() == 0:
 		make_assignments(1)
 		add_news("n_new_assign", [], true, "career")
 	if s.week == 12 or s.week == 24:
@@ -2810,9 +2879,19 @@ func board() -> Dictionary:
 		var nat := league_country(c.get("league", "SL"))
 		var bn := Data.name_pair(nat)
 		s.board = {"club": s.scout.club_id, "name": "%s %s" % [bn[0], bn[1]],
-			"pers": pick(PRES_PERS), "mood": 55, "abroad": [], "slots": 1, "last": -10, "asked": {},
+			"pers": pick(PRES_PERS), "mood": 55, "abroad": [], "abroad_cc": [], "slots": 1, "last": -10, "asked": {},
 			"skin": ri(0, 3), "hair": ri(0, 5), "favor": ""}
+	if not s.board.has("abroad_cc"):
+		_migrate_abroad_cc(s.board)
 	return s.board
+
+func _migrate_abroad_cc(b: Dictionary) -> void:
+	## v0.24 (4B) kayıt uyumu: bölgesi değişen ülkelerde eski izin ülke bazında korunur
+	var keep := []
+	for cc in Data.ZONE_MOVED:
+		if str(Data.ZONE_MOVED[cc]) in b.get("abroad", []) and not (Data.zone_of(cc) in b.get("abroad", [])):
+			keep.append(cc)
+	b["abroad_cc"] = keep
 
 func board_can_meet() -> String:
 	var b := board()
@@ -2828,7 +2907,20 @@ func board_abroad_ok(cc: String) -> bool:
 	## Yurtdışı izni bölge bazında verilir (Data.ZONES)
 	if cc == my_country():
 		return true
-	return Data.zone_of(cc) in board().abroad
+	var b := board()
+	return Data.zone_of(cc) in b.abroad or cc in b.get("abroad_cc", [])
+
+func board_zone_opts() -> Array:
+	## Başkandan istenebilecek bölgeler. Kendi ülken tek başına bir bölgeyse (TR) o hariç; Almanya'daki
+	## kulüpte "Almanya + Orta Avrupa" istenebilir (eskiden ev bölgesi gizleniyor, AT/CH hiç açılamıyordu).
+	var b := board()
+	var mc := my_country()
+	var out := []
+	for z in Data.ZONES:
+		if Data.ZONES[z] == [mc] or z in b.abroad:
+			continue
+		out.append(z)
+	return out
 
 func _board_chance(base: float) -> float:
 	var b := board()
@@ -3657,7 +3749,7 @@ func _organic_assign(kind: String, pos: String, why: String, ref: String, urgent
 
 func _organic_requests() -> void:
 	## Kulübün gerçek durumundan doğan talepler: sakatlık, satış, yaşlanma, hoca isteği, zayıf halka
-	if s.scout.club_id == "" or s.week > WEEKS - 5 or _organic_open() >= ORGANIC_OPEN_MAX:
+	if s.scout.club_id == "" or s.week > WEEKS - 5 or _organic_open() >= ORGANIC_OPEN_MAX or not req_room():
 		return
 	var me := my_club()
 	var xi := best_xi(me.id)

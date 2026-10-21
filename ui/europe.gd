@@ -111,3 +111,95 @@ static func view_for(cc: String) -> Rect2:
 	var span := maxf((mx.x - mn.x) * 1.35, (mx.y - mn.y) * 1.35 * 1.6)
 	span = clampf(span, 5.0, 34.0)
 	return Rect2(c.x - span / 2.0, c.y - span / 2.0 / 1.6, span, span / 1.6)
+
+# ---------------------------------------------------------------- v0.24 (4B) bölge seçici haritası
+
+## Şehri veri dosyasında olmayan küçük ülkeler için yaklaşık nokta (boylam, enlem)
+const CC_PT := {"AD": [1.5, 42.5], "GI": [-5.35, 36.14], "SM": [12.45, 43.94], "FO": [-6.9, 62.0],
+	"LU": [6.13, 49.61], "MT": [14.5, 35.9], "XK": [21.17, 42.67], "ME": [19.26, 42.44], "MD": [28.86, 47.0]}
+
+static func zone_points(z: String) -> Dictionary:
+	## cc -> [Vector2(boylam, enlem), ...] — bölgedeki ülkelerin şehirleri (başkentten çok uzaklar hariç)
+	var out := {}
+	for cc in Data.ZONES.get(z, []):
+		var pts := []
+		var cap := Vector2.INF
+		for city in Data.CITY_W:
+			var c: Array = Data.CITY_W[city]
+			if str(c[2]) != cc:
+				continue
+			var q := Vector2(float(c[1]), float(c[0]))
+			if cap == Vector2.INF:
+				cap = q
+			elif absf(q.x - cap.x) > 12.0 or absf(q.y - cap.y) > 9.0:
+				continue
+			pts.append(q)
+		if pts.is_empty() and CC_PT.has(cc):
+			pts.append(Vector2(float(CC_PT[cc][0]), float(CC_PT[cc][1])))
+		if not pts.is_empty():
+			out[cc] = pts
+	return out
+
+static func zone_view(z: String) -> Rect2:
+	## Avrupa kadrajı; bölge Avrupa dışındaysa (G. Amerika) yalnız bölge
+	var base := Rect2(-12.0, 33.0, 60.0, 35.0)
+	var zp := zone_points(z)
+	var bb := Rect2()
+	var first := true
+	for cc in zp:
+		for q in zp[cc]:
+			if first:
+				bb = Rect2(q, Vector2.ZERO)
+				first = false
+			else:
+				bb = bb.expand(q)
+	if first:
+		return base
+	bb = bb.grow(4.0)
+	if base.intersects(bb):
+		return base.merge(bb)
+	return bb.grow(6.0)
+
+static func draw_zone_map(ci: Control, z: String, land: Color, water: Color, hl: Color, ink: Color, font: Font) -> void:
+	## Seçili bölgeyi vurgulayan düz harita (kara, iç denizler, bölge lekesi + ülke kodları)
+	var sz := ci.size
+	if sz.x < 8.0 or sz.y < 8.0:
+		return
+	ci.draw_rect(Rect2(Vector2.ZERO, sz), water)
+	var vr := zone_view(z)
+	var c := vr.get_center()
+	var k := clampf(cos(deg_to_rad(c.y)), 0.55, 1.0)
+	var sc := minf(sz.x / (vr.size.x * k), sz.y / vr.size.y)
+	var geo := func(lon: float, lat: float) -> Vector2:
+		return sz / 2.0 + Vector2((lon - c.x) * sc * k, -(lat - c.y) * sc)
+	var clip := PackedVector2Array([Vector2(-4, -4), Vector2(sz.x + 4, -4), sz + Vector2(4, 4), Vector2(-4, sz.y + 4)])
+	for layer in [[LAND, land], [WATER, water]]:
+		for poly in layer[0]:
+			var pp := PackedVector2Array()
+			for q in poly:
+				pp.append(geo.call(float(q[0]), float(q[1])))
+			for part in Geometry2D.intersect_polygons(pp, clip):
+				if part.size() >= 3 and not Geometry2D.triangulate_polygon(part).is_empty():
+					ci.draw_colored_polygon(part, layer[1])
+	var zp := zone_points(z)
+	var r := clampf(1.7 * sc * k, 7.0, 46.0)
+	var blob := land.lerp(hl, 0.55)
+	for cc in zp:
+		for q in zp[cc]:
+			ci.draw_circle(geo.call(q.x, q.y), r, blob)
+	for cc in zp:
+		for q in zp[cc]:
+			ci.draw_circle(geo.call(q.x, q.y), 3.0, hl.darkened(0.25))
+	if font == null:
+		return
+	for cc in zp:
+		var m := Vector2.ZERO
+		for q in zp[cc]:
+			m += q
+		m /= float(zp[cc].size())
+		var at: Vector2 = geo.call(m.x, m.y)
+		var fs := 17
+		var w := font.get_string_size(cc, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var pos := at + Vector2(-w / 2.0, fs * 0.35)
+		ci.draw_string_outline(font, pos, cc, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 5, land.lightened(0.5))
+		ci.draw_string(font, pos, cc, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)

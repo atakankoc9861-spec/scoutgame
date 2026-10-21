@@ -5,6 +5,7 @@ extends "res://ui/kit.gd"
 const TrMap = preload("res://ui/map.gd")
 const MatchView = preload("res://three/match_view.gd")
 const Hub3D = preload("res://three/hub3d.gd")
+const Europe = preload("res://ui/europe.gd")
 const Stage3D = preload("res://three/stage3d.gd")
 const VERSION := "v0.22-beta4"
 const ShopScreen = preload("res://ui/screens/shop.gd")
@@ -1382,6 +1383,8 @@ func _home_board() -> void:
 	var ab := []
 	for cc in b.abroad:
 		ab.append(T.t("zone_" + cc))
+	for cc in b.get("abroad_cc", []):
+		ab.append(Data.country_name(cc))
 	_kv(pc, T.t("perm_abroad"), ", ".join(ab) if not ab.is_empty() else T.t("none"))
 	_kv(pc, T.t("perm_slots"), str(int(b.slots)))
 	_kv(pc, T.t("travel_budget"), Game.money_str(Game.s.scout.budget))
@@ -1411,11 +1414,7 @@ func _board_meeting() -> void:
 	await get_tree().create_timer(0.6).timeout
 	await _line("pres", b.name, T.t("pres_hello_" + Game.board_mood_key().replace("mood_", ""), [me_name]), "me")
 	var opts := []
-	var home_zone := Data.zone_of(Game.my_country())
-	var zopts := []
-	for z in Data.ZONES:
-		if z != home_zone and not (z in b.abroad):
-			zopts.append([z, T.t("zone_" + z)])
+	var zopts: Array = Game.board_zone_opts()
 	if not zopts.is_empty():
 		opts.append(["abroad", T.t("pt_abroad_any")])
 	opts.append(["staff", T.t("pt_staff")])
@@ -1429,7 +1428,7 @@ func _board_meeting() -> void:
 	var arg := ""
 	if pick == "abroad":
 		topic = "abroad"
-		arg = await _choose(zopts, T.t("sc_abroad_q"))
+		arg = await _zone_picker(zopts)
 		await _line("me", me_name, T.t("ask_abroad", [T.t("zone_" + arg)]), "pres")
 	elif pick == "push":
 		var po := []
@@ -1447,6 +1446,126 @@ func _board_meeting() -> void:
 	await _line("pres", b.name, T.t("pres_bye_" + ("ok" if res.ok else "no")), "me")
 	_busy = false
 	_scene_close()
+
+signal _zone_done(z)
+
+## v0.24 (4B) bölge seçici: her bölge kartı ülkelerini (kod + ad) listeler, üstteki harita seçili
+## bölgeyi vurgular. Emoji bayrak yerine kod rozeti: oyunun fontlarında bayrak glifi yok.
+func _zone_picker(zones: Array) -> String:
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.6)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(bg)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _paper_style(C_PAPER, 18, 8, 6))
+	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	card.offset_left = 14
+	card.offset_right = -14
+	card.offset_top = 40
+	card.offset_bottom = -24
+	layer.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	card.add_child(v)
+	v.add_child(_head(T.t("zp_title").to_upper(), 30))
+	v.add_child(_typed(T.t("zp_hint"), 16, C_INK2))
+	var sel := [str(zones[0]) if not zones.is_empty() else ""]
+	var map := Control.new()
+	map.custom_minimum_size = Vector2(0, 330)
+	map.clip_contents = true
+	map.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	map.draw.connect(func(): Europe.draw_zone_map(map, sel[0], C_MANILA, Color("#b9cdd6"), C_RED, C_INK, F_SEMI))
+	v.add_child(map)
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 10)
+	sc.add_child(list)
+	var cards := {}
+	var ask := _btn("", func(): _zone_done.emit(sel[0]), "primary", null, "check")
+	var paint := func():
+		for z2 in cards:
+			var on: bool = z2 == sel[0]
+			cards[z2].add_theme_stylebox_override("panel", _paper_style(Color("#fbf0bd") if on else C_CARD, 14, 6, 4 if on else 2))
+		ask.text = T.t("zp_ask", [T.t("zone_" + sel[0])])
+		map.queue_redraw()
+	for z in zones:
+		var zc := PanelContainer.new()
+		zc.mouse_filter = Control.MOUSE_FILTER_PASS
+		var zv := VBoxContainer.new()
+		zv.add_theme_constant_override("separation", 6)
+		zv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		zc.add_child(zv)
+		var nm := _lbl(T.t("zone_" + z), 24, C_INK, true, F_SEMI)
+		nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		zv.add_child(nm)
+		var fl := HFlowContainer.new()
+		fl.add_theme_constant_override("h_separation", 6)
+		fl.add_theme_constant_override("v_separation", 6)
+		fl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		zv.add_child(fl)
+		for cc in Data.ZONES[z]:
+			fl.add_child(_cc_chip(cc))
+		var zz: String = z
+		var down := [Vector2.INF]
+		zc.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+				if ev.pressed:
+					down[0] = ev.position
+				elif down[0] != Vector2.INF and ev.position.distance_to(down[0]) < 24.0:
+					sel[0] = zz
+					paint.call())
+		list.add_child(zc)
+		cards[z] = zc
+	v.add_child(ask)
+	paint.call()
+	var was := _busy
+	_busy = false
+	var val = await _zone_done
+	_busy = was
+	layer.queue_free()
+	return str(val)
+
+func _cc_chip(cc: String) -> Control:
+	## Ülke rozeti: kısa kod (renkli etiket) + ad
+	var pc := PanelContainer.new()
+	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = C_CREAM
+	sb.border_color = C_LINE
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(6)
+	sb.content_margin_left = 4
+	sb.content_margin_right = 8
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	pc.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pc.add_child(h)
+	var tag := PanelContainer.new()
+	tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tb := StyleBoxFlat.new()
+	tb.bg_color = C_INK
+	tb.set_corner_radius_all(4)
+	tb.content_margin_left = 5
+	tb.content_margin_right = 5
+	tag.add_theme_stylebox_override("panel", tb)
+	var code := _lbl(cc, 14, C_CREAM, false, F_TYPEB)
+	code.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tag.add_child(code)
+	h.add_child(tag)
+	var nm := _lbl(Data.country_name(cc), 17, C_INK, false, F_BODY)
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(nm)
+	return pc
 
 func _home_career() -> void:
 	_life_card()
@@ -2630,7 +2749,7 @@ func _tasks_requests() -> void:
 		tv.add_child(_head(T.t("kind_" + a.kind).to_upper(), 28))
 		tv.add_child(_lbl(T.t("pos_" + a.pos), 21, C_INK, true, F_SEMI))
 		top.add_child(tv)
-		var stc: Color = {"open": C_BLUE, "submitted": C_BRASS.darkened(0.2), "done": C_GREEN, "expired": C_RED}.get(a.status, C_INK)
+		var stc: Color = {"open": C_BLUE, "submitted": C_BRASS.darkened(0.2), "done": C_GREEN, "expired": C_RED, "declined": C_INK2}.get(a.status, C_INK)
 		top.add_child(_stamp(T.t("status_" + a.status), stc, 8.0, 20))
 		if a.has("why"):
 			var ref: String = a.get("ref", "")
@@ -2666,6 +2785,16 @@ func _tasks_requests() -> void:
 				search_f = {"tier": 0, "grp": Data.POS_GROUP[aa.pos], "max_age": int(aa.max_age), "sort": "known", "known": false, "youth_only": aa.kind == "wonderkid"}
 				sub.players = "youth" if aa.kind == "wonderkid" else "search"
 				_goto_tab("players"), "small", v, "search")
+			# v0.24 (4B) "Şimdi yapamam": sezonda 2 hak, başkan morali -3, itibar cezası yok
+			var dl: int = Game.declines_left()
+			if dl > 0:
+				var aid: String = a.id
+				_btn(T.t("req_decline", [dl]), func():
+					if not await _confirm(T.t("req_decline_q", [Game.DECLINE_MOOD]), T.t("req_decline_yes"), T.t("close")):
+						return
+					var dres: Dictionary = Game.assign_decline(aid)
+					_toast(T.t(dres.msg))
+					_refresh(), "ghost", v, "cross")
 	if not any:
 		_empty(page, "task", T.t("no_tasks"))
 
@@ -3055,6 +3184,11 @@ func _search_row(pid: String) -> void:
 	var ll := _typed(line, 15, C_INK2, false)
 	ll.clip_text = true
 	nv.add_child(ll)
+	if Game.video_only(pid):
+		# v0.24 (4B): izinsiz ülke -> yalnız video analizi
+		var vo := _typed("▶ " + T.t("video_only"), 14, C_RED, false)
+		vo.clip_text = true
+		nv.add_child(vo)
 	inner.add_child(nv)
 	var rv := VBoxContainer.new()
 	rv.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -3233,6 +3367,8 @@ func _player_file(pid: String, p: Dictionary) -> void:
 			b.add_theme_font_size_override("font_size", 18)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		ac.add_child(_typed(T.t("act_costs", [Game.money_str(Game.travel_info(cl.get("city", "")).cost) if not cl.is_empty() else "-"]), 15, C_INK2))
+		if Game.video_only(pid):
+			ac.add_child(_typed(T.t("video_only_note"), 15, C_RED))
 		_btn(T.t("act_report"), func(): _show("report", pid), "red", ac, "report").set_meta("tut", "act_report")
 
 func _player_attrs(pid: String, p: Dictionary) -> void:
@@ -3368,6 +3504,9 @@ func _spark_pop(caught: bool) -> void:
 	train_scr._spark_pop(caught)
 
 func _do_action(pid: String, kind: String) -> void:
+	if kind in ["train", "meet"] and Game.onsite_block(pid) != "":
+		_toast(T.t(Game.onsite_block(pid)))
+		return
 	await train_scr._do_action(pid, kind)
 
 var _gpu_warned := false
