@@ -1,0 +1,1329 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gözcü v0.24 Arayüz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@600;700&family=Saira+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ============================================================ pano (board) tokenları */
+:root{
+  --board-bg:#ecebe6; --board-fg:#1b1b19; --board-mut:#5f5e57; --board-line:rgba(0,0,0,.12); --board-card:#f8f7f3;
+  --s:1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --board-bg:#121211; --board-fg:#ecebe6; --board-mut:#9b9a92; --board-line:rgba(255,255,255,.12); --board-card:#1b1b19; }
+}
+:root[data-theme="dark"]{ --board-bg:#121211; --board-fg:#ecebe6; --board-mut:#9b9a92; --board-line:rgba(255,255,255,.12); --board-card:#1b1b19; }
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--board-bg);color:var(--board-fg)}
+body{font:15px/1.5 Inter,system-ui,sans-serif;overflow-x:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.wrap{max-width:1680px;margin:0 auto;padding:28px 16px 80px}
+.board-head{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--board-line);padding-bottom:20px;margin-bottom:28px}
+.board-head h1{font:800 clamp(28px,4vw,44px)/1 "Barlow Condensed",sans-serif;letter-spacing:.01em;text-transform:uppercase}
+.board-head p{color:var(--board-mut);max-width:720px;margin-top:8px}
+.board-actions{display:flex;gap:8px;flex-wrap:wrap}
+.bbtn{border:1px solid var(--board-line);background:var(--board-card);padding:9px 14px;border-radius:999px;font-weight:600;font-size:14px}
+.bbtn:hover{border-color:var(--board-fg)}
+.opt{margin:0 0 72px}
+.opt-head{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:baseline;margin-bottom:14px}
+.opt-head .k{font:700 13px "JetBrains Mono",monospace;letter-spacing:.14em;color:var(--board-mut)}
+.opt-head h2{font:800 clamp(26px,3.2vw,36px)/1.05 "Barlow Condensed",sans-serif;text-transform:uppercase}
+.opt-head .rec{font:700 12px Inter;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:#1f7a3a;color:#fff}
+.opt-lede{color:var(--board-mut);max-width:880px;margin-bottom:20px}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;margin-bottom:26px}
+.spec .box{background:var(--board-card);border:1px solid var(--board-line);border-radius:14px;padding:16px}
+.spec h3{font:700 12px "JetBrains Mono",monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--board-mut);margin-bottom:10px}
+.sw{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.sw div{border-radius:8px;height:46px;position:relative;border:1px solid rgba(0,0,0,.08)}
+.sw span{display:block;font:500 10.5px/1.25 "JetBrains Mono",monospace;margin-top:50px;color:var(--board-mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sw div{margin-bottom:30px;min-width:0}
+.type-row{display:flex;align-items:baseline;gap:10px;border-bottom:1px dashed var(--board-line);padding:6px 0}
+.type-row:last-child{border-bottom:0}
+.type-row small{font:500 11px "JetBrains Mono",monospace;color:var(--board-mut);min-width:118px}
+.spec ul{list-style:none;display:grid;gap:7px;font-size:14px}
+.spec li b{font-weight:700}
+.spec li{padding-left:14px;position:relative}
+.spec li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:6px;border-radius:2px;background:currentColor;opacity:.35}
+.phones{display:grid;gap:22px 18px;grid-template-columns:repeat(var(--cols,4),calc(390px*var(--s)));justify-content:center}
+.slot{width:calc(390px*var(--s));}
+.slot .cap{font:600 12px "JetBrains Mono",monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--board-mut);margin-bottom:8px;display:flex;justify-content:space-between}
+.slot .frame{width:calc(390px*var(--s));height:calc(844px*var(--s));}
+.phone{width:390px;height:844px;transform:scale(var(--s));transform-origin:top left;border-radius:46px;overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 0 0 8px #0b0b0b,0 0 0 9px #2a2a2a,0 30px 60px -20px rgba(0,0,0,.55)}
+.phone .status{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px;font:600 14px Inter;position:relative;z-index:5}
+.phone .status i{font-style:normal;font-size:12px;letter-spacing:.04em;opacity:.9}
+.phone .scroll{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;position:relative}
+.phone .scroll::-webkit-scrollbar{display:none}
+.phone .homebar{height:22px;flex:none;display:flex;justify-content:center;align-items:center}
+.phone .homebar::after{content:"";width:134px;height:5px;border-radius:3px;background:currentColor;opacity:.5}
+.av{display:block}
+svg.i{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.f{fill:currentColor;stroke:none}
+.demo-wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px;margin-bottom:26px;align-items:start}
+.demo-note{font-size:14px;color:var(--board-mut)}
+.demo-note b{color:var(--board-fg)}
+.demo-note code{font:500 12.5px "JetBrains Mono",monospace;background:var(--board-card);border:1px solid var(--board-line);padding:1px 6px;border-radius:6px}
+.foot{color:var(--board-mut);font-size:13px;border-top:1px solid var(--board-line);padding-top:16px}
+
+/* ============================================================ ortak animasyonlar */
+@keyframes cta-shine{0%{transform:translateX(-120%) skewX(-20deg)}60%,100%{transform:translateX(320%) skewX(-20deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes ring{0%{box-shadow:0 0 0 0 var(--ring)}100%{box-shadow:0 0 0 14px transparent}}
+@keyframes slam{0%{transform:scale(2.4) rotate(var(--r,-8deg));opacity:0}55%{opacity:1}70%{transform:scale(.94) rotate(var(--r,-8deg))}100%{transform:scale(1) rotate(var(--r,-8deg));opacity:1}}
+@keyframes grow{from{transform:scale(0)}to{transform:scale(1)}}
+@keyframes barfill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ============================================================ SEÇENEK A — GECE DOSYASI */
+.A{
+  --bg:#13100c; --desk:#1a1611; --leather:#2a1f17; --leather2:#3a2b20;
+  --paper:#efe6d1; --card:#f7f1e3; --manila:#dcc391; --manila-d:#bfa065;
+  --ink:#1f1c17; --ink2:#6a6150; --line:rgba(40,30,20,.14);
+  --brass:#d4a84b; --brass-hi:#f0c96a; --cream:#f1e6cf; --cream2:#b8a888;
+  --red:#c0352b; --blue:#2350a0; --green:#2f7d40; --hl:#f3d65b;
+  background:var(--bg); color:var(--cream);
+  background-image:radial-gradient(120% 70% at 50% 0%,#2a2016 0%,transparent 60%),radial-gradient(90% 60% at 50% 110%,#1d150f,transparent 70%);
+  font-family:Barlow,sans-serif;
+}
+.A .status{color:var(--cream);background:var(--leather)}
+.A .homebar{background:var(--leather);color:var(--cream)}
+.A .mono{font-family:"IBM Plex Mono",monospace}
+.A .disp{font-family:"Barlow Condensed",sans-serif;font-weight:800;text-transform:uppercase;letter-spacing:.01em}
+.A .hand{font-family:Caveat,cursive;font-weight:700;color:var(--blue)}
+/* üst bar: deri + dikiş */
+.A .a-top{background:linear-gradient(#2a1f17,#241a13);padding:8px 14px 12px;position:relative;box-shadow:0 8px 18px rgba(0,0,0,.45);z-index:3}
+.A .a-top::after{content:"";position:absolute;left:8px;right:8px;bottom:5px;border-bottom:1.5px dashed rgba(240,201,106,.33)}
+.A .a-row{display:flex;align-items:center;gap:10px}
+.A .a-badge{width:40px;height:40px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#f6d98c,#b8862f 70%);color:#2a1f17;display:grid;place-items:center;font:800 16px "Barlow Condensed";box-shadow:inset 0 0 0 2px rgba(255,255,255,.35),0 2px 6px rgba(0,0,0,.5)}
+.A .a-name{font:800 18px/1 "Barlow Condensed";letter-spacing:.03em;color:var(--cream)}
+.A .a-role{font:600 12.5px Barlow;color:var(--brass)}
+.A .a-tag{margin-left:auto;background:var(--manila);color:var(--ink);border-radius:5px;padding:4px 10px 3px 14px;transform:rotate(3deg);text-align:center;position:relative;box-shadow:0 3px 6px rgba(0,0,0,.4)}
+.A .a-tag::before{content:"";position:absolute;left:5px;top:50%;width:5px;height:5px;border-radius:50%;background:var(--leather);transform:translateY(-50%)}
+.A .a-tag b{display:block;font:800 14px/1 "Barlow Condensed"}
+.A .a-tag span{font:600 9.5px "IBM Plex Mono";color:var(--red);letter-spacing:.02em}
+.A .a-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.A .a-pill{background:rgba(0,0,0,.28);border:1px solid rgba(240,201,106,.18);border-radius:10px;padding:5px 7px 4px;display:flex;flex-direction:column;gap:0;min-width:0}
+.A .a-pill .v{display:flex;align-items:center;gap:5px;font:700 16px/1.1 "Barlow Condensed";color:var(--cream)}
+.A .a-pill .v svg{font-size:14px}
+.A .a-pill small{font:500 9.5px "IBM Plex Mono";color:var(--cream2);text-transform:uppercase;letter-spacing:.06em}
+.A .a-pill .meter{height:3px;border-radius:2px;background:rgba(255,255,255,.1);margin-top:3px;overflow:hidden}
+.A .a-pill .meter i{display:block;height:100%;background:currentColor;transform-origin:left}
+.A .a-top.slim{padding:6px 14px 10px}
+/* klasör sekmeleri */
+.A .folders{display:flex;padding:14px 10px 0;gap:0;position:relative;z-index:2}
+.A .folders button{flex:1;min-width:0;height:34px;margin:0 -3px;position:relative;font:700 12.5px/1 "Barlow Condensed";letter-spacing:.04em;text-transform:uppercase;color:rgba(31,28,23,.62);align-self:flex-end;transition:height .28s cubic-bezier(.2,.8,.2,1),color .2s;white-space:nowrap}
+.A .folders button::before{content:"";position:absolute;inset:0;background:#d2b984;clip-path:polygon(0 100%,7px 4px,12px 0,calc(100% - 12px) 0,calc(100% - 7px) 4px,100% 100%);z-index:-1;transition:background .25s;box-shadow:inset 0 -6px 8px rgba(0,0,0,.12)}
+.A .folders button.on{height:42px;color:var(--ink);z-index:2}
+.A .folders button.on::before{background:var(--paper)}
+.A .folders button.on::after{content:"";position:absolute;left:16px;right:16px;top:7px;height:3px;border-radius:2px;background:var(--red);transform-origin:left;animation:barfill .35s cubic-bezier(.2,.8,.2,1)}
+.A .sheet{background:var(--paper);margin:0 8px 16px;border-radius:2px 2px 8px 8px;padding:14px 12px 22px;color:var(--ink);position:relative;box-shadow:0 10px 24px rgba(0,0,0,.5);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .22 0 0 0 0 .12 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");}
+.A .sheet > * + *{margin-top:12px}
+.A .card{background:var(--card);border-radius:6px;padding:12px;position:relative;box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 3px 8px rgba(60,40,20,.18),0 0 0 1px var(--line)}
+.A .card.manila{background:var(--manila)}
+.A .card.memo{background:#fbf7ec repeating-linear-gradient(#fbf7ec 0 25px,rgba(35,80,160,.13) 25px 26px);background-position:0 8px;padding-left:28px}
+.A .card.memo::before{content:"";position:absolute;left:18px;top:0;bottom:0;width:1.5px;background:rgba(192,53,43,.3)}
+.A .card .accent{position:absolute;left:0;right:0;top:0;height:5px;border-radius:6px 6px 0 0}
+.A .lbl{font:600 10.5px "IBM Plex Mono";letter-spacing:.1em;text-transform:uppercase;color:var(--ink2)}
+.A .sec{display:flex;align-items:center;gap:7px;font:800 15px "Barlow Condensed";letter-spacing:.05em;text-transform:uppercase;color:var(--ink)}
+.A .sec svg{color:var(--red);font-size:16px}
+.A .sec::after{content:"";flex:1;height:1px;background:repeating-linear-gradient(90deg,rgba(31,28,23,.35) 0 5px,transparent 5px 9px)}
+.A .chip{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;padding:0 6px;border-radius:4px;font:800 12px "Barlow Condensed";color:#fff}
+.A .btn{display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:10px;font:800 17px "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;position:relative;overflow:hidden;transition:transform .12s}
+.A .btn:active{transform:scale(.96)}
+.A .btn.brass{background:linear-gradient(#f3cf78,#c9973a);color:#2a1f17;box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -3px 0 rgba(0,0,0,.18),0 4px 10px rgba(80,50,10,.35)}
+.A .btn.brass::after{content:"";position:absolute;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:cta-shine 3.2s ease-in-out infinite 1s}
+.A .btn.red{background:linear-gradient(#cf4136,#a52a21);color:#fbeee0;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 -3px 0 rgba(0,0,0,.2),0 4px 10px rgba(120,20,10,.35)}
+.A .btn.ghost{height:38px;font-size:14px;border:1.5px solid rgba(31,28,23,.55);color:var(--ink);background:rgba(255,255,255,.35)}
+.A .btn.toggle{height:38px;font-size:14px;border:1.5px solid var(--ink);background:var(--hl);color:var(--ink)}
+.A .stamp{display:inline-block;border:2.5px solid currentColor;outline:1px solid currentColor;outline-offset:-6px;padding:5px 11px 3px;font:700 14px/1 "IBM Plex Mono";letter-spacing:.12em;text-transform:uppercase;border-radius:3px;opacity:.85;mix-blend-mode:multiply;transform:rotate(var(--r,-8deg));
+  -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -2.2 1.7'/%3E%3C/filter%3E%3Crect width='80' height='80' filter='url(%23n)'/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -2.2 1.7'/%3E%3C/filter%3E%3Crect width='80' height='80' filter='url(%23n)'/%3E%3C/svg%3E")}
+.A.play .stamp.slam,.A .play .stamp.slam{animation:slam .42s cubic-bezier(.3,.0,.4,1) both;animation-delay:var(--d,.6s)}
+.A .nav{flex:none;background:linear-gradient(#2a1f17,#21180f);height:72px;display:flex;position:relative;box-shadow:0 -8px 18px rgba(0,0,0,.45)}
+.A .nav::before{content:"";position:absolute;left:8px;right:8px;top:5px;border-top:1.5px dashed rgba(240,201,106,.3)}
+.A .nav .pill{position:absolute;top:12px;bottom:8px;width:calc(100%/6 - 10px);left:5px;border-radius:12px;background:rgba(212,168,75,.18);border:1.5px solid rgba(212,168,75,.8);transition:transform .38s cubic-bezier(.34,1.45,.5,1)}
+.A .nav button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:6px;color:var(--cream2);position:relative;z-index:1;transition:color .2s}
+.A .nav button svg{font-size:23px;transition:transform .3s cubic-bezier(.34,1.45,.5,1)}
+.A .nav button span{font:600 9.5px "Barlow Condensed";letter-spacing:.08em;text-transform:uppercase}
+.A .nav button.on{color:var(--cream)}
+.A .nav button.on svg{color:var(--brass-hi);transform:translateY(-2px) scale(1.08)}
+.A .seal{position:absolute;top:8px;left:calc(50% + 6px);width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e0564a,#9e2219);color:#fbeee0;font:800 11px/17px "Barlow Condensed";text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.6)}
+/* reveal: kâğıt dağıtma */
+@keyframes dealA{from{opacity:0;transform:translateY(22px) rotate(-1.4deg)}to{opacity:1;transform:none}}
+.A.play .rv,.A .play .rv{animation:dealA .55s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*70ms + 80ms)}
+/* hub */
+.A .club{display:flex;gap:12px;align-items:center}
+.A .club .nm{font:800 21px/1 "Barlow Condensed";letter-spacing:.02em}
+.A .form{display:flex;gap:4px;margin-top:6px}
+.A .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin:8px 0 4px}
+.A .cal div{height:40px;border-radius:5px;border:1.5px solid rgba(31,28,23,.25);display:flex;flex-direction:column;align-items:center;justify-content:center;font:600 10px "IBM Plex Mono";color:var(--ink2);background:rgba(255,255,255,.5)}
+.A .cal div b{font:800 14px/1 "Barlow Condensed";color:var(--ink)}
+.A .cal .used{background:repeating-linear-gradient(-45deg,rgba(31,28,23,.08) 0 4px,transparent 4px 8px);opacity:.7}
+.A .cal .m{border-color:var(--red);background:#fff4f0}
+.A .cal .m b{color:var(--red)}
+.A .cal .now{box-shadow:0 0 0 2px var(--brass)}
+.A .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.A .tile{background:var(--card);border-radius:6px;padding:10px;box-shadow:0 3px 8px rgba(60,40,20,.18),0 0 0 1px var(--line);text-align:left;transition:transform .15s}
+.A .tile:active{transform:scale(.96)}
+.A .tile .n{display:flex;align-items:center;gap:6px;font:800 26px/1 "Barlow Condensed"}
+.A .tile .n svg{color:var(--red);font-size:18px}
+.A .tile small{font:600 10px/1.2 "IBM Plex Mono";color:var(--ink2);text-transform:uppercase;letter-spacing:.04em}
+.A .clip{background:#f3eee0;padding:12px 12px 12px;box-shadow:0 3px 8px rgba(60,40,20,.2);transform:rotate(-.8deg);clip-path:polygon(0 3%,4% 0,12% 2%,22% 0,35% 2%,48% 0,60% 1.5%,74% 0,88% 2%,100% 0,99% 30%,100% 62%,99% 100%,80% 98%,62% 100%,44% 98%,28% 100%,12% 98%,0 100%,1% 60%)}
+.A .clip .src{font:600 9.5px "IBM Plex Mono";letter-spacing:.14em;border-bottom:1.5px solid var(--ink);padding-bottom:4px;display:flex;justify-content:space-between}
+.A .clip h4{font:800 19px/1.05 "Barlow Condensed";margin-top:6px;text-transform:none}
+.A .clip p{font:500 12.5px/1.4 Barlow;color:var(--ink2);margin-top:4px}
+/* oyuncu */
+.A .back{display:flex;align-items:center;justify-content:space-between;color:var(--ink2)}
+.A .back button{display:flex;align-items:center;gap:4px;font:800 14px "Barlow Condensed";letter-spacing:.06em;color:var(--ink)}
+.A .polaroid{background:#fbfaf6;padding:7px 7px 4px;width:122px;flex:none;box-shadow:0 6px 12px rgba(40,25,10,.35);transform:rotate(-3deg);position:relative;align-self:flex-start}
+.A .polaroid .ph{height:118px;background:#1f3550;overflow:hidden;display:flex;align-items:flex-end;justify-content:center}
+.A .polaroid .cap{font:700 19px/1.2 Caveat;text-align:center;color:var(--ink)}
+.A .polaroid::before{content:"";position:absolute;top:-9px;left:50%;width:62px;height:20px;transform:translateX(-50%) rotate(-4deg);background:rgba(245,236,200,.6);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.A .clipdeco{position:absolute;right:22px;top:-14px;width:16px;height:46px;border:3px solid #8c8f96;border-radius:8px;border-bottom-color:transparent}
+.A .pname1{font:600 16px/1 "Barlow Condensed";letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+.A .pname2{font:800 30px/.95 "Barlow Condensed";text-transform:uppercase}
+.A .kv{display:flex;align-items:center;gap:8px;font:600 14px Barlow}
+.A .kbar{flex:1;height:9px;border-radius:5px;background:rgba(31,28,23,.1);overflow:hidden}
+.A .kbar i{display:block;height:100%;background:var(--blue);transform-origin:left}
+.A.play .kbar i,.A .play .kbar i{animation:barfill 1s cubic-bezier(.2,.8,.2,1) both .4s}
+.A .attr{display:grid;grid-template-columns:96px 1fr 46px;align-items:center;gap:8px;font:600 13.5px Barlow;padding:3px 0}
+.A .attr .v{font:600 13px "IBM Plex Mono";text-align:right}
+.A .rb{height:10px;background:rgba(31,28,23,.08);position:relative;border-radius:1px;
+  background-image:linear-gradient(90deg,transparent calc(21% - 1px),rgba(31,28,23,.25) calc(21% - 1px) 21%,transparent 21%,transparent calc(47.4% - 1px),rgba(31,28,23,.25) calc(47.4% - 1px) 47.4%,transparent 47.4%,transparent calc(73.7% - 1px),rgba(31,28,23,.25) calc(73.7% - 1px) 73.7%,transparent 73.7%)}
+.A .rb i{position:absolute;top:0;bottom:0;transform-origin:left}
+.A.play .rb i,.A .play .rb i{animation:barfill .7s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*80ms + .5s)}
+.A .acts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.A .acts button{height:52px;border-radius:8px;border:1.5px solid rgba(31,28,23,.6);background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:700 12.5px "Barlow Condensed";letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+.A .acts button svg{font-size:18px;color:var(--red)}
+/* rapor */
+.A .opt-card{display:block;width:100%;text-align:left;border:1.5px solid rgba(31,28,23,.3);border-radius:8px;padding:9px 10px;background:var(--card);font:600 13.5px/1.3 Barlow;color:var(--ink);transition:background .2s,border-color .2s}
+.A .opt-card.on{background:linear-gradient(transparent 8%,rgba(243,214,91,.85) 8% 92%,transparent 92%),var(--card);border-color:var(--ink)}
+.A .opt-card small{display:block;font:500 11px "IBM Plex Mono";color:var(--ink2)}
+.A input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:30px;background:transparent}
+.A input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:rgba(31,28,23,.18)}
+.A input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:rgba(31,28,23,.18)}
+.A input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#e0564a,#9e2219);border:3px solid var(--ink);margin-top:-10px}
+.A input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#b8291f;border:3px solid var(--ink)}
+.A .tags{display:flex;flex-wrap:wrap;gap:6px}
+.A .tags button{padding:6px 10px;border-radius:14px;border:1.5px solid rgba(31,28,23,.35);font:600 13px Barlow;color:var(--ink);background:rgba(255,255,255,.5);position:relative;transition:color .2s}
+.A .tags button.on{color:var(--blue);border-color:transparent}
+.A .tags button.on::after{content:"";position:absolute;inset:-4px -5px;border:2px solid var(--blue);border-radius:48% 52% 45% 55% / 60% 45% 55% 40%;transform:rotate(-2deg);animation:grow .25s cubic-bezier(.34,1.45,.5,1)}
+.A .recs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.A .recs button{height:54px;border:2px dashed rgba(31,28,23,.3);border-radius:6px;font:700 13px "IBM Plex Mono";letter-spacing:.1em;color:rgba(31,28,23,.45);position:relative}
+.A .recs button.on{border:2.5px solid var(--c);color:var(--c);outline:1px solid var(--c);outline-offset:-6px;transform:rotate(-3deg);animation:slam .32s cubic-bezier(.3,0,.4,1);--r:-3deg}
+.A .sent[hidden]{display:none}
+.A .sent{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:9}
+.A .sent .stamp{font-size:34px;color:var(--red);background:rgba(239,230,209,.4);--r:-12deg;animation:slam .45s cubic-bezier(.3,0,.4,1) both;padding:10px 18px 7px}
+.A .toast{position:absolute;left:50%;bottom:96px;transform:translate(-50%,30px);opacity:0;background:#241a12;border:2px solid #c9a45c;border-radius:16px;color:#f4ead2;padding:10px 18px;font:600 14px Barlow;display:flex;gap:8px;align-items:center;white-space:nowrap;transition:all .35s cubic-bezier(.34,1.45,.5,1);z-index:10}
+.A .toast.show{transform:translate(-50%,0);opacity:1}
+/* maç */
+.A .pitchbox{height:350px;position:relative;flex:none;background:radial-gradient(60% 50% at 15% 0%,rgba(255,240,200,.35),transparent 70%),radial-gradient(60% 50% at 85% 0%,rgba(255,240,200,.35),transparent 70%),linear-gradient(#0b0a09,#16130f 35%,#0f1a12);overflow:hidden}
+.A .pitchbox svg.pitch{position:absolute;left:0;right:0;bottom:0;width:100%;height:270px}
+.A .sboard{position:absolute;top:10px;left:12px;display:flex;align-items:stretch;border-radius:8px;overflow:hidden;box-shadow:0 6px 14px rgba(0,0,0,.55);font-family:"Barlow Condensed"}
+.A .sboard .live{background:#c0352b;color:#fff;font:700 12px "Barlow Condensed";padding:0 7px;display:flex;align-items:center;gap:4px;letter-spacing:.08em}
+.A .sboard .live::before{content:"";width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1.2s infinite}
+.A .sboard .tm{background:var(--leather);color:var(--cream);font:800 15px "Barlow Condensed";padding:5px 8px;display:flex;align-items:center;gap:5px}
+.A .sboard .sc{background:#0c0a08;color:var(--cream);font:800 19px "Barlow Condensed";padding:3px 10px;letter-spacing:.04em}
+.A .sboard .ck{background:var(--brass);color:var(--ink);font:800 16px "IBM Plex Mono";padding:4px 8px;display:flex;align-items:center}
+.A .ctl{position:absolute;top:10px;right:12px;display:flex;gap:6px}
+.A .ctl button{height:32px;min-width:36px;padding:0 8px;border-radius:8px;background:rgba(20,15,10,.75);border:1px solid rgba(240,201,106,.35);color:var(--cream);font:800 13px "Barlow Condensed";display:flex;align-items:center;justify-content:center;gap:4px}
+.A .moment{position:absolute;left:50%;top:62px;transform:translateX(-50%) rotate(-1.5deg);background:var(--card);color:var(--ink);border-radius:4px;padding:8px 12px 8px 12px;box-shadow:0 8px 18px rgba(0,0,0,.55);display:flex;gap:10px;align-items:center;white-space:nowrap}
+.A .moment b{font:800 13px "Barlow Condensed";color:var(--red);letter-spacing:.08em}
+.A .moment span{font:700 19px Caveat;color:var(--blue)}
+.A .moment button{--ring:rgba(192,53,43,.6);background:var(--red);color:#fff;border-radius:6px;padding:5px 9px;font:800 12px "Barlow Condensed";letter-spacing:.06em;animation:ring 1.3s infinite}
+.A .focusrow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.A .fp{background:var(--card);border-radius:6px;padding:8px;box-shadow:0 3px 8px rgba(60,40,20,.2),0 0 0 1px var(--line);display:flex;flex-direction:column;gap:3px;color:var(--ink)}
+.A .fp .t{display:flex;align-items:center;gap:6px}
+.A .fp .t .av{width:28px;height:28px;border-radius:50%;overflow:hidden;flex:none;background:#2b3c52}
+.A .fp b{font:800 13.5px/1 "Barlow Condensed";text-transform:uppercase}
+.A .fp .r{font:800 24px/1 "Barlow Condensed"}
+.A .fp svg.spark{width:100%;height:20px}
+.A .notes .ln{font:700 19px/26px Caveat;color:var(--blue);min-height:26px}
+.A .notes .ln em{font:600 11px "IBM Plex Mono";color:var(--red);font-style:normal;margin-right:6px}
+.A .caret{display:inline-block;width:2px;height:16px;background:var(--blue);vertical-align:-2px;animation:blink .8s infinite}
+.A .tl{position:relative;height:26px;margin:2px 4px 0}
+.A .tl::before{content:"";position:absolute;left:0;right:0;top:12px;height:2px;background:rgba(31,28,23,.2)}
+.A .tl .p{position:absolute;top:12px;height:2px;left:0;background:var(--red)}
+.A .tl .mk{position:absolute;top:6px;width:14px;height:14px;margin-left:-7px;border-radius:50%;border:2px solid var(--paper)}
+.A .tl small{position:absolute;top:-2px;font:500 9px "IBM Plex Mono";color:var(--ink2)}
+
+/* ============================================================ SEÇENEK B — PROJEKTÖR */
+.B{
+  --bg:#060a09; --bg2:#0c1412; --panel:rgba(16,26,23,.78); --panel2:rgba(24,38,34,.85);
+  --line:rgba(190,255,220,.11); --text:#e9f2ee; --text2:#8aa39a; --text3:#55695f;
+  --lime:#c6ff3d; --cyan:#3ddcff; --mag:#ff4d8d; --amber:#ffb547; --green:#36e08a;
+  background:var(--bg);color:var(--text);font-family:Inter,sans-serif;
+  background-image:radial-gradient(70% 40% at 0% 0%,rgba(61,220,255,.14),transparent 70%),radial-gradient(60% 35% at 100% 0%,rgba(198,255,61,.10),transparent 70%),linear-gradient(transparent 60%,rgba(54,224,138,.05));
+}
+.B .status{color:var(--text)}
+.B .homebar{color:var(--text)}
+.B .mono{font-family:"JetBrains Mono",monospace}
+.B .disp{font-family:"Saira Condensed",sans-serif;font-weight:800;text-transform:uppercase}
+.B .b-top{padding:6px 16px 12px;position:relative;z-index:3}
+.B .b-row{display:flex;align-items:center;gap:11px}
+.B .hex{width:44px;height:48px;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);background:var(--lime);display:grid;place-items:center;flex:none}
+.B .hex i{width:40px;height:44px;clip-path:inherit;background:#0f1a17;display:grid;place-items:center;font:800 16px "Saira Condensed";color:var(--lime);font-style:normal}
+.B .b-name{font:800 19px/1 "Saira Condensed";letter-spacing:.04em;text-transform:uppercase}
+.B .b-role{font:500 12px Inter;color:var(--cyan)}
+.B .wk{margin-left:auto;text-align:right}
+.B .wk b{display:block;font:800 22px/1 "Saira Condensed";letter-spacing:.02em}
+.B .wk span{display:inline-flex;align-items:center;gap:5px;font:700 9.5px "JetBrains Mono";color:var(--lime);letter-spacing:.06em}
+.B .wk span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime);animation:pulse 1.4s infinite}
+.B .b-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
+.B .st{background:var(--panel);border-radius:10px;padding:7px 8px 6px;box-shadow:inset 0 0 0 1px var(--line);min-width:0}
+.B .st small{display:block;font:600 9px "JetBrains Mono";color:var(--text2);letter-spacing:.08em;text-transform:uppercase}
+.B .st b{font:700 16px/1.2 "JetBrains Mono";letter-spacing:-.02em}
+.B .st .mt{height:3px;background:rgba(255,255,255,.08);border-radius:2px;margin-top:4px;overflow:hidden}
+.B .st .mt i{display:block;height:100%;transform-origin:left;box-shadow:0 0 8px currentColor}
+.B .play .st .mt i, .B.play .st .mt i{animation:barfill .9s cubic-bezier(.2,.8,.2,1) both .3s}
+.B .seg{position:relative;display:flex;background:rgba(255,255,255,.04);border-radius:12px;padding:4px;margin:2px 14px 0;box-shadow:inset 0 0 0 1px var(--line)}
+.B .seg .ind{position:absolute;top:4px;bottom:4px;left:0;border-radius:9px;background:var(--lime);box-shadow:0 0 18px rgba(198,255,61,.35);transition:left .32s cubic-bezier(.6,0,.2,1),width .32s cubic-bezier(.6,0,.2,1)}
+.B .seg button{flex:1;position:relative;z-index:1;height:32px;font:700 12px Inter;letter-spacing:.02em;color:var(--text2);transition:color .25s;white-space:nowrap;min-width:0}
+.B .seg button.on{color:#0a1208}
+.B .body{padding:12px 14px 20px}
+.B .body > * + *{margin-top:12px}
+.B .pn{background:var(--panel);border-radius:4px;position:relative;padding:13px;box-shadow:inset 0 0 0 1px var(--line);clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));backdrop-filter:blur(10px)}
+.B .pn::before{content:"";position:absolute;left:0;top:0;width:3px;height:22px;background:var(--acc,var(--lime));box-shadow:0 0 10px var(--acc,var(--lime))}
+.B .k{font:700 10px "JetBrains Mono";color:var(--text2);letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.B .k::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+.B .cta{display:flex;align-items:center;justify-content:center;gap:10px;height:54px;width:100%;background:var(--lime);color:#0a1208;font:800 19px "Saira Condensed";letter-spacing:.08em;text-transform:uppercase;clip-path:polygon(14px 0,100% 0,calc(100% - 14px) 100%,0 100%);position:relative;overflow:hidden;box-shadow:0 0 30px rgba(198,255,61,.3);transition:transform .12s}
+.B .cta:active{transform:scale(.97)}
+.B .cta::after{content:"";position:absolute;top:0;bottom:0;width:30%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent);animation:cta-shine 2.8s ease-in-out infinite .8s}
+.B .ghost{height:40px;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);font:600 13px Inter;color:var(--text);display:flex;align-items:center;justify-content:center;gap:7px;background:rgba(255,255,255,.03)}
+.B .ghost.on{box-shadow:inset 0 0 0 1.5px var(--lime);color:var(--lime);background:rgba(198,255,61,.08)}
+.B .nav{flex:none;height:70px;display:flex;position:relative;background:linear-gradient(rgba(6,10,9,.4),#060a09 40%);box-shadow:inset 0 1px 0 var(--line)}
+.B .nav .bar{position:absolute;top:0;height:3px;width:calc(100%/6 - 28px);left:14px;border-radius:0 0 3px 3px;background:var(--lime);box-shadow:0 0 14px var(--lime),0 6px 24px rgba(198,255,61,.5);transition:transform .34s cubic-bezier(.6,0,.2,1)}
+.B .nav .glow{position:absolute;top:0;height:54px;width:calc(100%/6);left:0;background:radial-gradient(50% 60% at 50% 0%,rgba(198,255,61,.16),transparent);transition:transform .34s cubic-bezier(.6,0,.2,1);pointer-events:none}
+.B .nav button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--text3);transition:color .2s;position:relative;z-index:1}
+.B .nav button svg{font-size:22px;stroke-width:1.7}
+.B .nav button span{font:700 9px Inter;letter-spacing:.06em;text-transform:uppercase}
+.B .nav button.on{color:var(--text)}
+.B .nav button.on svg{color:var(--lime);filter:drop-shadow(0 0 6px rgba(198,255,61,.6))}
+.B .dot{position:absolute;top:9px;left:calc(50% + 7px);min-width:16px;height:16px;border-radius:8px;background:var(--mag);color:#fff;font:800 10px/16px "JetBrains Mono";text-align:center;box-shadow:0 0 10px var(--mag)}
+@keyframes wipeB{from{opacity:0;clip-path:inset(0 100% 0 0);transform:translateX(-10px)}to{opacity:1;clip-path:inset(0 0 0 0);transform:none}}
+@keyframes riseB{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.B.play .rv,.B .play .rv{animation:riseB .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*60ms + 60ms)}
+.B.play .rv.pn,.B .play .rv.pn{animation-name:riseB}
+.B .rank{font:800 italic 96px/.8 "Saira Condensed";color:transparent;-webkit-text-stroke:1.5px rgba(198,255,61,.55);position:absolute;right:12px;top:10px;letter-spacing:-.04em}
+.B .formbars{display:flex;gap:4px;margin-top:8px}
+.B .formbars i{width:24px;height:6px;border-radius:2px}
+.B .match{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.B .match:first-of-type{border-top:0}
+.B .match .d{font:700 10px "JetBrains Mono";color:var(--cyan);width:42px;letter-spacing:.06em}
+.B .match .t{flex:1;display:flex;align-items:center;gap:7px;font:800 17px "Saira Condensed";letter-spacing:.04em}
+.B .match .tag{font:700 9.5px "JetBrains Mono";padding:3px 6px;border-radius:4px;background:rgba(61,220,255,.12);color:var(--cyan)}
+.B .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.B .tile{background:var(--panel);border-radius:10px;padding:10px;box-shadow:inset 0 0 0 1px var(--line);text-align:left;transition:transform .15s,box-shadow .2s}
+.B .tile:active{transform:scale(.96);box-shadow:inset 0 0 0 1.5px var(--lime)}
+.B .tile b{display:block;font:800 30px/1 "Saira Condensed"}
+.B .tile small{font:600 10px Inter;color:var(--text2)}
+.B .tile svg{font-size:16px;color:var(--c);float:right}
+.B .feed{display:flex;gap:10px;align-items:flex-start}
+.B .feed .ic{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;background:rgba(255,181,71,.12);color:var(--amber);flex:none}
+.B .feed h4{font:700 14px/1.3 Inter}
+.B .feed p{font:500 11px "JetBrains Mono";color:var(--text2);margin-top:3px}
+/* oyuncu B */
+.B .hero{position:relative;height:230px;margin:0 -14px;overflow:hidden;background:linear-gradient(180deg,rgba(61,220,255,.08),transparent 70%)}
+.B .hero .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(190,255,220,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(190,255,220,.06) 1px,transparent 1px);background-size:22px 22px;mask-image:linear-gradient(transparent,#000 30%,#000 70%,transparent)}
+.B .hero .por{position:absolute;left:8px;bottom:0;width:170px;height:214px}
+.B .hero .scanl{position:absolute;left:0;width:190px;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);box-shadow:0 0 12px var(--cyan);animation:scan 2.8s ease-in-out infinite}
+@keyframes scan{0%,100%{top:30px;opacity:0}10%,90%{opacity:1}50%{top:210px}}
+.B .hero .info{position:absolute;left:176px;right:14px;top:14px}
+.B .hero .n1{font:600 15px/1 "Saira Condensed";letter-spacing:.1em;color:var(--text2);text-transform:uppercase}
+.B .hero .n2{font:800 38px/.9 "Saira Condensed";text-transform:uppercase;letter-spacing:.01em}
+.B .pos{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font:700 11px "JetBrains Mono"}
+.B .pos b{background:var(--green);color:#06120b;padding:3px 7px;border-radius:4px}
+.B .big2{display:flex;gap:14px;margin-top:12px}
+.B .big2 div small{display:block;font:700 9px "JetBrains Mono";color:var(--text2);letter-spacing:.1em}
+.B .big2 div b{font:800 italic 40px/1 "Saira Condensed"}
+.B .big2 div b em{font-style:normal;font-size:18px;color:var(--text2)}
+.B .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.B .chips span{font:700 9.5px "JetBrains Mono";letter-spacing:.08em;padding:4px 7px;border-radius:4px;box-shadow:inset 0 0 0 1px currentColor}
+.B .ringrow{display:flex;gap:14px;align-items:center}
+.B .ring{width:84px;height:84px;position:relative;flex:none}
+.B .ring svg{width:84px;height:84px;transform:rotate(-90deg)}
+.B .ring b{position:absolute;inset:0;display:grid;place-items:center;font:800 24px "JetBrains Mono";letter-spacing:-.04em}
+.B .ring .arc{stroke-dasharray:226;stroke-dashoffset:226;transition:stroke-dashoffset 1.2s cubic-bezier(.2,.8,.2,1)}
+.B .seen{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;flex:1}
+.B .seen div{background:rgba(255,255,255,.03);border-radius:8px;padding:6px 8px;box-shadow:inset 0 0 0 1px var(--line)}
+.B .seen b{display:block;font:800 22px/1 "Saira Condensed"}
+.B .seen small{font:600 9.5px Inter;color:var(--text2)}
+.B .attr{display:grid;grid-template-columns:90px 1fr 48px;gap:8px;align-items:center;padding:4px 0;font:600 12.5px Inter}
+.B .attr .v{font:700 12px "JetBrains Mono";text-align:right}
+.B .segs{display:grid;grid-template-columns:repeat(20,1fr);gap:2px;height:10px}
+.B .segs i{background:rgba(255,255,255,.07);border-radius:1px}
+.B .segs i.lo{background:var(--lime);box-shadow:0 0 6px rgba(198,255,61,.5)}
+.B .segs i.hi{background:rgba(198,255,61,.32)}
+.B .segs i.un{background:rgba(61,220,255,.18)}
+.B .actsB{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.B .actsB button{height:56px;border-radius:10px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font:600 11px Inter;color:var(--text)}
+.B .actsB button svg{font-size:19px;color:var(--cyan)}
+.B .actsB button small{font:600 9px "JetBrains Mono";color:var(--text3)}
+/* rapor B */
+.B .steps{display:flex;gap:4px;padding:6px 14px 0}
+.B .steps i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.08);position:relative;overflow:hidden}
+.B .steps i.d::after{content:"";position:absolute;inset:0;background:var(--lime);transform-origin:left;animation:barfill .5s cubic-bezier(.2,.8,.2,1) both}
+.B .stepn{font:800 13px "JetBrains Mono";color:var(--lime);margin-right:2px}
+.B .req{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:10px;border-radius:10px;background:rgba(255,255,255,.03);box-shadow:inset 0 0 0 1px var(--line);transition:box-shadow .2s,background .2s;color:var(--text)}
+.B .req.on{box-shadow:inset 0 0 0 1.5px var(--lime);background:rgba(198,255,61,.06)}
+.B .req .rd{width:18px;height:18px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--text3);flex:none;display:grid;place-items:center}
+.B .req.on .rd{box-shadow:inset 0 0 0 2px var(--lime)}
+.B .req.on .rd::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime)}
+.B .req b{display:block;font:700 13px Inter}
+.B .req small{font:500 10.5px "JetBrains Mono";color:var(--text2)}
+.B .lvl{display:flex;align-items:flex-end;justify-content:space-between;margin:6px 0 8px}
+.B .lvl b{font:800 italic 48px/.9 "Saira Condensed";letter-spacing:-.02em}
+.B .lvl b em{font-style:normal;font-size:20px;color:var(--text2)}
+.B .lvl small{font:600 10.5px "JetBrains Mono";color:var(--text2);text-align:right}
+.B .lvl small span{color:var(--cyan)}
+.B .ticks{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+.B .ticks button{height:30px;border-radius:4px;background:rgba(255,255,255,.06);transition:background .18s,box-shadow .18s,transform .18s;position:relative}
+.B .ticks button.on{background:var(--c,var(--lime));box-shadow:0 0 10px var(--c,var(--lime))}
+.B .ticks button.est::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:2px;background:var(--cyan)}
+.B .ticks button.pop{transform:scaleY(1.25)}
+.B .scale{display:flex;justify-content:space-between;font:600 9px "JetBrains Mono";color:var(--text3);margin-top:9px}
+.B .tg{display:flex;flex-wrap:wrap;gap:6px}
+.B .tg button{padding:7px 11px;border-radius:999px;font:600 12px Inter;color:var(--text2);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);transition:all .2s}
+.B .tg button.on{color:#0a1208;background:var(--lime);box-shadow:0 0 12px rgba(198,255,61,.35)}
+.B .tg button.on::before{content:"✓ "}
+.B .rc{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.B .rc button{height:64px;border-radius:10px;box-shadow:inset 0 0 0 1px var(--line);background:rgba(255,255,255,.03);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--text2);font:800 16px "Saira Condensed";letter-spacing:.08em;transition:all .2s}
+.B .rc button svg{font-size:18px}
+.B .rc button.on{color:var(--c);box-shadow:inset 0 0 0 2px var(--c),0 0 18px color-mix(in srgb,var(--c) 35%,transparent);background:color-mix(in srgb,var(--c) 10%,transparent)}
+.B .hold{position:relative;height:56px;width:100%;border-radius:12px;background:rgba(198,255,61,.1);box-shadow:inset 0 0 0 1.5px var(--lime);overflow:hidden;color:var(--lime);font:800 18px "Saira Condensed";letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:8px;user-select:none;-webkit-user-select:none;touch-action:none}
+.B .hold .fill{position:absolute;inset:0;background:var(--lime);transform-origin:left;transform:scaleX(0)}
+.B .hold span{position:relative;z-index:1;display:flex;align-items:center;gap:8px;mix-blend-mode:difference;color:#c6ff3d}
+.B .hold.done{background:var(--lime);color:#0a1208}
+.B .hold.done span{mix-blend-mode:normal;color:#0a1208}
+/* maç B */
+.B .pitchB{height:360px;position:relative;flex:none;overflow:hidden;background:radial-gradient(80% 50% at 50% 0%,rgba(61,220,255,.12),transparent 70%),linear-gradient(#05080a,#081310 40%,#0a1f15)}
+.B .pitchB svg.pitch{position:absolute;left:0;right:0;bottom:0;width:100%;height:290px}
+.B .sbB{position:absolute;top:8px;left:12px;right:12px;display:flex;align-items:center;height:38px;font-family:"Saira Condensed"}
+.B .sbB .lv{background:var(--mag);color:#fff;font:800 11px "JetBrains Mono";letter-spacing:.08em;height:100%;display:flex;align-items:center;padding:0 9px 0 8px;clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,0 100%);gap:5px}
+.B .sbB .lv::before{content:"";width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1.2s infinite}
+.B .sbB .mid{flex:1;height:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:rgba(10,18,16,.85);margin-left:-4px;clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%);box-shadow:inset 0 0 0 1px var(--line);backdrop-filter:blur(6px)}
+.B .sbB .mid .tm{font:800 17px "Saira Condensed";letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+.B .sbB .mid .tm i{width:4px;height:18px;border-radius:2px}
+.B .sbB .mid .sc{font:800 24px "JetBrains Mono";letter-spacing:-.04em}
+.B .sbB .ck{background:var(--lime);color:#0a1208;font:800 15px "JetBrains Mono";height:100%;display:flex;align-items:center;padding:0 10px 0 12px;margin-left:-4px;clip-path:polygon(8px 0,100% 0,100% 100%,0 100%)}
+.B .ctlB{position:absolute;top:54px;right:12px;display:flex;flex-direction:column;gap:6px}
+.B .ctlB button{width:40px;height:40px;border-radius:10px;background:rgba(10,18,16,.8);box-shadow:inset 0 0 0 1px var(--line);display:grid;place-items:center;color:var(--text);font:800 12px "JetBrains Mono"}
+.B .ctlB button svg{font-size:18px}
+.B .momB{position:absolute;left:14px;top:56px;display:flex;align-items:center;gap:8px;padding:7px 10px 7px 8px;background:rgba(10,18,16,.88);box-shadow:inset 0 0 0 1.5px var(--lime),0 0 20px rgba(198,255,61,.25);border-radius:8px}
+.B .momB b{font:800 10.5px "JetBrains Mono";color:#0a1208;background:var(--lime);padding:3px 6px;border-radius:4px;letter-spacing:.08em}
+.B .momB span{font:600 12.5px Inter}
+.B .tick{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font:500 12.5px Inter}
+.B .tick:first-child{border-top:0}
+.B .tick em{font:700 11px "JetBrains Mono";color:var(--cyan);font-style:normal;width:30px}
+.B .tick.new{animation:wipeB .45s cubic-bezier(.2,.8,.2,1)}
+.B .fps{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.B .fpB{background:var(--panel);border-radius:10px;padding:8px;box-shadow:inset 0 0 0 1px var(--line)}
+.B .fpB.foc{box-shadow:inset 0 0 0 1.5px var(--lime),0 0 16px rgba(198,255,61,.18)}
+.B .fpB .t{display:flex;align-items:center;gap:6px}
+.B .fpB .av{width:26px;height:26px;border-radius:7px;overflow:hidden;background:#173040;flex:none}
+.B .fpB b{font:800 14px/1 "Saira Condensed";text-transform:uppercase;letter-spacing:.03em}
+.B .fpB .r{font:800 26px/1 "JetBrains Mono";letter-spacing:-.05em;margin-top:5px;display:flex;align-items:baseline;gap:4px}
+.B .fpB .r small{font:700 10px "JetBrains Mono";color:var(--green)}
+.B .fpB svg.spark{width:100%;height:20px;margin-top:2px}
+.B .tlB{position:relative;height:30px}
+.B .tlB::before{content:"";position:absolute;left:0;right:0;top:14px;height:2px;background:rgba(255,255,255,.08)}
+.B .tlB .p{position:absolute;top:14px;height:2px;left:0;background:linear-gradient(90deg,var(--cyan),var(--lime));box-shadow:0 0 8px var(--lime)}
+.B .tlB .mk{position:absolute;top:8px;width:4px;height:14px;margin-left:-2px;border-radius:2px}
+.B .tlB small{position:absolute;top:20px;font:600 9px "JetBrains Mono";color:var(--text3)}
+.B .sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.B .sum b{display:block;font:800 26px/1 "Saira Condensed"}
+.B .sum small{font:600 9.5px "JetBrains Mono";color:var(--text2);letter-spacing:.06em}
+
+/* ============================================================ sekme geçiş demoları */
+.tdemo{border-radius:20px;overflow:hidden;position:relative;height:300px;display:flex;flex-direction:column}
+.tdemo .panes{position:relative;flex:1;overflow:hidden}
+.tdemo .pane{position:absolute;inset:0;padding:14px}
+.tdemo .pane[hidden]{display:block;visibility:hidden}
+/* A demo */
+.tdemo.A{padding-top:4px}
+.tdemo.A .panes{margin:0 8px 10px;perspective:900px}
+.tdemo.A .pane{background:var(--paper);color:var(--ink);border-radius:2px 2px 8px 8px;box-shadow:0 10px 24px rgba(0,0,0,.5)}
+.tdemo.A .pane.enter{animation:aIn .42s cubic-bezier(.2,.8,.2,1) both;z-index:2}
+.tdemo.A .pane.leave{animation:aOut .42s cubic-bezier(.2,.8,.2,1) both;z-index:1}
+@keyframes aIn{from{transform:translateX(calc(var(--dir)*104%)) rotate(calc(var(--dir)*2.2deg));box-shadow:0 30px 40px rgba(0,0,0,.6)}to{transform:none}}
+@keyframes aOut{from{transform:none;filter:none}to{transform:translateX(calc(var(--dir)*-14%)) scale(.96);filter:brightness(.72)}}
+.tdemo.A .pane.enter > *{animation:dealA .45s cubic-bezier(.2,.8,.2,1) both}
+.tdemo.A .pane.enter > *:nth-child(2){animation-delay:.08s}.tdemo.A .pane.enter > *:nth-child(3){animation-delay:.16s}.tdemo.A .pane.enter > *:nth-child(4){animation-delay:.24s}
+/* B demo */
+.tdemo.B{padding-top:10px}
+.tdemo.B .pane.enter{animation:bIn .34s cubic-bezier(.6,0,.2,1) both}
+.tdemo.B .pane.leave{animation:bOut .34s cubic-bezier(.6,0,.2,1) both}
+@keyframes bIn{from{clip-path:inset(0 calc(50% - var(--dir)*50%) 0 calc(50% + var(--dir)*50%));transform:translateX(calc(var(--dir)*24px));opacity:.4}to{clip-path:inset(0 0 0 0);transform:none;opacity:1}}
+@keyframes bOut{to{transform:translateX(calc(var(--dir)*-40px));opacity:0}}
+.tdemo.B .scanbar{position:absolute;top:0;bottom:0;width:2px;background:var(--lime);box-shadow:0 0 16px var(--lime),0 0 40px var(--lime);opacity:0;z-index:5;pointer-events:none}
+.tdemo.B .scanbar.go{animation:scanX .34s cubic-bezier(.6,0,.2,1)}
+@keyframes scanX{from{left:var(--from);opacity:1}to{left:var(--to);opacity:0}}
+.tdemo.B .pane.enter > *{animation:riseB .4s cubic-bezier(.2,.8,.2,1) both}
+.tdemo.B .pane.enter > *:nth-child(2){animation-delay:.06s}.tdemo.B .pane.enter > *:nth-child(3){animation-delay:.12s}.tdemo.B .pane.enter > *:nth-child(4){animation-delay:.18s}
+.cnt-big{font-variant-numeric:tabular-nums}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M8.5 11l2 2 4-4M8.5 17h7"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c2.8.3 5 2.6 5 5.8"/></symbol>
+  <symbol id="i-team" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1 6.3 20.2l1.2-6.3L2.8 9.5l6.4-.8z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5l3.8 2.8-1.4 4.4H9.6l-1.4-4.4z"/><path d="M12 3v4.5M15.8 10.3l4.6-1.6M14.4 14.7l2.8 4M9.6 14.7l-2.8 4M8.2 10.3L3.6 8.7"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M16 15h2"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6-5.5-6-11a6 6 0 1 1 12 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="i-cone" viewBox="0 0 24 24"><path d="M12 3l5 15H7zM5 18h14v3H5zM9 11h6"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 7l3 3"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-news2" viewBox="0 0 24 24"><rect x="3" y="5" width="15" height="15" rx="1.5"/><path d="M18 9h3v9a2 2 0 0 1-2 2H5M6.5 9h8M6.5 12.5h8M6.5 16h5"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="board-head">
+    <div>
+      <div style="font:700 12px 'JetBrains Mono',monospace;letter-spacing:.16em;color:var(--board-mut)">GÖZCÜ • v0.24 • ARAYÜZ YÖNÜ</div>
+      <h1>İki görsel yön, dört ekran</h1>
+      <p>Her seçenek için Ana ekran, Oyuncu profili, Scout raporu ve Maç izleme ekranları 390×844 boyutunda. Telefonların içi kaydırılabilir; sekmelere, alt menüye, kaydırıcılara ve etiketlere dokunulabilir. İsimler ve kulüpler tamamen kurgudur.</p>
+    </div>
+    <div class="board-actions">
+      <button class="bbtn" data-replay>Animasyonları yeniden oynat</button>
+      <a class="bbtn" href="#optA" style="text-decoration:none">A: Gece Dosyası</a>
+      <a class="bbtn" href="#optB" style="text-decoration:none">B: Projektör</a>
+    </div>
+  </header>
+
+  <!-- ============================================================ SEÇENEK A -->
+  <section class="opt" id="optA">
+    <div class="opt-head"><span class="k">SEÇENEK A</span><h2>Gece Dosyası — analist masası</h2><span class="rec">Önerilen</span></div>
+    <p class="opt-lede">Bugünkü “scout dosyası” kimliğini koruyup olgunlaştırır: koyu deri masa üstünde krem kâğıt dosyalar, pirinç (brass) vurgu, kırmızı mühür, mavi mürekkep el notları. Fark: yazı tipi gürültüsü azalır, hiyerarşi netleşir, her etkileşimin fiziksel bir karşılığı olur (kâğıt kayar, mühür vurulur, not yazılır).</p>
+    <div class="spec">
+      <div class="box"><h3>Palet</h3>
+        <div class="sw">
+          <div style="background:#13100c"><span>#13100C masa</span></div>
+          <div style="background:#2a1f17"><span>#2A1F17 deri</span></div>
+          <div style="background:#efe6d1"><span>#EFE6D1 kâğıt</span></div>
+          <div style="background:#dcc391"><span>#DCC391 manila</span></div>
+          <div style="background:#d4a84b"><span>#D4A84B pirinç</span></div>
+          <div style="background:#c0352b"><span>#C0352B mühür</span></div>
+          <div style="background:#2350a0"><span>#2350A0 mürekkep</span></div>
+          <div style="background:#1f1c17"><span>#1F1C17 metin</span></div>
+        </div>
+      </div>
+      <div class="box"><h3>Tipografi (hepsi OFL, Türkçe tam)</h3>
+        <div class="type-row"><small>Barlow Condensed 800</small><span style="font:800 24px 'Barlow Condensed';text-transform:uppercase">Şığ Güç İzleği</span></div>
+        <div class="type-row"><small>Barlow 500/600</small><span style="font:500 15px Barlow">Çağrı, ışık, öğün, düşüş</span></div>
+        <div class="type-row"><small>IBM Plex Mono 600</small><span style="font:600 12px 'IBM Plex Mono';letter-spacing:.1em">FORM SR-7 • GİZLİ</span></div>
+        <div class="type-row"><small>Caveat 700 (az!)</small><span style="font:700 22px Caveat;color:#2350a0">ters ayakla ara pası, şık</span></div>
+        <p class="demo-note" style="margin-top:8px">Oswald, Courier Prime ve Special Elite çıkar (Special Elite'te ğ/ş/ı yok, sistem fontuna düşüyor). 9 dosya → 6 dosya.</p>
+      </div>
+      <div class="box"><h3>Bileşen dili</h3>
+        <ul>
+          <li><b>Kâğıt kart</b>: krem zemin, 6px köşe, sıcak gölge, üstte kulüp rengi şerit.</li>
+          <li><b>Klasör sekmesi</b>: aktif sekme 8px yükselir, kâğıtla birleşir, kırmızı çizgi çizilir.</li>
+          <li><b>Pirinç CTA</b>: dikey gradyan + iç parıltı + 3 sn'de bir ışık süpürmesi.</li>
+          <li><b>Mühür</b>: çift çerçeve, mürekkep maskesi, vurma animasyonu + titreşim.</li>
+          <li><b>El notu</b>: yalnızca oyuncunun kendi gözlemi için (Caveat, mavi).</li>
+        </ul>
+      </div>
+      <div class="box"><h3>Hareket ilkeleri</h3>
+        <ul>
+          <li><b>Kâğıt kayar</b>: sekme değişince yeni sayfa yön tarafından 2° eğik gelir, eskisi kararır (380 ms, ease-out).</li>
+          <li><b>Dağıtma</b>: kartlar 70 ms arayla aşağıdan, hafif dönerek gelir.</li>
+          <li><b>Sayılar</b>: itibar, bilgi %, puan 0'dan sayar (600–900 ms), sonunda tık sesi.</li>
+          <li><b>Mühür</b>: 2.4× → 1×, %70'te küçük ezilme, titreşim 35 ms.</li>
+          <li><b>Nav</b>: pirinç kapsül yaylanarak kayar (TRANS_BACK).</li>
+        </ul>
+      </div>
+    </div>
+    <div class="demo-wrap">
+      <div class="tdemo A" data-tdemo="A">
+        <div class="folders" style="padding-top:8px">
+          <button class="on">Özet</button><button>Yönetim</button><button>Kariyer</button><button>Keşiflerim</button>
+        </div>
+        <div class="panes">
+          <div class="pane"><div class="card"><div class="lbl">Bu hafta</div><div class="disp" style="font-size:22px">2 maç planlandı</div></div><div class="card memo" style="margin-top:10px"><span class="hand" style="font-size:20px">Cmt: KUZ – EGE izlenecek</span></div><div class="card" style="margin-top:10px"><div class="lbl">Takip listesi</div><div class="disp" style="font-size:22px">7 oyuncu</div></div></div>
+          <div class="pane" hidden><div class="card manila"><div class="lbl">Yönetim kurulu</div><div class="disp" style="font-size:22px">Güven: %72</div></div><div class="card" style="margin-top:10px"><div class="lbl">Başkanın notu</div><span class="hand" style="font-size:20px">Gençlere yatırım istiyoruz.</span></div></div>
+          <div class="pane" hidden><div class="card"><div class="lbl">Kariyer</div><div class="disp" style="font-size:22px">Baş Scout • 2. sezon</div></div><div class="card" style="margin-top:10px"><div class="lbl">Sonraki unvan</div><div class="disp" style="font-size:22px">Scout Direktörü</div></div></div>
+          <div class="pane" hidden><div class="card"><div class="lbl">Keşiflerim</div><div class="disp" style="font-size:22px">4 imza, 1 efsane adayı</div></div><div style="margin-top:14px"><span class="stamp" style="color:#2f7d40;--r:-6deg">İMZALANDI</span></div></div>
+        </div>
+      </div>
+      <div class="demo-note">
+        <p><b>Sekme geçişi — “dosya üstüne dosya”.</b> Sekmeye dokun: yeni kâğıt sayfa dokunulan sekmenin yönünden (sağdaki sekme → sağdan) 2° eğik kayarak gelir ve düzleşir; eski sayfa %14 geri çekilip %72 parlaklığa kararır. İçerik kartları 80 ms arayla dağıtılır. Kırmızı çizgi sekme üstünde soldan sağa çizilir.</p>
+        <p style="margin-top:10px">Godot: eski sayfayı <code>TextureRect</code> anlık görüntüsü olarak bırakmak yerine iki <code>Control</code> sayfa kabı tutulur; <code>position:x</code>, <code>rotation</code> ve <code>modulate</code> tek <code>Tween</code> ile <code>set_parallel()</code>. Kendiliğinden döner; dokunursan durur.</p>
+      </div>
+    </div>
+
+    <div class="phones">
+      <!-- A1 HUB -->
+      <div class="slot"><div class="cap"><span>A1 • Ana ekran (Ofis)</span><span>Özet</span></div><div class="frame">
+      <div class="phone A play" data-phone>
+        <div class="status"><span>21:47</span><i>5G ▂▄▆ 78%</i></div>
+        <header class="a-top">
+          <div class="a-row">
+            <div class="a-badge">KA</div>
+            <div><div class="a-name">KEREM AYDIN</div><div class="a-role">Baş Scout • Bozkır Anadolu SK</div></div>
+            <div class="a-tag"><b>HAFTA 14</b><span>26/27 • PENCERE</span></div>
+          </div>
+          <div class="a-stats">
+            <div class="a-pill" style="color:var(--brass)"><div class="v"><svg class="i f"><use href="#i-star"/></svg><b class="cu" data-to="64">64</b></div><small>İtibar</small><div class="meter"><i style="width:64%"></i></div></div>
+            <div class="a-pill" style="color:var(--cream)"><div class="v"><svg class="i"><use href="#i-wallet"/></svg><b class="cu" data-to="42500" data-fmt="thou" data-pre="€">€42.500</b></div><small>Cüzdan</small></div>
+            <div class="a-pill" style="color:#8fc1e8"><div class="v"><svg class="i"><use href="#i-cal"/></svg><b>3/5</b></div><small>İş günü</small><div class="meter"><i style="width:60%"></i></div></div>
+            <div class="a-pill" style="color:#7fd28f"><div class="v"><svg class="i f"><use href="#i-bolt"/></svg><b class="cu" data-to="38" data-pre="%">%38</b></div><small>Yorgunluk</small><div class="meter"><i style="width:38%"></i></div></div>
+          </div>
+        </header>
+        <div class="scroll">
+          <div class="folders" data-ftabs><button class="on">Özet</button><button>Yönetim</button><button>Kariyer</button><button>Keşiflerim</button><button>Kulübüm</button></div>
+          <div class="sheet">
+            <div class="card rv" style="--i:0"><div class="accent" style="background:#7a1f2b"></div>
+              <div class="club" style="margin-top:4px">
+                <svg width="56" height="64" viewBox="0 0 40 46"><path d="M20 2L37 8v14c0 11-8 19-17 22C11 41 3 33 3 22V8z" fill="#7a1f2b" stroke="#e8c46e" stroke-width="2"/><path d="M20 2L37 8v14c0 11-8 19-17 22z" fill="#5c1520"/><text x="20" y="28" text-anchor="middle" font-family="Barlow Condensed" font-weight="800" font-size="14" fill="#e8c46e">BA</text></svg>
+                <div style="flex:1">
+                  <div class="nm">BOZKIR ANADOLU SK</div>
+                  <div class="lbl" style="letter-spacing:.04em;text-transform:none;font-size:11.5px">1. Lig • 4. sıra • <b class="cu" data-to="27">27</b> puan</div>
+                  <div class="form"><span class="chip" style="background:#2f7d40">G</span><span class="chip" style="background:#2f7d40">G</span><span class="chip" style="background:#6a6150">B</span><span class="chip" style="background:#c0352b">M</span><span class="chip" style="background:#2f7d40">G</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card memo rv" style="--i:1">
+              <div style="display:flex;align-items:baseline;justify-content:space-between"><span class="sec" style="flex:1">Sıradaki adım</span><span class="hand" style="color:var(--red);font-size:22px;margin-left:8px">Hafta 14</span></div>
+              <div class="cal"><div class="used">Pzt<b>✕</b></div><div class="used">Sal<b>✕</b></div><div class="now">Çar<b>12</b></div><div>Per<b>13</b></div><div>Cum<b>14</b></div><div class="m">Cmt<b>⚽</b></div><div class="m">Paz<b>⚽</b></div></div>
+              <div class="hand" style="font-size:20px;line-height:26px">Cmt: KUZ – EGE, Paz: LİM – DEM izlenecek</div>
+              <div style="display:flex;align-items:center;gap:6px;color:var(--red);font:600 13.5px Barlow;margin:2px 0 10px"><svg class="i"><use href="#i-task"/></svg>2 açık talep yönetimi bekliyor</div>
+              <button class="btn brass" style="width:100%"><svg class="i" style="font-size:20px"><use href="#i-ball"/></svg>Hafta sonuna geç</button>
+            </div>
+            <div class="sec rv" style="--i:2"><svg class="i"><use href="#i-pin"/></svg>Masadaki dosyalar</div>
+            <div class="tiles rv" style="--i:3">
+              <button class="tile"><div class="n"><svg class="i f"><use href="#i-star"/></svg><span class="cu" data-to="7">7</span></div><small>Takip listesi</small></button>
+              <button class="tile"><div class="n"><svg class="i"><use href="#i-task"/></svg><span class="cu" data-to="2">2</span></div><small>Talepler</small></button>
+              <button class="tile"><div class="n"><svg class="i"><use href="#i-phone"/></svg><span class="cu" data-to="4">4</span></div><small>İhbarlar</small></button>
+            </div>
+            <div class="clip rv" style="--i:4">
+              <div class="src"><span>LİMAN EKSPRES</span><span>SPOR • 3</span></div>
+              <h4>Liman'ın 19'luk 10 numarası tribünleri ayağa kaldırdı</h4>
+              <p>Baran Erkılıç, Demirtepe karşısında iki asistle gecenin adamı oldu. Üç kulübün scoutu tribündeydi.</p>
+            </div>
+          </div>
+        </div>
+        <nav class="nav" data-nav><i class="pill"></i>
+          <button class="on"><svg class="i"><use href="#i-home"/></svg><span>Ofis</span></button>
+          <button><svg class="i"><use href="#i-cal"/></svg><span>Takvim</span></button>
+          <button><svg class="i"><use href="#i-task"/></svg><span>Görevler</span><b class="seal">2</b></button>
+          <button><svg class="i"><use href="#i-people"/></svg><span>Oyuncular</span></button>
+          <button><svg class="i"><use href="#i-team"/></svg><span>Ekip</span></button>
+          <button><svg class="i"><use href="#i-news"/></svg><span>Dünya</span></button>
+        </nav>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- A2 PLAYER -->
+      <div class="slot"><div class="cap"><span>A2 • Oyuncu profili</span><span>Dosya</span></div><div class="frame">
+      <div class="phone A play" data-phone>
+        <div class="status"><span>21:48</span><i>5G ▂▄▆ 78%</i></div>
+        <header class="a-top slim"><div class="a-row"><div class="a-badge" style="width:30px;height:30px;font-size:13px">KA</div><div class="a-name" style="font-size:16px">KEREM AYDIN</div>
+          <div style="margin-left:auto;display:flex;gap:10px;font:700 14px 'Barlow Condensed';color:var(--cream)"><span style="color:var(--brass)">★ 64</span><span>€42.500</span><span style="color:#8fc1e8">3/5</span></div></div></header>
+        <div class="scroll">
+          <div class="folders" data-ftabs><button class="on">Dosya</button><button>Özellikler</button><button>Notlar</button><button>Kariyer</button></div>
+          <div class="sheet">
+            <div class="back"><button><svg class="i"><use href="#i-left"/></svg>Geri</button><span class="lbl">Dosya no. 04172</span></div>
+            <div class="card manila rv" style="--i:0;padding:14px 12px">
+              <i class="clipdeco"></i>
+              <div style="display:flex;gap:12px">
+                <div class="polaroid"><div class="ph"><span class="av" data-av="2,1,#1d4f6e" style="width:108px;height:108px"></span></div><div class="cap">B. Erkılıç</div></div>
+                <div style="flex:1;min-width:0">
+                  <div class="pname1">Baran</div><div class="pname2">Erkılıç</div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:6px"><span class="chip" style="background:#2f7d40;min-width:40px">OOS</span><span style="font:600 12.5px Barlow;color:var(--ink2)">19 yaş • Sol ayak</span></div>
+                  <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font:600 13px Barlow"><svg width="18" height="21" viewBox="0 0 40 46"><path d="M20 2L37 8v14c0 11-8 19-17 22C11 41 3 33 3 22V8z" fill="#1d4f6e" stroke="#7fd3c9" stroke-width="3"/></svg>Liman Gücü FK</div>
+                  <div class="hand" style="font-size:36px;line-height:1;margin-top:4px">3–3½★</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><span class="stamp slam" style="color:var(--blue);--r:-5deg;--d:.55s">Takipte</span><span class="stamp slam" style="color:var(--green);--r:4deg;--d:.75s">U19</span><span class="stamp slam" style="color:var(--ink);--r:-2deg;--d:.95s">Gölge: OOS</span></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px"><button class="btn toggle"><svg class="i f"><use href="#i-star"/></svg>Takipte</button><button class="btn ghost">LİM kulübü</button></div>
+            </div>
+            <div class="card rv" style="--i:1">
+              <div class="sec"><svg class="i"><use href="#i-eye"/></svg>Senin görüşün</div>
+              <div class="kv" style="margin-top:8px"><span style="color:var(--ink2);font-size:13px">Bilgi</span><span class="kbar"><i style="width:62%"></i></span><b class="disp cu" data-to="62" data-pre="%" style="font-size:20px">%62</b></div>
+              <div class="lbl" style="text-transform:none;letter-spacing:0;margin-top:2px">3 maç • 1 video • yüz yüze görüşüldü</div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;margin-top:8px">
+                <span style="font:600 14px Barlow">Mevcut</span><span style="display:flex;align-items:center;gap:8px"><span class="stars" data-lo="3" data-hi="3.5" data-sz="20" data-c="#c79a1e"></span><span class="hand" style="font-size:22px">3–3½</span></span>
+                <span style="font:600 14px Barlow">Potansiyel</span><span style="display:flex;align-items:center;gap:8px"><span class="stars" data-lo="4" data-hi="4.5" data-sz="20" data-c="#c79a1e"></span><span class="hand" style="font-size:22px">4–4½</span></span>
+              </div>
+              <svg class="radar" data-radar="A" viewBox="0 0 300 280" style="width:100%;margin-top:6px"></svg>
+            </div>
+            <div class="card rv" style="--i:2">
+              <div class="sec">Kritik özellikler</div>
+              <div style="margin-top:6px">
+                <div class="attr" style="--i:0"><span>Vizyon •</span><span class="rb"><i style="left:68%;width:16%;background:#2f7d40"></i></span><span class="v">14–17</span></div>
+                <div class="attr" style="--i:1"><span>Pas •</span><span class="rb"><i style="left:63%;width:10.5%;background:#2f7d40"></i></span><span class="v">13–15</span></div>
+                <div class="attr" style="--i:2"><span>İlk kontrol •</span><span class="rb"><i style="left:73.7%;width:5.3%;background:#2f7d40;outline:2px solid #2f7d40;outline-offset:2px"></i></span><span class="v">15–16</span></div>
+                <div class="attr" style="--i:3"><span>Dripling</span><span class="rb"><i style="left:58%;width:16%;background:#7a8f2a"></i></span><span class="v">12–15</span></div>
+                <div class="attr" style="--i:4"><span>Güç</span><span class="rb"><i style="left:31.6%;width:15.8%;background:#c27a1a"></i></span><span class="v">7–10</span></div>
+                <div class="attr" style="--i:5;color:var(--ink2)"><span>Bitiricilik</span><span class="rb"></span><span class="v">?</span></div>
+              </div>
+            </div>
+            <div class="card memo rv" style="--i:3">
+              <div class="sec">Aksiyonlar <span class="lbl" style="margin-left:4px">• 3 gün</span></div>
+              <div class="acts" style="margin:8px 0 10px">
+                <button><svg class="i"><use href="#i-video"/></svg>Video</button><button><svg class="i"><use href="#i-cone"/></svg>Antrenman</button><button><svg class="i"><use href="#i-chat"/></svg>Görüş</button>
+                <button><svg class="i"><use href="#i-phone"/></svg>Hocası</button><button><svg class="i"><use href="#i-news2"/></svg>Gazeteci</button><button><svg class="i"><use href="#i-wallet"/></svg>Menajer</button>
+              </div>
+              <button class="btn red" style="width:100%"><svg class="i"><use href="#i-pen"/></svg>Rapor yaz</button>
+            </div>
+          </div>
+        </div>
+        <nav class="nav" data-nav data-on="3"><i class="pill"></i>
+          <button><svg class="i"><use href="#i-home"/></svg><span>Ofis</span></button>
+          <button><svg class="i"><use href="#i-cal"/></svg><span>Takvim</span></button>
+          <button><svg class="i"><use href="#i-task"/></svg><span>Görevler</span><b class="seal">2</b></button>
+          <button class="on"><svg class="i"><use href="#i-people"/></svg><span>Oyuncular</span></button>
+          <button><svg class="i"><use href="#i-team"/></svg><span>Ekip</span></button>
+          <button><svg class="i"><use href="#i-news"/></svg><span>Dünya</span></button>
+        </nav>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- A3 REPORT -->
+      <div class="slot"><div class="cap"><span>A3 • Scout raporu</span><span>etkileşimli</span></div><div class="frame">
+      <div class="phone A play" data-phone data-report="A">
+        <div class="status"><span>21:52</span><i>5G ▂▄▆ 77%</i></div>
+        <header class="a-top slim"><div class="a-row"><div class="a-badge" style="width:30px;height:30px;font-size:13px">KA</div><div class="a-name" style="font-size:16px">KEREM AYDIN</div>
+          <div style="margin-left:auto;display:flex;gap:10px;font:700 14px 'Barlow Condensed';color:var(--cream)"><span style="color:var(--brass)">★ 64</span><span>€42.500</span><span style="color:#8fc1e8">3/5</span></div></div></header>
+        <div class="scroll">
+          <div class="sheet" style="margin-top:12px;border-radius:8px">
+            <div class="back"><button><svg class="i"><use href="#i-left"/></svg>Geri</button><span class="lbl" style="color:var(--red)">Gizli</span></div>
+            <div class="card rv" style="--i:0;padding-top:16px"><div class="accent" style="background:var(--red)"></div>
+              <div style="display:flex;gap:10px;align-items:center">
+                <div style="flex:1"><div class="lbl">Form SR-7</div><div class="disp" style="font-size:28px;line-height:1">Scout raporu</div><div class="lbl" style="text-transform:none;letter-spacing:0">Bozkır Anadolu SK • Scouting Departmanı</div></div>
+                <svg width="44" height="50" viewBox="0 0 40 46"><path d="M20 2L37 8v14c0 11-8 19-17 22C11 41 3 33 3 22V8z" fill="#7a1f2b" stroke="#e8c46e" stroke-width="2"/><text x="20" y="28" text-anchor="middle" font-family="Barlow Condensed" font-weight="800" font-size="14" fill="#e8c46e">BA</text></svg>
+              </div>
+              <div style="border-top:1.5px dashed rgba(31,28,23,.35);margin:10px 0"></div>
+              <div style="display:flex;gap:10px;align-items:center"><span class="av" data-av="2,1,#1d4f6e" style="width:46px;height:46px;border-radius:6px;overflow:hidden"></span><div><div class="disp" style="font-size:20px;line-height:1">Baran Erkılıç</div><div style="font:500 12.5px Barlow;color:var(--ink2)">Ofansif orta saha • 19 yaş • Liman Gücü FK</div></div></div>
+            </div>
+            <div class="card rv" style="--i:1">
+              <div class="sec"><span class="mono" style="color:var(--red)">1.</span> Hangi talep için?</div>
+              <div style="display:grid;gap:6px;margin-top:8px" data-single>
+                <button class="opt-card on">Kiralık — Ofansif orta saha<small>≤21 yaş • €900.000 tavan</small></button>
+                <button class="opt-card">Kalıcı — Sol kanat<small>≤24 yaş • €1,2 M tavan</small></button>
+              </div>
+              <div style="font:600 12.5px Barlow;color:var(--green);margin-top:6px">Tahmini bonservis: €750.000 — bütçeye uygun</div>
+            </div>
+            <div class="card rv" style="--i:2">
+              <div class="sec"><span class="mono" style="color:var(--red)">2.</span> Mevcut seviye</div>
+              <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><span class="stars" data-lo="3" data-sz="30" data-c="#c79a1e" data-out="cur"></span><span class="hand" style="font-size:36px;line-height:1" data-val="cur">3★</span></div>
+              <input type="range" min="0.5" max="5" step="0.5" value="3" data-bind="cur">
+              <div class="lbl" style="text-transform:none;letter-spacing:0">Senin tahminin: 3–3½★</div>
+            </div>
+            <div class="card rv" style="--i:3">
+              <div class="sec"><span class="mono" style="color:var(--red)">3.</span> Potansiyel</div>
+              <div style="display:flex;align-items:center;gap:10px;margin-top:6px"><span class="stars" data-lo="4.5" data-sz="30" data-c="#c79a1e" data-out="pot"></span><span class="hand" style="font-size:36px;line-height:1" data-val="pot">4½★</span></div>
+              <input type="range" min="0.5" max="5" step="0.5" value="4.5" data-bind="pot">
+              <div class="lbl" style="text-transform:none;letter-spacing:0">Senin tahminin: 4–4½★</div>
+            </div>
+            <div class="card rv" style="--i:4">
+              <div class="sec"><span class="mono" style="color:var(--red)">4.</span> Etiketler</div>
+              <div class="tags" style="margin-top:10px" data-multi>
+                <button class="on">Oyun kurucu</button><button class="on">Ters ayak</button><button>Duran top</button><button>Baskıya dayanıklı</button><button>Fiziği gelişmeli</button><button>Lider ruhlu</button>
+              </div>
+            </div>
+            <div class="card rv" style="--i:5">
+              <div class="sec"><span class="mono" style="color:var(--red)">5.</span> Tavsiye</div>
+              <div class="recs" style="margin-top:10px" data-single>
+                <button class="on" style="--c:#2f7d40">İMZALA</button><button style="--c:#2350a0">İZLE</button><button style="--c:#c0352b">GEÇ</button>
+              </div>
+            </div>
+            <button class="btn red rv" style="--i:6;width:100%" data-send><svg class="i"><use href="#i-check"/></svg>Mühürle ve gönder</button>
+          </div>
+          <div class="sent" hidden><span class="stamp">GÖNDERİLDİ</span></div>
+        </div>
+        <div class="toast"><svg class="i" style="color:#e8c46e"><use href="#i-check"/></svg>Rapor yönetime iletildi • İtibar +2</div>
+        <nav class="nav" data-nav data-on="3"><i class="pill"></i>
+          <button><svg class="i"><use href="#i-home"/></svg><span>Ofis</span></button>
+          <button><svg class="i"><use href="#i-cal"/></svg><span>Takvim</span></button>
+          <button><svg class="i"><use href="#i-task"/></svg><span>Görevler</span><b class="seal">2</b></button>
+          <button class="on"><svg class="i"><use href="#i-people"/></svg><span>Oyuncular</span></button>
+          <button><svg class="i"><use href="#i-team"/></svg><span>Ekip</span></button>
+          <button><svg class="i"><use href="#i-news"/></svg><span>Dünya</span></button>
+        </nav>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- A4 MATCH -->
+      <div class="slot"><div class="cap"><span>A4 • Maç izleme + sonuç</span><span>canlı</span></div><div class="frame">
+      <div class="phone A play" data-phone data-match="A">
+        <div class="status" style="background:#0b0a09"><span>21:58</span><i>5G ▂▄▆ 76%</i></div>
+        <div class="pitchbox">
+          <svg class="pitch" viewBox="0 0 390 270" preserveAspectRatio="none" data-pitch="A"></svg>
+          <div class="sboard"><span class="live">CANLI</span><span class="tm"><i style="width:4px;height:14px;background:#2a62b8;display:inline-block;border-radius:1px"></i>KUZ</span><span class="sc" data-score>1–0</span><span class="tm">EGE<i style="width:4px;height:14px;background:#e8792b;display:inline-block;border-radius:1px"></i></span><span class="ck" data-clock>63'</span></div>
+          <div class="ctl"><button>2×</button><button><svg class="i"><use href="#i-pause"/></svg></button></div>
+          <div class="moment" data-moment><b>AN!</b><span>Erkılıç, ara pası</span><button>Not al</button></div>
+        </div>
+        <div class="scroll" style="background:var(--desk)">
+          <div class="sheet" style="margin-top:10px;border-radius:8px">
+            <div class="card memo notes rv" style="--i:0">
+              <div class="sec">Gözlem defteri</div>
+              <div data-notes style="margin-top:4px">
+                <div class="ln"><em>58'</em>sol kanatta iki kez çizgiyi okudu</div>
+                <div class="ln"><em>61'</em>baskı altında topu saklıyor, sakin</div>
+                <div class="ln" data-typing><em>63'</em><span></span><i class="caret"></i></div>
+              </div>
+            </div>
+            <div class="sec rv" style="--i:1"><svg class="i"><use href="#i-eye"/></svg>Odaktaki oyuncular</div>
+            <div class="focusrow rv" style="--i:2">
+              <div class="fp" style="box-shadow:0 0 0 2px var(--brass),0 3px 8px rgba(60,40,20,.2)"><div class="t"><span class="av" data-av="2,1,#1d4f6e"></span><b>Erkılıç</b></div><div class="r" data-live="7.4" style="color:var(--green)">7.4</div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,15 15,13 30,14 45,9 60,10 75,6 100,3" fill="none" stroke="#2f7d40" stroke-width="2"/></svg></div>
+              <div class="fp"><div class="t"><span class="av" data-av="0,2,#2a62b8"></span><b>Sarıgöl</b></div><div class="r" data-live="6.6">6.6</div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,10 20,11 40,9 60,12 80,11 100,10" fill="none" stroke="#6a6150" stroke-width="2"/></svg></div>
+              <div class="fp"><div class="t"><span class="av" data-av="1,0,#e8792b"></span><b>Tekinalp</b></div><div class="r" data-live="5.9" style="color:var(--red)">5.9</div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,6 20,8 40,10 60,13 80,14 100,16" fill="none" stroke="#c0352b" stroke-width="2"/></svg></div>
+            </div>
+            <div class="card rv" style="--i:3">
+              <div class="lbl">Maç akışı</div>
+              <div class="tl"><span class="p" style="width:70%"></span><span class="mk" style="left:27%;background:#2a62b8"></span><span class="mk" style="left:51%;background:var(--brass)"></span><span class="mk" style="left:66%;background:var(--brass)"></span><small style="left:0">0'</small><small style="right:0">90'</small></div>
+            </div>
+            <div class="card manila rv" style="--i:4;overflow:hidden">
+              <div class="lbl">Düdük • önceki maç özeti</div>
+              <div class="disp" style="font-size:22px;line-height:1.05">KUZ 2–1 EGE</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px;text-align:center">
+                <div><div class="disp cu" data-to="14" data-pre="+%" style="font-size:26px;color:var(--blue)">+%14</div><div class="lbl" style="font-size:9.5px">Bilgi</div></div>
+                <div><div class="disp cu" data-to="2" style="font-size:26px;color:var(--green)">2</div><div class="lbl" style="font-size:9.5px">Yeni keşif</div></div>
+                <div><div class="disp cu" data-to="7.8" data-dec="1" style="font-size:26px">7.8</div><div class="lbl" style="font-size:9.5px">En iyi puan</div></div>
+              </div>
+              <span class="stamp slam" style="color:var(--red);position:absolute;right:10px;top:10px;--r:9deg;--d:1.1s;font-size:12px">Gözlendi</span>
+            </div>
+          </div>
+        </div>
+        <div class="homebar" style="background:#0b0a09;color:#f1e6cf"></div>
+      </div></div></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ SEÇENEK B -->
+  <section class="opt" id="optB">
+    <div class="opt-head"><span class="k">SEÇENEK B</span><h2>Projektör — gece maçı analiz odası</h2></div>
+    <p class="opt-lede">Kâğıt dosya yerine stadyum ışığında bir veri odası: neredeyse siyah yeşil zemin, buzlu cam paneller, kesik köşeler, neon yeşil-limon (lime) ana vurgu, camgöbeği veri rengi. Daha “e-spor / yayın grafiği” hissi; ilk bakışta daha çarpıcı, fakat bugünkü kimlikten kopuş büyük ve tüm kit yeniden çizilmeli.</p>
+    <div class="spec">
+      <div class="box"><h3>Palet</h3>
+        <div class="sw">
+          <div style="background:#060a09"><span>#060A09 zemin</span></div>
+          <div style="background:#101a17"><span>#101A17 panel</span></div>
+          <div style="background:#e9f2ee"><span>#E9F2EE metin</span></div>
+          <div style="background:#8aa39a"><span>#8AA39A ikincil</span></div>
+          <div style="background:#c6ff3d"><span>#C6FF3D lime</span></div>
+          <div style="background:#3ddcff"><span>#3DDCFF veri</span></div>
+          <div style="background:#ff4d8d"><span>#FF4D8D alarm</span></div>
+          <div style="background:#ffb547"><span>#FFB547 potansiyel</span></div>
+        </div>
+      </div>
+      <div class="box"><h3>Tipografi (hepsi OFL, Türkçe tam)</h3>
+        <div class="type-row"><small>Saira Condensed 800</small><span style="font:800 24px 'Saira Condensed';text-transform:uppercase">Şığ Güç İzleği</span></div>
+        <div class="type-row"><small>Inter 500/700</small><span style="font:500 15px Inter">Çağrı, ışık, öğün, düşüş</span></div>
+        <div class="type-row"><small>JetBrains Mono 700</small><span style="font:700 14px 'JetBrains Mono'">7.4 • %62 • 63'</span></div>
+        <p class="demo-note" style="margin-top:8px">El yazısı ve daktilo yok; “his” renk, ışık ve hareketten gelir. 3 aile, ~6 dosya.</p>
+      </div>
+      <div class="box"><h3>Bileşen dili</h3>
+        <ul>
+          <li><b>Kesik köşe panel</b>: 16px çapraz kesim, sol üstte parlayan vurgu çizgisi.</li>
+          <li><b>Segment sekme</b>: lime kapsül, “gerilip oturan” hareket.</li>
+          <li><b>Eğik CTA</b>: paralelkenar lime düğme, ışık süpürmesi.</li>
+          <li><b>Segment çubuk</b>: 20 parçalı özellik ölçeği (1–20).</li>
+          <li><b>Basılı tut</b>: rapor gönderimi 0.6 sn basılı tutma ile.</li>
+        </ul>
+      </div>
+      <div class="box"><h3>Hareket ilkeleri</h3>
+        <ul>
+          <li><b>Tarama (scan)</b>: sekme değişiminde lime ışık çizgisi eski sekmeden yenisine geçer, içerik o yönden açılır (clip wipe, 340 ms).</li>
+          <li><b>Yükseliş</b>: paneller 14px aşağıdan, 60 ms arayla.</li>
+          <li><b>Sayaç</b>: monospace sayılar kayarak sayar; değişen hane kısa parlar.</li>
+          <li><b>Parıltı</b>: odak/aktif öğe glow alır — az ve anlamlı.</li>
+          <li><b>Nav</b>: üst lime çizgi + ışık konisi birlikte kayar.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="demo-wrap">
+      <div class="tdemo B" data-tdemo="B">
+        <div class="seg"><i class="ind"></i><button class="on">Özet</button><button>Yönetim</button><button>Kariyer</button><button>Keşifler</button></div>
+        <div class="panes" style="margin-top:6px"><i class="scanbar"></i>
+          <div class="pane"><div class="pn"><div class="k">Bu hafta</div><div class="disp" style="font-size:24px;margin-top:4px">2 maç planlandı</div></div><div class="pn" style="margin-top:10px;--acc:var(--cyan)"><div class="k">Takip listesi</div><div class="disp" style="font-size:24px;margin-top:4px">7 oyuncu</div></div></div>
+          <div class="pane" hidden><div class="pn" style="--acc:var(--amber)"><div class="k">Yönetim güveni</div><div class="mono" style="font:800 30px 'JetBrains Mono';margin-top:4px">%72</div></div><div class="pn" style="margin-top:10px"><div class="k">Başkan</div><div style="margin-top:4px">“Gençlere yatırım istiyoruz.”</div></div></div>
+          <div class="pane" hidden><div class="pn"><div class="k">Kariyer</div><div class="disp" style="font-size:24px;margin-top:4px">Baş Scout • 2. sezon</div></div><div class="pn" style="margin-top:10px;--acc:var(--cyan)"><div class="k">Sonraki unvan</div><div class="disp" style="font-size:24px;margin-top:4px">Scout Direktörü</div></div></div>
+          <div class="pane" hidden><div class="pn" style="--acc:var(--green)"><div class="k">Keşifler</div><div class="disp" style="font-size:24px;margin-top:4px">4 imza • 1 efsane adayı</div></div></div>
+        </div>
+      </div>
+      <div class="demo-note">
+        <p><b>Sekme geçişi — “tarama”.</b> Lime kapsül önce iki sekmeyi kapsayacak kadar uzar, sonra hedefe oturur (iki aşamalı genişlik). Aynı anda ince bir ışık çizgisi içerik alanında eski konumdan yeni konuma geçer; yeni içerik o yönden <code>clip</code> ile açılır, eskisi 40px kayıp söner.</p>
+        <p style="margin-top:10px">Godot: <code>clip_contents</code> açık bir kap içinde yeni sayfanın <code>size.x</code>'i ya da basit bir <code>canvas_item</code> shader ile <code>uniform float reveal</code> tween'lenir. Kapsül için iki adımlı <code>tween.chain()</code>.</p>
+      </div>
+    </div>
+
+    <div class="phones">
+      <!-- B1 HUB -->
+      <div class="slot"><div class="cap"><span>B1 • Ana ekran (Ofis)</span><span>Özet</span></div><div class="frame">
+      <div class="phone B play" data-phone>
+        <div class="status"><span>21:47</span><i>5G ▂▄▆ 78%</i></div>
+        <header class="b-top">
+          <div class="b-row">
+            <div class="hex"><i>KA</i></div>
+            <div><div class="b-name">Kerem Aydın</div><div class="b-role">Baş Scout • Bozkır Anadolu SK</div></div>
+            <div class="wk"><b>H14</b><span>PENCERE AÇIK</span></div>
+          </div>
+          <div class="b-stats">
+            <div class="st" style="color:var(--lime)"><small>İtibar</small><b class="cu" data-to="64" style="color:var(--text)">64</b><div class="mt"><i style="width:64%;background:var(--lime)"></i></div></div>
+            <div class="st"><small>Cüzdan</small><b class="cu" data-to="42.5" data-dec="1" data-pre="€" data-suf="B">€42.5B</b><div class="mt"><i style="width:45%;background:var(--text2)"></i></div></div>
+            <div class="st" style="color:var(--cyan)"><small>İş günü</small><b style="color:var(--text)">3<span style="color:var(--text3)">/5</span></b><div class="mt"><i style="width:60%;background:var(--cyan)"></i></div></div>
+            <div class="st" style="color:var(--amber)"><small>Yorgunluk</small><b class="cu" data-to="38" data-pre="%" style="color:var(--text)">%38</b><div class="mt"><i style="width:38%;background:var(--amber)"></i></div></div>
+          </div>
+        </header>
+        <div class="seg" data-seg><i class="ind"></i><button class="on">Özet</button><button>Yönetim</button><button>Kariyer</button><button>Keşifler</button><button>Kulüp</button></div>
+        <div class="scroll">
+          <div class="body">
+            <div class="pn rv" style="--i:0;--acc:#b8324a;overflow:hidden">
+              <div class="rank">4.</div>
+              <div class="k" style="margin-right:80px">Kulübüm</div>
+              <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+                <svg width="44" height="50" viewBox="0 0 40 46"><path d="M20 2L37 8v14c0 11-8 19-17 22C11 41 3 33 3 22V8z" fill="#7a1f2b" stroke="#e8c46e" stroke-width="2"/><text x="20" y="28" text-anchor="middle" font-family="Saira Condensed" font-weight="800" font-size="14" fill="#e8c46e">BA</text></svg>
+                <div><div class="disp" style="font-size:22px;line-height:1">Bozkır Anadolu</div><div class="mono" style="font-size:11px;color:var(--text2)">1. LİG • <span class="cu" data-to="27">27</span> PUAN</div></div>
+              </div>
+              <div class="formbars"><i style="background:var(--green)"></i><i style="background:var(--green)"></i><i style="background:var(--text3)"></i><i style="background:var(--mag)"></i><i style="background:var(--green)"></i><span class="mono" style="font-size:10px;color:var(--text2);margin-left:6px">SON 5</span></div>
+            </div>
+            <div class="pn rv" style="--i:1;--acc:var(--cyan)">
+              <div class="k">Hafta sonu programı</div>
+              <div style="margin-top:6px">
+                <div class="match"><span class="d">CMT<br>19:00</span><span class="t"><i style="width:4px;height:16px;background:#2a62b8;border-radius:2px"></i>KUZ <span style="color:var(--text3)">v</span> EGE<i style="width:4px;height:16px;background:#e8792b;border-radius:2px"></i></span><span class="tag">3 HEDEF</span></div>
+                <div class="match"><span class="d">PAZ<br>16:00</span><span class="t"><i style="width:4px;height:16px;background:#1d4f6e;border-radius:2px"></i>LİM <span style="color:var(--text3)">v</span> DEM<i style="width:4px;height:16px;background:#1f3a2a;border-radius:2px"></i></span><span class="tag">ERKILIÇ</span></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;color:var(--mag);font:600 12px Inter;margin:8px 0 10px"><svg class="i"><use href="#i-task"/></svg>2 açık talep bekliyor</div>
+              <button class="cta">Hafta sonuna geç <svg class="i" style="font-size:20px;stroke-width:2.6"><use href="#i-right"/></svg></button>
+            </div>
+            <div class="tiles rv" style="--i:2">
+              <button class="tile" style="--c:var(--lime)"><svg class="i f"><use href="#i-star"/></svg><b class="cu" data-to="7">7</b><small>Takip listesi</small></button>
+              <button class="tile" style="--c:var(--mag)"><svg class="i"><use href="#i-task"/></svg><b class="cu" data-to="2">2</b><small>Talepler</small></button>
+              <button class="tile" style="--c:var(--cyan)"><svg class="i"><use href="#i-phone"/></svg><b class="cu" data-to="4">4</b><small>İhbarlar</small></button>
+            </div>
+            <div class="pn rv" style="--i:3;--acc:var(--amber)">
+              <div class="feed"><span class="ic"><svg class="i"><use href="#i-news2"/></svg></span><div><h4>Liman'ın 19'luk 10 numarası tribünleri ayağa kaldırdı</h4><p>LİMAN EKSPRES • 2 SA ÖNCE</p></div></div>
+            </div>
+          </div>
+        </div>
+        <nav class="nav" data-nav><i class="glow"></i><i class="bar"></i>
+          <button class="on"><svg class="i"><use href="#i-home"/></svg><span>Ofis</span></button>
+          <button><svg class="i"><use href="#i-cal"/></svg><span>Takvim</span></button>
+          <button><svg class="i"><use href="#i-task"/></svg><span>Görev</span><b class="dot">2</b></button>
+          <button><svg class="i"><use href="#i-people"/></svg><span>Oyuncu</span></button>
+          <button><svg class="i"><use href="#i-team"/></svg><span>Ekip</span></button>
+          <button><svg class="i"><use href="#i-news"/></svg><span>Dünya</span></button>
+        </nav>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- B2 PLAYER -->
+      <div class="slot"><div class="cap"><span>B2 • Oyuncu profili</span><span>Dosya</span></div><div class="frame">
+      <div class="phone B play" data-phone>
+        <div class="status"><span>21:48</span><i>5G ▂▄▆ 78%</i></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:2px 14px 8px"><button class="ghost" style="width:40px;padding:0"><svg class="i" style="font-size:18px"><use href="#i-left"/></svg></button><span class="mono" style="font-size:11px;color:var(--text2);letter-spacing:.1em">DOSYA #04172</span><button class="ghost on" style="margin-left:auto;padding:0 12px"><svg class="i f"><use href="#i-star"/></svg>Takipte</button></div>
+        <div class="seg" data-seg><i class="ind"></i><button class="on">Dosya</button><button>Özellikler</button><button>Notlar</button><button>Kariyer</button></div>
+        <div class="scroll">
+          <div class="body">
+            <div class="hero rv" style="--i:0">
+              <div class="grid"></div>
+              <span class="av por" data-av="2,1,#1d4f6e" data-bare="1"></span>
+              <i class="scanl"></i>
+              <div class="info">
+                <div class="n1">Baran</div><div class="n2">Erkılıç</div>
+                <div class="pos"><b>OOS</b><span style="color:var(--text2)">19 • SOL AYAK</span></div>
+                <div style="font:600 12px Inter;margin-top:6px;display:flex;gap:6px;align-items:center"><i style="width:4px;height:14px;background:#1d4f6e;box-shadow:0 0 0 1px #7fd3c9"></i>Liman Gücü FK</div>
+                <div class="big2"><div><small>MEVCUT</small><b>3<em>–3.5</em></b></div><div><small style="color:var(--amber)">POTANS.</small><b style="color:var(--amber)">4<em>–4.5</em></b></div></div>
+              </div>
+            </div>
+            <div class="chips rv" style="--i:1;margin-top:0"><span style="color:var(--lime)">TAKİPTE</span><span style="color:var(--green)">U19</span><span style="color:var(--cyan)">GÖLGE KADRO • OOS</span></div>
+            <div class="pn rv" style="--i:2;--acc:var(--cyan)">
+              <div class="k">Bilgi düzeyi</div>
+              <div class="ringrow" style="margin-top:8px">
+                <div class="ring"><svg viewBox="0 0 84 84"><circle cx="42" cy="42" r="36" stroke="rgba(255,255,255,.08)" stroke-width="7" fill="none"/><circle class="arc" data-ring="62" cx="42" cy="42" r="36" stroke="#3ddcff" stroke-width="7" fill="none" stroke-linecap="round" style="filter:drop-shadow(0 0 6px #3ddcff)"/></svg><b class="cu" data-to="62" data-suf="%">62%</b></div>
+                <div class="seen"><div><b class="cu" data-to="3">3</b><small>Maç</small></div><div><b class="cu" data-to="1">1</b><small>Video</small></div><div><b style="color:var(--lime)">✓</b><small>Görüşme</small></div></div>
+              </div>
+            </div>
+            <div class="pn rv" style="--i:3">
+              <div class="k">Profil</div>
+              <svg class="radar" data-radar="B" viewBox="0 0 300 280" style="width:100%;margin-top:4px"></svg>
+            </div>
+            <div class="pn rv" style="--i:4;--acc:var(--lime)">
+              <div class="k">Kritik özellikler</div>
+              <div style="margin-top:6px" data-segs>
+                <div class="attr"><span>Vizyon</span><span class="segs" data-r="14,17"></span><span class="v">14–17</span></div>
+                <div class="attr"><span>Pas</span><span class="segs" data-r="13,15"></span><span class="v">13–15</span></div>
+                <div class="attr"><span>İlk kontrol</span><span class="segs" data-r="15,16"></span><span class="v">15–16</span></div>
+                <div class="attr"><span>Dripling</span><span class="segs" data-r="12,15"></span><span class="v">12–15</span></div>
+                <div class="attr"><span>Güç</span><span class="segs" data-r="7,10"></span><span class="v">7–10</span></div>
+                <div class="attr" style="color:var(--text2)"><span>Bitiricilik</span><span class="segs" data-r="0,0"></span><span class="v">?</span></div>
+              </div>
+            </div>
+            <div class="actsB rv" style="--i:5">
+              <button><svg class="i"><use href="#i-video"/></svg>Video<small>1 GÜN</small></button><button><svg class="i"><use href="#i-cone"/></svg>Antrenman<small>1 GÜN</small></button><button><svg class="i"><use href="#i-chat"/></svg>Görüş<small>€400</small></button>
+            </div>
+            <button class="cta rv" style="--i:6"><svg class="i" style="font-size:20px;stroke-width:2.4"><use href="#i-pen"/></svg>Rapor yaz</button>
+          </div>
+        </div>
+        <nav class="nav" data-nav data-on="3"><i class="glow"></i><i class="bar"></i>
+          <button><svg class="i"><use href="#i-home"/></svg><span>Ofis</span></button>
+          <button><svg class="i"><use href="#i-cal"/></svg><span>Takvim</span></button>
+          <button><svg class="i"><use href="#i-task"/></svg><span>Görev</span><b class="dot">2</b></button>
+          <button class="on"><svg class="i"><use href="#i-people"/></svg><span>Oyuncu</span></button>
+          <button><svg class="i"><use href="#i-team"/></svg><span>Ekip</span></button>
+          <button><svg class="i"><use href="#i-news"/></svg><span>Dünya</span></button>
+        </nav>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- B3 REPORT -->
+      <div class="slot"><div class="cap"><span>B3 • Scout raporu</span><span>etkileşimli</span></div><div class="frame">
+      <div class="phone B play" data-phone data-report="B">
+        <div class="status"><span>21:52</span><i>5G ▂▄▆ 77%</i></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:2px 14px 4px"><button class="ghost" style="width:40px;padding:0"><svg class="i" style="font-size:18px"><use href="#i-x"/></svg></button><div><div class="disp" style="font-size:20px;line-height:1">Scout raporu</div><div class="mono" style="font-size:10px;color:var(--text2)">SR-7 • BARAN ERKILIÇ • OOS</div></div><span class="mono" style="margin-left:auto;font-size:12px;color:var(--lime)" data-stepc>4/5</span></div>
+        <div class="steps" data-steps><i class="d"></i><i class="d"></i><i class="d"></i><i class="d"></i><i></i></div>
+        <div class="scroll">
+          <div class="body">
+            <div class="pn rv" style="--i:0">
+              <div class="k"><span class="stepn">01</span>Talep</div>
+              <div style="display:grid;gap:6px;margin-top:8px" data-single>
+                <button class="req on"><span class="rd"></span><span><b>Kiralık — Ofansif orta saha</b><small>≤21 • €900B TAVAN</small></span></button>
+                <button class="req"><span class="rd"></span><span><b>Kalıcı — Sol kanat</b><small>≤24 • €1.2M TAVAN</small></span></button>
+              </div>
+              <div class="mono" style="font-size:10.5px;color:var(--green);margin-top:8px">TAHMİNİ BONSERVİS €750B • BÜTÇEYE UYGUN</div>
+            </div>
+            <div class="pn rv" style="--i:1;--acc:var(--lime)">
+              <div class="k"><span class="stepn">02</span>Mevcut seviye</div>
+              <div class="lvl"><b data-val="cur">3.0<em>★</em></b><small>SENİN TAHMİNİN<br><span>3.0 – 3.5</span></small></div>
+              <div class="ticks" data-ticks="cur" data-v="6" data-est="6,7"></div>
+              <div class="scale"><span>0.5</span><span>2.5</span><span>5.0</span></div>
+            </div>
+            <div class="pn rv" style="--i:2;--acc:var(--amber)">
+              <div class="k"><span class="stepn">03</span>Potansiyel</div>
+              <div class="lvl"><b data-val="pot" style="color:var(--amber)">4.5<em>★</em></b><small>SENİN TAHMİNİN<br><span>4.0 – 4.5</span></small></div>
+              <div class="ticks" data-ticks="pot" data-v="9" data-est="8,9" style="--c:var(--amber)"></div>
+              <div class="scale"><span>0.5</span><span>2.5</span><span>5.0</span></div>
+            </div>
+            <div class="pn rv" style="--i:3;--acc:var(--cyan)">
+              <div class="k"><span class="stepn">04</span>Etiketler</div>
+              <div class="tg" style="margin-top:10px" data-multi><button class="on">Oyun kurucu</button><button class="on">Ters ayak</button><button>Duran top</button><button>Baskıya dayanıklı</button><button>Fiziği gelişmeli</button><button>Lider ruhlu</button></div>
+            </div>
+            <div class="pn rv" style="--i:4;--acc:var(--mag)">
+              <div class="k"><span class="stepn">05</span>Tavsiye</div>
+              <div class="rc" style="margin-top:10px" data-single>
+                <button style="--c:var(--lime)"><svg class="i"><use href="#i-check"/></svg>İMZALA</button><button style="--c:var(--cyan)"><svg class="i"><use href="#i-eye"/></svg>İZLE</button><button style="--c:var(--mag)"><svg class="i"><use href="#i-x"/></svg>GEÇ</button>
+              </div>
+            </div>
+            <button class="hold rv" style="--i:5" data-hold><i class="fill"></i><span><svg class="i"><use href="#i-check"/></svg>Göndermek için basılı tut</span></button>
+          </div>
+        </div>
+        <div class="homebar"></div>
+      </div></div></div>
+
+      <!-- B4 MATCH -->
+      <div class="slot"><div class="cap"><span>B4 • Maç izleme + sonuç</span><span>canlı</span></div><div class="frame">
+      <div class="phone B play" data-phone data-match="B">
+        <div class="status" style="background:#05080a"><span>21:58</span><i>5G ▂▄▆ 76%</i></div>
+        <div class="pitchB">
+          <svg class="pitch" viewBox="0 0 390 290" preserveAspectRatio="none" data-pitch="B"></svg>
+          <div class="sbB"><span class="lv">CANLI</span><span class="mid"><span class="tm"><i style="background:#2a62b8"></i>KUZ</span><span class="sc" data-score>1–0</span><span class="tm">EGE<i style="background:#e8792b"></i></span></span><span class="ck" data-clock>63'</span></div>
+          <div class="ctlB"><button>2×</button><button><svg class="i"><use href="#i-cam"/></svg></button><button><svg class="i"><use href="#i-pause"/></svg></button></div>
+          <div class="momB" data-moment><b>AN</b><span>Erkılıç • ara pası</span><svg class="i" style="color:var(--lime)"><use href="#i-target"/></svg></div>
+        </div>
+        <div class="scroll">
+          <div class="body" style="padding-top:12px">
+            <div class="fps rv" style="--i:0">
+              <div class="fpB foc"><div class="t"><span class="av" data-av="2,1,#1d4f6e"></span><b>Erkılıç</b></div><div class="r" style="color:var(--lime)"><span data-live="7.4">7.4</span><small>▲0.3</small></div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,15 15,13 30,14 45,9 60,10 75,6 100,3" fill="none" stroke="#c6ff3d" stroke-width="2"/></svg></div>
+              <div class="fpB"><div class="t"><span class="av" data-av="0,2,#2a62b8"></span><b>Sarıgöl</b></div><div class="r"><span data-live="6.6">6.6</span></div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,10 20,11 40,9 60,12 80,11 100,10" fill="none" stroke="#8aa39a" stroke-width="2"/></svg></div>
+              <div class="fpB"><div class="t"><span class="av" data-av="1,0,#e8792b"></span><b>Tekinalp</b></div><div class="r" style="color:var(--mag)"><span data-live="5.9">5.9</span><small style="color:var(--mag)">▼0.4</small></div><svg class="spark" viewBox="0 0 100 20"><polyline points="0,6 20,8 40,10 60,13 80,14 100,16" fill="none" stroke="#ff4d8d" stroke-width="2"/></svg></div>
+            </div>
+            <div class="pn rv" style="--i:1;--acc:var(--cyan)">
+              <div class="k">Akış</div>
+              <div class="tlB" style="margin-top:6px"><span class="p" style="width:70%"></span><span class="mk" style="left:27%;background:#2a62b8"></span><span class="mk" style="left:51%;background:var(--lime)"></span><span class="mk" style="left:66%;background:var(--lime)"></span><small style="left:0">0'</small><small style="left:48%">45'</small><small style="right:0">90'</small></div>
+              <div data-ticker style="margin-top:4px">
+                <div class="tick"><em>63'</em>Erkılıç'tan ara pası, Sarıgöl ofsayt</div>
+                <div class="tick"><em>58'</em>Erkılıç sol kanatta iki rakibi geçti</div>
+                <div class="tick"><em>24'</em>GOL — Sarıgöl (KUZ)</div>
+              </div>
+            </div>
+            <div class="pn rv" style="--i:2;--acc:var(--lime)">
+              <div class="k">Önceki maç • KUZ 2–1 EGE</div>
+              <div class="sum" style="margin-top:10px">
+                <div><b class="cu" data-to="14" data-pre="+" data-suf="%" style="color:var(--cyan)">+14%</b><small>BİLGİ</small></div>
+                <div><b class="cu" data-to="2" style="color:var(--lime)">2</b><small>YENİ KEŞİF</small></div>
+                <div><b class="cu" data-to="7.8" data-dec="1">7.8</b><small>EN İYİ PUAN</small></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="homebar" style="background:#060a09"></div>
+      </div></div></div>
+    </div>
+  </section>
+
+  <p class="foot">Gözcü v0.24 tasarım önerisi • Tüm oyuncu, kulüp ve gazete adları kurgudur • Fontlar: Google Fonts (SIL OFL) • Telefon çerçevesi 390×844 mantıksal piksel (oyun içi 720×1280 tuvalde ≈ ×1.85).</p>
+</div>
+
+<script>
+(function(){
+  const RM = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* ---------- ölçek */
+  function layout(){
+    const w = Math.min(document.querySelector('.wrap').clientWidth, 1680);
+    const cols = w >= 1300 ? 4 : (w >= 640 ? 2 : 1);
+    const gap = 18*(cols-1);
+    const s = Math.min(1, (w - gap) / (cols*390));
+    document.documentElement.style.setProperty('--s', s.toFixed(4));
+    document.querySelectorAll('.phones').forEach(p=>p.style.setProperty('--cols', cols));
+  }
+  layout(); addEventListener('resize', layout);
+
+  /* ---------- avatar */
+  const SKIN=['#f1c9a5','#d9a477','#a86f47','#6e4529'], HAIR=['#1d140e','#3b2416','#8a5a2b','#c9a46a'];
+  let avN=0;
+  function avatar(el){
+    const [s,h,shirt]=el.dataset.av.split(','); const sk=SKIN[+s]||SKIN[1], hr=HAIR[+h]||HAIR[0];
+    const bare = el.dataset.bare;
+    const id=++avN; const bg = bare ? '' : `<rect width="100" height="100" fill="${shirt}" opacity=".55"/><rect width="100" height="100" fill="url(#vg${id})"/>`;
+    el.innerHTML = `<svg viewBox="0 0 100 100" width="100%" height="100%" preserveAspectRatio="xMidYMax meet"><defs><radialGradient id="vg${id}" cx=".5" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient></defs>${bg}
+      <path d="M8 100c2-20 18-28 42-28s40 8 42 28z" fill="${shirt}"/><path d="M38 74l12 12 12-12" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="3"/>
+      <rect x="42" y="56" width="16" height="18" rx="6" fill="${sk}" filter="brightness(.9)"/>
+      <ellipse cx="50" cy="42" rx="17" ry="20" fill="${sk}"/>
+      <path d="M32 40c-1-14 8-22 18-22s20 6 18 22c-3-6-7-9-18-9s-15 3-18 9z" fill="${hr}"/>
+      <path d="M43 46h3M54 46h3" stroke="#2a1a10" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+    if (bare) el.style.display='block';
+  }
+  document.querySelectorAll('[data-av]').forEach(avatar);
+
+  /* ---------- yıldızlar */
+  const STAR='M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.3L12 17.1 6.3 20.2l1.2-6.3L2.8 9.5l6.4-.8z';
+  function starRow(sz,col){ let s=''; for(let i=0;i<5;i++) s+=`<svg width="${sz}" height="${sz}" viewBox="0 0 24 24" style="flex:none"><path d="${STAR}" fill="${col}"/></svg>`; return s; }
+  function stars(el){
+    const lo=+el.dataset.lo, hi=+(el.dataset.hi||el.dataset.lo), sz=+(el.dataset.sz||20), c=el.dataset.c||'#c79a1e', u=sz+2;
+    el.style.cssText=`position:relative;display:inline-block;width:${u*5}px;height:${sz}px;flex:none;line-height:0`;
+    const lay=(op,n,col)=>`<span style="position:absolute;left:0;top:0;height:${sz}px;width:${n*u}px;overflow:hidden;white-space:nowrap;opacity:${op};display:flex;gap:2px">${starRow(sz,col)}</span>`;
+    el.innerHTML = lay(1,5,'rgba(31,28,23,.14)') + lay(.42,hi,c) + lay(1,lo,c);
+  }
+  document.querySelectorAll('.stars').forEach(stars);
+
+  /* ---------- radar */
+  const RD=[['Hız',11,14,1],['Fizik',8,11,1],['Teknik',14,17,1],['Pas',13,16,1],['Şut',6,15,0],['Zekâ',14,18,1]];
+  function radar(svg){
+    const B = svg.dataset.radar==='B';
+    const cx=150, cy=146, R=92, n=RD.length;
+    const pt=(i,v)=>{const a=-Math.PI/2+i*2*Math.PI/n; const r=R*Math.max(0,Math.min(1,v/20)); return [cx+Math.cos(a)*r, cy+Math.sin(a)*r];};
+    const ink = B ? 'rgba(190,255,220,' : 'rgba(31,28,23,';
+    let s='';
+    [0.25,.5,.75,1].forEach(f=>{ s+=`<polygon points="${RD.map((_,i)=>pt(i,20*f).join(',')).join(' ')}" fill="none" stroke="${ink}${f<1?.12:.35})" stroke-width="${f<1?1:1.5}"/>`; });
+    RD.forEach((_,i)=>{const p=pt(i,20); s+=`<line x1="${cx}" y1="${cy}" x2="${p[0]}" y2="${p[1]}" stroke="${ink}.12)"/>`;});
+    const hi=RD.map((d,i)=>pt(i,d[2]).join(',')).join(' '), lo=RD.map((d,i)=>pt(i,d[1]).join(',')).join(' ');
+    const c1 = B ? '#c6ff3d' : '#c0352b', c2 = B ? '#3ddcff' : '#c0352b';
+    s+=`<g class="rg" style="transform-box:view-box;transform-origin:${cx}px ${cy}px;${RM?'':'animation:grow .8s cubic-bezier(.2,.8,.2,1) both .35s'}">`;
+    s+=`<polygon points="${hi}" fill="${c2}" fill-opacity="${B?.10:.12}" stroke="${c2}" stroke-opacity="${B?.6:.45}" stroke-width="1.5" ${B?'stroke-dasharray="4 3"':''}/>`;
+    s+=`<polygon points="${lo}" fill="${c1}" fill-opacity="${B?.22:.33}" stroke="${c1}" stroke-width="2.5" ${B?'style="filter:drop-shadow(0 0 6px #c6ff3d)"':''}/>`;
+    RD.forEach((d,i)=>{const p=pt(i,d[1]); s+=`<circle cx="${p[0]}" cy="${p[1]}" r="3.5" fill="${c1}"/>`;});
+    s+='</g>';
+    RD.forEach((d,i)=>{
+      const p=pt(i,27.5); const val = d[3] ? Math.round((d[1]+d[2])/2*5) : '?';
+      const lc = B ? '#8aa39a' : '#6a6150', vc = B ? (d[3]?'#e9f2ee':'#55695f') : (d[3]?'#1f1c17':'rgba(31,28,23,.3)');
+      const lf = B ? "600 11px Inter" : "600 12px Barlow", vf = B ? "800 16px 'JetBrains Mono'" : "800 18px 'Barlow Condensed'";
+      s+=`<text x="${p[0]}" y="${p[1]-4}" text-anchor="middle" style="font:${lf}" fill="${lc}">${d[0]}</text><text x="${p[0]}" y="${p[1]+13}" text-anchor="middle" style="font:${vf}" fill="${vc}">${val}</text>`;
+    });
+    svg.innerHTML=s;
+  }
+  document.querySelectorAll('[data-radar]').forEach(radar);
+
+  /* ---------- segment çubuklar (B) */
+  document.querySelectorAll('.segs').forEach(el=>{
+    const [lo,hi]=el.dataset.r.split(',').map(Number); let h='';
+    for(let i=1;i<=20;i++){ const c = !lo ? (i%2? 'un':'') : (i<=lo ? 'lo' : (i<=hi ? 'hi' : '')); h+=`<i class="${c}"></i>`; }
+    el.innerHTML=h;
+  });
+
+  /* ---------- sayaçlar */
+  function fmt(v,el){
+    const dec=+(el.dataset.dec||0); let t = dec? v.toFixed(dec) : Math.round(v).toString();
+    if(el.dataset.fmt==='thou') t = Math.round(v).toLocaleString('tr-TR');
+    return (el.dataset.pre||'')+t+(el.dataset.suf||'');
+  }
+  function countUp(root){
+    root.querySelectorAll('.cu').forEach((el,k)=>{
+      const to=+el.dataset.to; if(RM){ el.textContent=fmt(to,el); return; }
+      const dur=900, delay=250+k*40; const t0=performance.now()+delay;
+      el.textContent=fmt(0,el);
+      const step=(now)=>{ const p=Math.min(1,Math.max(0,(now-t0)/dur)); const e=1-Math.pow(1-p,3); el.textContent=fmt(to*e,el); if(p<1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    });
+    root.querySelectorAll('[data-ring]').forEach(c=>{ c.style.strokeDashoffset=226; requestAnimationFrame(()=>requestAnimationFrame(()=>{ c.style.strokeDashoffset = 226*(1-(+c.dataset.ring)/100); })); });
+  }
+  document.querySelectorAll('[data-phone]').forEach(countUp);
+
+  /* ---------- yeniden oynat */
+  document.querySelector('[data-replay]').addEventListener('click',()=>{
+    document.querySelectorAll('[data-phone]').forEach(p=>{ p.classList.remove('play'); void p.offsetWidth; p.classList.add('play'); p.querySelectorAll('.scroll').forEach(s=>s.scrollTop=0); countUp(p); });
+    document.querySelectorAll('[data-radar]').forEach(radar);
+  });
+
+  /* ---------- nav göstergesi */
+  document.querySelectorAll('[data-nav]').forEach(nav=>{
+    const btns=[...nav.querySelectorAll('button')]; const ind = nav.querySelector('.pill, .bar'); const glow = nav.querySelector('.glow');
+    const place=(i)=>{ const w=nav.clientWidth/6; if(ind){ ind.style.transform=`translateX(${i*w}px)`; } if(glow) glow.style.transform=`translateX(${i*w}px)`; btns.forEach((b,j)=>b.classList.toggle('on',i===j)); };
+    let cur = btns.findIndex(b=>b.classList.contains('on')); place(cur);
+    btns.forEach((b,i)=>b.addEventListener('click',()=>{ place(i); }));
+  });
+
+  /* ---------- klasör sekmeleri (A) ve segment (B) telefon içinde */
+  document.querySelectorAll('[data-ftabs]').forEach(row=>{
+    const btns=[...row.children]; btns.forEach(b=>b.addEventListener('click',()=>{ btns.forEach(x=>x.classList.remove('on')); b.classList.add('on'); const sh=row.nextElementSibling; if(sh && !RM){ sh.animate([{transform:'translateX(18px) rotate(.6deg)',opacity:.4},{transform:'none',opacity:1}],{duration:340,easing:'cubic-bezier(.2,.8,.2,1)'}); } }));
+  });
+  function segInit(seg, onChange){
+    const btns=[...seg.querySelectorAll('button')], ind=seg.querySelector('.ind');
+    let cur=btns.findIndex(b=>b.classList.contains('on'));
+    const geo=(b)=>({l:b.offsetLeft,w:b.offsetWidth});
+    const set=(i,anim)=>{
+      const a=geo(btns[cur]), b=geo(btns[i]);
+      if(anim && i!==cur && !RM){
+        const l=Math.min(a.l,b.l), r=Math.max(a.l+a.w,b.l+b.w);
+        ind.style.left=l+'px'; ind.style.width=(r-l)+'px';
+        setTimeout(()=>{ ind.style.left=b.l+'px'; ind.style.width=b.w+'px'; },150);
+      } else { ind.style.left=b.l+'px'; ind.style.width=b.w+'px'; }
+      const prev=cur; cur=i; btns.forEach((x,j)=>x.classList.toggle('on',j===i)); if(onChange && anim) onChange(i,prev);
+    };
+    requestAnimationFrame(()=>set(cur,false));
+    addEventListener('resize',()=>set(cur,false));
+    btns.forEach((b,i)=>b.addEventListener('click',()=>set(i,true)));
+    return {set,get cur(){return cur;},btns};
+  }
+  document.querySelectorAll('[data-seg]').forEach(seg=>segInit(seg,(i,prev)=>{
+    const body=seg.parentElement.querySelector('.body'); if(body && !RM){ const d=i>prev?1:-1; body.animate([{clipPath:d>0?'inset(0 0 0 100%)':'inset(0 100% 0 0)',transform:`translateX(${d*20}px)`},{clipPath:'inset(0 0 0 0)',transform:'none'}],{duration:340,easing:'cubic-bezier(.6,0,.2,1)'}); }
+  }));
+
+  /* ---------- sekme demoları */
+  document.querySelectorAll('[data-tdemo]').forEach(demo=>{
+    const kind=demo.dataset.tdemo; const panes=[...demo.querySelectorAll('.pane')];
+    let cur=0, auto=true, busy=false;
+    const go=(i,prev)=>{
+      if(i===prev) return; const dir = i>prev?1:-1;
+      const inP=panes[i], outP=panes[prev];
+      panes.forEach(p=>{p.classList.remove('enter','leave'); p.style.setProperty('--dir',dir);});
+      inP.hidden=false; inP.classList.add('enter'); outP.classList.add('leave');
+      if(kind==='B'){ const sb=demo.querySelector('.scanbar'); const pw=demo.querySelector('.panes').clientWidth; sb.style.setProperty('--from', (dir>0? 0: pw)+'px'); sb.style.setProperty('--to',(dir>0? pw: 0)+'px'); sb.classList.remove('go'); void sb.offsetWidth; sb.classList.add('go'); }
+      setTimeout(()=>{ outP.hidden=true; outP.classList.remove('leave'); },RM?0:440);
+    };
+    if(kind==='A'){
+      const btns=[...demo.querySelectorAll('.folders button')];
+      const sel=(i)=>{ const prev=cur; btns.forEach((b,j)=>b.classList.toggle('on',j===i)); cur=i; go(i,prev); };
+      btns.forEach((b,i)=>b.addEventListener('click',()=>{auto=false; sel(i);}));
+      setInterval(()=>{ if(auto && !RM) sel((cur+1)%btns.length); },2600);
+    } else {
+      const s=segInit(demo.querySelector('.seg'),(i,prev)=>{ cur=i; go(i,prev); });
+      s.btns.forEach(b=>b.addEventListener('click',()=>auto=false,true));
+      setInterval(()=>{ if(auto && !RM) s.btns[(s.cur+1)%s.btns.length].click(), auto=true; },2600);
+    }
+  });
+
+  /* ---------- tekli / çoklu seçim */
+  document.querySelectorAll('[data-single]').forEach(g=>{ const bs=[...g.children]; bs.forEach(b=>b.addEventListener('click',()=>{ bs.forEach(x=>x.classList.remove('on')); void b.offsetWidth; b.classList.add('on'); })); });
+  document.querySelectorAll('[data-multi]').forEach(g=>{ [...g.children].forEach(b=>b.addEventListener('click',()=>b.classList.toggle('on'))); });
+  // B tavsiye: varsayılan seçili
+  document.querySelectorAll('.B .rc').forEach(rc=>rc.children[0].classList.add('on'));
+
+  /* ---------- rapor A: kaydırıcılar + mühür */
+  const half=(v)=> (Math.floor(v)===v? String(v) : (Math.floor(v)||'')+'½');
+  document.querySelectorAll('[data-report="A"]').forEach(ph=>{
+    ph.querySelectorAll('[data-bind]').forEach(r=>r.addEventListener('input',()=>{
+      const k=r.dataset.bind, v=+r.value; const st=ph.querySelector(`[data-out="${k}"]`); st.dataset.lo=v; stars(st);
+      ph.querySelector(`[data-val="${k}"]`).textContent=half(v)+'★';
+    }));
+    const send=ph.querySelector('[data-send]'), sent=ph.querySelector('.sent'), toast=ph.querySelector('.toast');
+    send.addEventListener('click',()=>{
+      const sc=ph.querySelector('.scroll'); sent.style.top=sc.scrollTop+'px'; sent.style.height=sc.clientHeight+'px'; sent.style.bottom='auto';
+      sent.hidden=false; const s=sent.firstElementChild; s.style.animation='none'; void s.offsetWidth; s.style.animation='';
+      setTimeout(()=>toast.classList.add('show'),380); setTimeout(()=>{toast.classList.remove('show');},2600); setTimeout(()=>{sent.hidden=true;},2900);
+    });
+  });
+
+  /* ---------- rapor B: segment yıldız + basılı tut */
+  document.querySelectorAll('[data-report="B"]').forEach(ph=>{
+    ph.querySelectorAll('[data-ticks]').forEach(t=>{
+      const k=t.dataset.ticks; const est=t.dataset.est.split(',').map(Number);
+      for(let i=1;i<=10;i++){ const b=document.createElement('button'); if(est.includes(i)) b.classList.add('est'); t.appendChild(b); }
+      const set=(v,anim)=>{ [...t.children].forEach((b,j)=>{ const on=j<v; if(on && !b.classList.contains('on') && anim && !RM){ setTimeout(()=>{b.classList.add('pop'); setTimeout(()=>b.classList.remove('pop'),160);}, j*18); } b.classList.toggle('on',on); }); const val=ph.querySelector(`[data-val="${k}"]`); val.innerHTML=(v/2).toFixed(1)+'<em>★</em>'; };
+      set(+t.dataset.v,false);
+      [...t.children].forEach((b,j)=>b.addEventListener('click',()=>set(j+1,true)));
+    });
+    const h=ph.querySelector('[data-hold]'), fill=h.querySelector('.fill'), lab=h.querySelector('span'); let anim=null;
+    const start=(e)=>{ e.preventDefault(); if(h.classList.contains('done')) return; anim=fill.animate([{transform:'scaleX(0)'},{transform:'scaleX(1)'}],{duration:RM?10:650,easing:'linear',fill:'forwards'}); anim.onfinish=()=>{ h.classList.add('done'); lab.innerHTML='<svg class="i"><use href="#i-check"/></svg>Gönderildi • İtibar +2'; ph.querySelectorAll('[data-steps] i').forEach(i=>i.classList.add('d')); ph.querySelector('[data-stepc]').textContent='5/5'; setTimeout(()=>{ h.classList.remove('done'); fill.getAnimations().forEach(a=>a.cancel()); lab.innerHTML='<svg class="i"><use href="#i-check"/></svg>Göndermek için basılı tut'; },2600); }; };
+    const stop=()=>{ if(anim && anim.playState==='running'){ anim.reverse(); } };
+    h.addEventListener('pointerdown',start); h.addEventListener('pointerup',stop); h.addEventListener('pointerleave',stop);
+  });
+
+  /* ---------- sahalar */
+  function pitch(svg){
+    const B=svg.dataset.pitch==='B'; const W=390, H=+svg.viewBox.baseVal.height;
+    // perspektif yamuk
+    const top=H*0.08, bot=H, tl=W*0.22, tr=W*0.78, bl=-W*0.18, br=W*1.18;
+    const P=(u,v)=>{ const y=top+(bot-top)*Math.pow(v,1.25); const l=tl+(bl-tl)*v, r=tr+(br-tr)*v; return [l+(r-l)*u, y]; };
+    let s=`<defs><linearGradient id="g${B?'b':'a'}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${B?'#0b2a1c':'#17402a'}"/><stop offset="1" stop-color="${B?'#0f3a24':'#24603b'}"/></linearGradient></defs>`;
+    s+=`<polygon points="${[P(0,0),P(1,0),P(1,1),P(0,1)].map(p=>p.join(',')).join(' ')}" fill="url(#g${B?'b':'a'})"/>`;
+    for(let i=0;i<10;i+=2){ s+=`<polygon points="${[P(0,i/10),P(1,i/10),P(1,(i+1)/10),P(0,(i+1)/10)].map(p=>p.join(',')).join(' ')}" fill="rgba(255,255,255,${B?.025:.04})"/>`; }
+    const lc = B ? 'rgba(61,220,255,.35)' : 'rgba(255,255,255,.55)';
+    const line=(pts)=>`<polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" stroke="${lc}" stroke-width="1.5"/>`;
+    s+=line([P(0,0),P(1,0),P(1,1),P(0,1),P(0,0)]); s+=line([P(0,.5),P(1,.5)]);
+    let c=[]; for(let a=0;a<=32;a++){ const t=a/32*Math.PI*2; c.push(P(.5+Math.cos(t)*.13, .5+Math.sin(t)*.09)); } s+=line(c);
+    s+=line([P(.25,0),P(.25,.16),P(.75,.16),P(.75,0)]); s+=line([P(.25,1),P(.25,.84),P(.75,.84),P(.75,1)]);
+    if(B){ // taktik katman
+      s+=`<polyline points="${[P(.3,.62),P(.45,.48),P(.62,.36)].map(p=>p.join(',')).join(' ')}" fill="none" stroke="#3ddcff" stroke-width="2" stroke-dasharray="5 4" style="filter:drop-shadow(0 0 4px #3ddcff)"/>`;
+      s+=`<polygon points="${[P(.55,.3),P(.8,.3),P(.8,.5),P(.55,.5)].map(p=>p.join(',')).join(' ')}" fill="rgba(198,255,61,.08)" stroke="rgba(198,255,61,.35)" stroke-dasharray="3 3"/>`;
+    }
+    const players=[[.5,.06,0],[.2,.25,0],[.4,.22,0],[.6,.22,0],[.8,.26,0],[.35,.4,0],[.65,.38,0],[.5,.47,0],[.22,.58,0],[.6,.36,1],[.5,.94,1],[.25,.75,1],[.45,.78,1],[.65,.76,1],[.82,.72,1],[.38,.62,1],[.3,.62,1],[.7,.55,1],[.5,.55,0],[.78,.45,1]];
+    players.forEach(([u,v,t],k)=>{ const p=P(u,v); const r=3+v*5; const col = t? '#e8792b':'#2a62b8';
+      s+=`<ellipse cx="${p[0]}" cy="${p[1]+r*.9}" rx="${r*.9}" ry="${r*.3}" fill="rgba(0,0,0,.35)"/><circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="${col}" stroke="#fff" stroke-width="${B?.8:1.2}"/>`; });
+    const f=P(.3,.62), fr=3+.62*5;
+    if(B){ s+=`<g style="transform-box:fill-box"><circle cx="${f[0]}" cy="${f[1]}" r="${fr+9}" fill="none" stroke="#c6ff3d" stroke-width="2" style="filter:drop-shadow(0 0 6px #c6ff3d)"><animate attributeName="r" values="${fr+7};${fr+12};${fr+7}" dur="1.6s" repeatCount="indefinite"/></circle><path d="M${f[0]-fr-16} ${f[1]}h8M${f[0]+fr+8} ${f[1]}h8M${f[0]} ${f[1]-fr-16}v8M${f[0]} ${f[1]+fr+8}v8" stroke="#c6ff3d" stroke-width="2"/></g>`; }
+    else { s+=`<circle cx="${f[0]}" cy="${f[1]}" r="${fr+7}" fill="none" stroke="#f0c96a" stroke-width="2.5"><animate attributeName="r" values="${fr+6};${fr+11};${fr+6}" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="1.6s" repeatCount="indefinite"/></circle>`; }
+    const ball=P(.47,.5); s+=`<circle cx="${ball[0]}" cy="${ball[1]}" r="4" fill="#fff" style="filter:drop-shadow(0 0 4px #fff)"><animate attributeName="cx" values="${f[0]};${P(.62,.36)[0]};${f[0]}" dur="5s" repeatCount="indefinite"/><animate attributeName="cy" values="${f[1]};${P(.62,.36)[1]};${f[1]}" dur="5s" repeatCount="indefinite"/></circle>`;
+    svg.innerHTML=s;
+  }
+  document.querySelectorAll('[data-pitch]').forEach(pitch);
+
+  /* ---------- canlı maç döngüsü */
+  const NOTES=['Erkılıç ters ayakla ara pası — çizgiyi okudu!','Erkılıç geri dönüşte top kaptı, oyun zekâsı ✓','Tekinalp yine geç kaldı, temposu düşüyor'];
+  const TICKS=['Erkılıç geri dönüşte top kaptı','Tekinalp sarı kart gördü','Sarıgöl direkten döndü','Erkılıç kornerden tehlikeli orta'];
+  document.querySelectorAll('[data-match]').forEach(ph=>{
+    const B=ph.dataset.match==='B'; let min=63, ni=0, ti=0;
+    const clock=ph.querySelector('[data-clock]');
+    const typing=ph.querySelector('[data-typing] span');
+    const type=(txt)=>{ if(!typing) return; typing.textContent=''; let i=0; const t=setInterval(()=>{ typing.textContent=txt.slice(0,++i); if(i>=txt.length) clearInterval(t); }, RM?0:38); };
+    if(typing) type(NOTES[0]);
+    setInterval(()=>{
+      min = min>=90? 58 : min+1; clock.textContent=min+"'";
+      ph.querySelectorAll('[data-live]').forEach(el=>{ const base=+el.dataset.live; const v=(base+ (Math.random()-.45)*0.3); el.textContent=v.toFixed(1); });
+      if(min%3===0){
+        if(typing){ ni=(ni+1)%NOTES.length; const em=typing.previousElementSibling; em.textContent=min+"'"; type(NOTES[ni]); }
+        const tk=ph.querySelector('[data-ticker]'); if(tk){ const d=document.createElement('div'); d.className='tick new'; d.innerHTML=`<em>${min}'</em>${TICKS[ti++%TICKS.length]}`; tk.prepend(d); if(tk.children.length>3) tk.lastElementChild.remove(); }
+        const m=ph.querySelector('[data-moment]'); if(m && !RM){ m.animate([{opacity:0,scale:.88},{opacity:1,scale:1}],{duration:380,easing:'cubic-bezier(.34,1.45,.5,1)'}); }
+      }
+    }, 1500);
+  });
+})();
+</script>
+</body>
+</html>
