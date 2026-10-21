@@ -1161,7 +1161,7 @@ func _spark_catch() -> void:
 	spark_caught[spark_pid] = int(spark_caught.get(spark_pid, 0)) + 1
 	_popup(spark_pid, "✦ " + T.t("spark_caught"), Color(1.0, 0.85, 0.2))
 	Sfx.play("catch", -4.0)
-	Input.vibrate_handheld(60)
+	if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(60)
 	spark_pid = ""
 	spark_ring.visible = false
 
@@ -1320,7 +1320,7 @@ func _eye_start(o) -> void:
 		eye_nodes.append(l)
 	_eye_ui()
 	Sfx.play("spark", -6.0)
-	Input.vibrate_handheld(40)
+	if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(40)
 	_push_ticker(T.t("eye_title") + " — " + Game.short_name(Game.player(o.id)), C_ACCENT)
 
 func _eye_lane(from: Vector2, to: Vector2, risk: float, i: int) -> void:
@@ -1649,7 +1649,7 @@ func _eye_def_start(dfn, carrier) -> void:
 		eye_nodes.append(ring)
 	_eye_ui()
 	Sfx.play("spark", -6.0)
-	Input.vibrate_handheld(40)
+	if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(40)
 	_push_ticker(T.t("eye_title") + " — " + Game.short_name(Game.player(dfn.id)), C_ACCENT)
 
 func _eye_def_verdict() -> void:
