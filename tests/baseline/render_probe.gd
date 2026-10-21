@@ -77,8 +77,10 @@ func _ready() -> void:
 	await _measure("empty", 10)
 	await _match({"stadium": 0, "tod": "night", "weather": "clear"}, "wide", "match_night_t0", "stand")
 	await _match({"stadium": 2, "tod": "day", "weather": "clear"}, "stand", "match_day_t2")
+	# v0.24 3B: U19/küçük saha (cihazda en ağır sahne, dc 378) — tribün + yayın kamerası
+	await _match({"stadium": 3, "tod": "day", "weather": "clear"}, "stand", "match_day_t3", "tv")
 	# yalnız stadyum, sabit kamera (deterministik; projektör kuleleri kadrajda)
-	for t in [0, 2]:
+	for t in [0, 2, 3]:
 		var sv := SubViewport.new()
 		sv.size = Vector2i(720, 1280)
 		sv.own_world_3d = true
