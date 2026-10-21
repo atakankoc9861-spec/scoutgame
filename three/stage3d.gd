@@ -61,7 +61,8 @@ func setup(name: String, split := false) -> void:
 		hb.add_child(cont)
 		var sv := SubViewport.new()
 		sv.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-		sv.msaa_3d = Viewport.MSAA_2X if shadows and not Game.settings.get("safe3d", false) else Viewport.MSAA_DISABLED
+		# match_view ile aynı kural: mobilde MSAA hiç açılmaz (v0.21 Adreno boş görünüm geçmişi)
+		sv.msaa_3d = Viewport.MSAA_2X if shadows and not Game.settings.get("safe3d", false) and not OS.has_feature("mobile") else Viewport.MSAA_DISABLED
 		sv.world_3d = w3
 		cont.add_child(sv)
 		var cam := Camera3D.new()
