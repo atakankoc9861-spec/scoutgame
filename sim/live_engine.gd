@@ -1158,6 +1158,7 @@ func _set_restart(k: String, sd: String, at_p: Vector2) -> void:
 	owner = null
 	flight = {}
 	bvel = Vector2.ZERO
+	ball_h = 0.0  # ölü topta yükseklik sıfırlanmazsa top son uçuş yüksekliğinde (~2 m) asılı kalıyordu
 	poss = sd
 	ball = at_p
 	var tk: Pl = null

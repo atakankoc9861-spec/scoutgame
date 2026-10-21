@@ -217,4 +217,20 @@ func _check_live() -> void:
 		e3.anims.clear()
 		steps += 1
 	check(e3.events.size() > 20 and anim_n > 50, "canlı adım akışı: olay %d, animasyon %d" % [e3.events.size(), anim_n])
+	# v0.24: ölü topta (aut/korner/gol sonrası) top havada asılı kalmamalı
+	var e5 = LiveEngine.new()
+	e5.setup(Game, {"h": p.h, "a": p.a, "xi_h": p.xi_h.duplicate(), "xi_a": p.xi_a.duplicate()}, false, 4242)
+	var dead_n: int = 0
+	var dead_air: int = 0
+	var st5: int = 0
+	while not e5.finished and st5 < 6000:
+		e5.step()
+		e5.anims.clear()
+		if e5.phase == "dead":
+			dead_n += 1
+			if e5.ball_h > 0.05:
+				dead_air += 1
+		st5 += 1
+	check(dead_n > 10, "ölü top anı bulunamadı (%d)" % dead_n)
+	check(dead_air == 0, "ölü topta top havada: %d/%d adım" % [dead_air, dead_n])
 	log_info("canlı: %d-%d (%d olay), adım akışı %d olay / %d animasyon" % [e1.score[0], e1.score[1], e1.events.size(), e3.events.size(), anim_n])
