@@ -130,6 +130,7 @@ const TR := {
 	"other_lang": "Diğer diller…",
 	# genel
 	"title": "GÖZCÜ", "subtitle": "Scout Kariyeri",
+	"n_assign_extended": "%s talebine %s hafta ek süre verildi: yönetim izlediğin adayları bekliyor.",
 	"lgc_1": "%s taraflarında, adını kimsenin bilmediği bir çocuk varmış.",
 	"lgc_2": "Diyorlar ki %s oynuyor, %s ayaklı.",
 	"lgc_3": "%s yaşındaymış. En büyük silahı: %s.",
@@ -1316,6 +1317,7 @@ const EN := {
 	"no_moves": "This country has a single tier.",
 	"other_lang": "Other languages…",
 	"title": "GÖZCÜ", "subtitle": "Scout Career",
+	"n_assign_extended": "The %s request got %s more weeks: the board is waiting on the candidates you've watched.",
 	"lgc_1": "Somewhere in %s there's a kid nobody has heard of.",
 	"lgc_2": "They say he plays %s, %s-footed.",
 	"lgc_3": "He's %s. His weapon: %s.",
