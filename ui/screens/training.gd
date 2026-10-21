@@ -410,7 +410,7 @@ func _spark_pop(caught: bool) -> void:
 	tw.tween_callback(func(): lbl.visible = false)
 	if caught:
 		Sfx.play("catch", -4.0)
-		Input.vibrate_handheld(60)
+		if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(60)
 	(m.spark_ui.get_node("Count") as Label).text = "✦ %d" % m.stage.sparks_caught
 
 ## Gözlem aşaması: oyuncu çalışır, kıvılcımlar belirir; yakalanan sayısını döndürür

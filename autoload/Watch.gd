@@ -53,6 +53,8 @@ func _ready() -> void:
 	post = hb
 	RenderingServer.frame_pre_draw.connect(func(): pre = Time.get_ticks_msec())
 	RenderingServer.frame_post_draw.connect(func(): post = Time.get_ticks_msec())
+	if FileAccess.file_exists(PERF_FILE):
+		Game.settings["perf"] = true
 	bc("oturum basladi")
 	get_tree().create_timer(1.5).timeout.connect(func(): selftest("acilis"))
 	th = Thread.new()
@@ -60,6 +62,7 @@ func _ready() -> void:
 
 func _process(_d: float) -> void:
 	hb = Time.get_ticks_msec()
+	_perf_tick(_d)
 	if reported:
 		reported = false
 		bc("donma bitti (ana thread geri geldi)")
@@ -83,6 +86,107 @@ func _exit_tree() -> void:
 	alive = false
 	if th and th.is_started():
 		th.wait_to_finish()
+
+# ================================================================ perf satırı (tech-art Faz 0)
+## Gizli "perf göster": sol üst köşeye (80x80 px) 2 sn içinde 5 dokunuş aç/kapat.
+## Açıkken ekranda küçük satır + her 10 sn'de bir iz kaydına (bc) perf satırı yazılır.
+## Durum Game.settings.perf; kalıcılık kendi küçük dosyasında (Game.gd/ayar ekranına dokunmadan).
+const PERF_FILE := "user://perf_on.txt"
+const PERF_CORNER := 80.0
+const PERF_TAPS := 5
+const PERF_LOG_SEC := 10.0
+var _perf_taps: Array = []
+var _perf_layer: CanvasLayer
+var _perf_lbl: Label
+var _perf_ui_t := 0.0
+var _perf_log_t := 0.0
+var perf_peak := {}      # oturumdaki en yüksek değerler (ölçüm/rapor)
+
+## RenderingServer sayaçları: draw call, üçgen, doku/video belleği (MB), process süresi (ms), fps
+static func perf_info() -> Dictionary:
+	return {
+		"dc": int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)),
+		"tri": int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)),
+		"obj": int(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME)),
+		"tex_mb": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED) / 1048576.0,
+		"vid_mb": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) / 1048576.0,
+		"proc_ms": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		"fps": Engine.get_frames_per_second(),
+	}
+
+static func perf_line(inf: Dictionary = {}) -> String:
+	if inf.is_empty():
+		inf = perf_info()
+	return "PERF dc=%d tri=%dk obj=%d tex=%.0fMB vram=%.0fMB proc=%.1fms fps=%d" % [inf.dc, int(inf.tri) / 1000, inf.obj, inf.tex_mb, inf.vid_mb, inf.proc_ms, inf.fps]
+
+func perf_on() -> bool:
+	return bool(Game.settings.get("perf", false))
+
+func set_perf(on: bool) -> void:
+	Game.settings["perf"] = on
+	if on:
+		var f := FileAccess.open(PERF_FILE, FileAccess.WRITE)
+		if f:
+			f.store_string("1")
+			f.close()
+	elif FileAccess.file_exists(PERF_FILE):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(PERF_FILE))
+	bc("perf goster %s" % ("acik" if on else "kapali"))
+	_perf_ui()
+
+func _perf_ui() -> void:
+	if perf_on() and _perf_layer == null:
+		_perf_layer = CanvasLayer.new()
+		_perf_layer.layer = 128
+		add_child(_perf_layer)
+		_perf_lbl = Label.new()
+		_perf_lbl.position = Vector2(6, 2)
+		_perf_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_perf_lbl.add_theme_font_size_override("font_size", 13)
+		_perf_lbl.add_theme_color_override("font_color", Color(0.75, 1.0, 0.6))
+		_perf_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+		_perf_lbl.add_theme_constant_override("outline_size", 4)
+		_perf_layer.add_child(_perf_lbl)
+	elif not perf_on() and _perf_layer != null:
+		_perf_layer.queue_free()
+		_perf_layer = null
+		_perf_lbl = null
+
+func _input(ev: InputEvent) -> void:
+	# olayı tüketmez; yalnız köşe dokunuşlarını sayar
+	var pos := Vector2(-1, -1)
+	if ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed:
+		pos = (ev as InputEventScreenTouch).position
+	elif ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		pos = (ev as InputEventMouseButton).position
+	if pos.x < 0.0 or pos.x > PERF_CORNER or pos.y > PERF_CORNER:
+		return
+	var now := Time.get_ticks_msec()
+	_perf_taps.append(now)
+	while not _perf_taps.is_empty() and now - int(_perf_taps[0]) > 2000:
+		_perf_taps.pop_front()
+	if _perf_taps.size() >= PERF_TAPS:
+		_perf_taps.clear()
+		set_perf(not perf_on())
+
+func _perf_tick(d: float) -> void:
+	if not perf_on():
+		return
+	_perf_ui_t -= d
+	_perf_log_t -= d
+	if _perf_ui_t > 0.0 and _perf_log_t > 0.0:
+		return
+	var inf := perf_info()
+	for k in ["dc", "tri", "tex_mb", "vid_mb"]:
+		perf_peak[k] = maxf(float(perf_peak.get(k, 0.0)), float(inf[k]))
+	if _perf_ui_t <= 0.0:
+		_perf_ui_t = 0.5
+		_perf_ui()
+		if _perf_lbl:
+			_perf_lbl.text = perf_line(inf)
+	if _perf_log_t <= 0.0:
+		_perf_log_t = PERF_LOG_SEC
+		bc(perf_line(inf))
 
 func _mon() -> String:
 	return "vmem=%dMB tex=%dMB nodes=%d obj=%d" % [int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED) / 1e6), int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)), int(Performance.get_monitor(Performance.OBJECT_COUNT))]

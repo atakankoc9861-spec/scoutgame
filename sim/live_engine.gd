@@ -22,6 +22,20 @@ const LEVEL_LATE := 0.7        # berabere ve son bölüm: hücum becerilerine ek
 const LEVEL_LATE_T := 4500.0   # 75. dakika
 const YC2_K := 0.4             # sarısı olan oyuncu daha dikkatli: ikinci sarı olasılığı çarpanı
 const SAVE_ADJ := 0.14         # kurtarış tabanı düzeltmesi (isabetli şutun gole dönme oranı)
+## Kalecinin MUTLAK seviyesi: at() her özelliği maçın kendi ortalamasına göre ölçekler, iki kaleci
+## yalnız birbiriyle kıyaslanır. Oysa alt seviyede (TFF 2. Lig ham refleks ~9, üst lig ~14) kaleci
+## hatası/zayıf uzanış daha sık; bu yok sayılınca alt liglerde isabetli şut az gole döner (2,42 gol,
+## %13 0-0). Ham refleks·0,65 + elle tutma·0,35, GK_ABS_REF altında kalan her puan kurtarış tabanını düşürür.
+const GK_ABS_REF := 13.0
+const GK_ABS_K := 0.010
+## Takım günü: at() yalnız maç içi farkı görür; alt seviyede (ilk 11 ovr ~50-57) takımlar hem çok denk
+## (lig içi ovr farkı ~1.8, üst ligde ~4.3) hem de oyuncu formu tek tek dağıldığı için takım düzeyinde
+## birbirini götürüyor -> denk maç, beraberlik %33. Gerçekte alt seviyede takım performansı maçtan maça
+## daha oynak (taktik disiplin, kadro uyumu). Tüm ilk 11'e ortak N(0, sd) form kayması; sd ovr TEAM_DAY_REF
+## altında doğrusal artar, üst lig seviyesinde 0 (üst lig sonuçları değişmez). U19'da yok.
+const TEAM_DAY_REF := 64.0
+const TEAM_DAY_SPAN := 14.0     # REF - SPAN ve altında tam etki
+const TEAM_DAY_SD := 0.55
 const SHOT_V_K := 1.5          # şut seçeneğinin değer çarpanı (maç başı şut sayısı)
 # skor durumu kaymasının eklendiği hücum özellikleri (hızlı motorda hücum bileşiklerine eklenir)
 const LEAD_KEYS := {"passing": true, "vision": true, "dribbling": true, "agility": true, "finishing": true,
@@ -113,9 +127,18 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 	if not m.has("xi_h") or m.xi_h.is_empty():
 		m.xi_h = g.best_xi(m.h, true, youth)
 		m.xi_a = g.best_xi(m.a, true, youth)
+	# takım günü (mutlak seviyeye bağlı): alt seviyede takımın maçtan maça oynaklığı
+	var lvl_sum := 0.0
+	var lvl_n := 0
+	for sd2 in ["h", "a"]:
+		for pid2 in m["xi_" + sd2]:
+			lvl_sum += float(g.player(pid2).ovr)
+			lvl_n += 1
+	var tday_sd := team_day_sd(lvl_sum / maxf(1.0, float(lvl_n))) if not youth else 0.0
 	for sd in ["h", "a"]:
 		var xi: Array = m["xi_" + sd]
 		var slots := _slots(xi)
+		var tday := rng.randfn(0.0, tday_sd) if tday_sd > 0.0 else 0.0
 		for pid in xi:
 			var p: Dictionary = g.player(pid)
 			var q := Pl.new()
@@ -127,7 +150,7 @@ func setup(game, match_d: Dictionary, is_youth: bool, seed_v := 0) -> void:
 			q.gk = p.pos == "GK"
 			q.base = slots[pid]
 			q.fx = clampf((q.base.x + 35.0) / 46.0, 0.0, 1.0)
-			var fm := form_shift(rng, p, sd == "h", youth, int(g.club(m.h if sd == "a" else m.a).get("prestige", 0)))
+			var fm := form_shift(rng, p, sd == "h", youth, int(g.club(m.h if sd == "a" else m.a).get("prestige", 0))) + tday
 			form[pid] = fm
 			for k in p.attrs:
 				q.a[k] = clampf(float(p.attrs[k]) + fm, 1.0, 20.0)
@@ -217,6 +240,14 @@ static func rating_base(s: Dictionary, team_gd: int, is_gk: bool, conceded: int,
 		r += 0.4 - conceded * 0.3
 	r -= float(s.get("yc", 0)) * 0.3 + float(s.get("rc", 0)) * 1.5
 	return r
+
+static func gk_abs_pen(reflexes_raw: float, handling_raw: float) -> float:
+	## Kaleci mutlak seviye cezası (kurtarış tabanından düşülür); üst lig kalecilerinde ~0
+	return maxf(0.0, GK_ABS_REF - (reflexes_raw * 0.65 + handling_raw * 0.35)) * GK_ABS_K
+
+static func team_day_sd(match_ovr: float) -> float:
+	## Takım günü kaymasının sd'si (22 oyuncunun ovr ortalamasına göre)
+	return TEAM_DAY_SD * clampf((TEAM_DAY_REF - match_ovr) / TEAM_DAY_SPAN, 0.0, 1.0)
 
 static func duel_p(ae: float, de: float, base: float, slope: float) -> float:
 	## Düello olasılığı (canlı ve hızlı motor ortak): özellik farkı x eğim x DUEL_K
@@ -931,7 +962,7 @@ func _shot_arrive(fl: Dictionary) -> void:
 			_set_restart("goalkick", k.side, Vector2(L * signf(ball.x) - 5.5 * signf(ball.x), rng.randf_range(-6, 6)))
 		return
 	var sv := duel(k, [["reflexes", 0.65], ["handling", 0.35]], sh, [["finishing", 0.6], ["composure", 0.4]] if not fl.header else [["heading", 1.0]],
-		clampf(0.43 + SAVE_ADJ + float(fl.dist) / 90.0, 0.38, 0.9) if not fl.get("pen", false) else 0.2, 0.025)
+		clampf(0.43 + SAVE_ADJ + float(fl.dist) / 90.0 - gk_abs_pen(float(k.a.reflexes), float(k.a.handling)), 0.38, 0.9) if not fl.get("pen", false) else 0.2, 0.025)
 	var saved: bool = rng.randf() < sv.p
 	if saved:
 		var held: bool = rng.randf() < 0.35 + at(k, "handling") * 0.025
