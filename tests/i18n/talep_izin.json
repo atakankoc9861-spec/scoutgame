@@ -1,0 +1,15 @@
+{
+  "status_declined": ["Geri çevrildi", "Declined"],
+  "n_assign_declined": ["%s talebini şimdilik geri çevirdin; başkan pek memnun değil.", "You turned down the %s request for now; the president isn't thrilled."],
+  "req_decline": ["Şimdi yapamam (sezonda %s hak)", "Can't do it now (%s left this season)"],
+  "req_decline_q": ["Sportif direktöre bu talebe şu an vaktin olmadığını söyleyeceksin. Talep kapanır, itibarın düşmez ama başkanın morali %s azalır. Emin misin?", "You'll tell the director you have no capacity for this request right now. It closes without a reputation hit, but the president's mood drops by %s. Sure?"],
+  "req_decline_yes": ["Evet, geri çevir", "Yes, decline"],
+  "decline_ok": ["Talep geri çevrildi.", "Request declined."],
+  "decline_limit": ["Bu sezon geri çevirme hakkın bitti.", "No declines left this season."],
+  "decline_not_open": ["Bu talep artık açık değil.", "This request is no longer open."],
+  "video_only": ["Sadece video • izin yok", "Video only • no permit"],
+  "video_only_note": ["Bu ülke için başkan izni yok: yalnız video analizi ve telefonla bilgi toplama yapılabilir.", "No board permit for this country: only video analysis and phone sources are possible."],
+  "zp_title": ["Hangi bölge?", "Which region?"],
+  "zp_hint": ["Bir karta dokun: haritada bölge parlar, içindeki ülkeler kartta yazar.", "Tap a card: the region lights up on the map and its countries are listed."],
+  "zp_ask": ["İzin iste: %s", "Ask for: %s"]
+}
