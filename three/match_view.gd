@@ -20,9 +20,160 @@ const C_GOOD := Color("#5ccf7a")
 const C_BAD := Color("#e86a5c")
 const C_INK := Color("#14210f")
 
-const RATE_FF := 3.2
-const RATE_HL := 14.0
 const BALL_R := 0.11
+const HT_WAIT := 15.0   # devre arası seçimi: dokunulmazsa "2. yarıyı izle"
+
+## Maç temposu (v0.24 4A): izleyicinin hız / atlama / an kararları. Görüntüden bağımsız saf
+## mantık; tests/check/tempo_check.gd aynı sınıfı ekransız sürüp gerçek süreyi ölçer.
+## kind: full (Normal) | hl (Özet) | moments (Anlar) | video (video, 5 an)
+## Normal: yalnız gerçek pozisyon (şut/orta, ceza sahası çevresi, duran top, odak oyuncu topta) 1x,
+##   gerisi hızlı; izleme planın gerisindeyse (wall > hedef x ilerleme) hızlı kısımlar daha da hızlanır.
+## Özet: yalnız şut / gol / büyük fırsat 1x oynatılır, gerisi görüntüsüz atlanır (seek).
+## Anlar: devre başına en çok 4 an, devreye yayılmış dilimlerde; 2. yarıya her zaman geçilir.
+class Pacer extends RefCounted:
+	const LE = preload("res://sim/live_engine.gd")
+	const TARGET := {"full": 660.0, "hl": 255.0, "moments": 130.0}   # canlı izleme hedefi, sn
+	const RATE_CALM := 3.6      # Normal: sakin oyun
+	const RATE_WARM := 1.4      # Normal: son üçüncü bölgede top, tehlike henüz yok
+	const BOOST_MAX := 3.0
+	const PER_HALF := 4
+	const SEEK_MS := 20.0       # atlamada kare başına motor bütçesi
+	const SEEK_MAX := 150       # atlamada kare başına en çok adım
+	const LIVE_GUARD := 30      # canlı oynatımda kare başına en çok adım
+	var kind := "full"
+	var focus: Array = []
+	var video_max := 0
+	var wall := 0.0             # izlemede geçen gerçek süre (giriş, duraklama, devre arası hariç)
+	var seg_on := false
+	var seg_start := 0.0
+	var seg_last := 0.0
+	var seg_from := -999.0
+	var seen := 0
+	var seen_half := 0
+	var second_half := false
+
+	func starts_seeking() -> bool:
+		return kind != "full"
+
+	func progress(eng) -> float:
+		return clampf(eng.clock / (LE.FULL + 240.0), 0.0, 1.0)
+
+	func half_prog(eng) -> float:
+		return clampf((eng.clock - (LE.HALF if second_half else 0.0)) / LE.HALF, 0.0, 1.0)
+
+	## Plan gerisindeki izleme için hız çarpanı (45 sn gecikme başına +1)
+	func boost(w: float, prog: float) -> float:
+		var lag := w - float(TARGET.get(kind, 0.0)) * prog
+		return clampf(1.0 + maxf(lag, 0.0) / 45.0, 1.0, BOOST_MAX)
+
+	## Anlar: devrenin i. anı devrenin ancak %22*i'sinden sonra açılır (anlar arka arkaya yığılmaz)
+	func slot_open(i: int, hp: float) -> bool:
+		return i < PER_HALF and hp >= 0.22 * float(i)
+
+	## Şut havada, gol sevinci ya da penaltı: her modda 1x gösterilir
+	static func shot_now(eng) -> bool:
+		if eng.celebrate_t > 0.0:
+			return true
+		if not eng.flight.is_empty() and str(eng.flight.get("k", "")) == "shot":
+			return true
+		return eng.phase == "dead" and str(eng.restart.get("k", "")) == "penalty"
+
+	## Büyük fırsat: şut/orta, kaleye yakın duran top, ceza sahası çevresinde topla oyuncu
+	static func hot(eng) -> bool:
+		if shot_now(eng):
+			return true
+		if not eng.flight.is_empty() and str(eng.flight.get("k", "")) == "cross":
+			return true
+		var d := 1.0 if eng.poss == "h" else -1.0
+		if eng.phase == "dead":
+			var k := str(eng.restart.get("k", ""))
+			return k == "corner" or (k == "free" and eng.ball.x * d > 22.0)
+		return eng.phase == "play" and eng.ball.x * d > 33.0
+
+	func involved(eng) -> bool:
+		if eng.phase != "play":
+			return false
+		if eng.owner != null and eng.owner.id in focus:
+			return true
+		if not eng.flight.is_empty() and str(eng.flight.get("recv", "")) in focus:
+			return true
+		for pid in focus:
+			if eng.pl.has(pid) and (eng.pl[pid].pos as Vector2).distance_to(eng.ball) < 6.0:
+				return true
+		return false
+
+	## Canlı (görüntülü) oynatım hızı
+	func rate(eng) -> float:
+		if kind != "full":
+			return 1.0
+		if hot(eng):
+			return 1.0
+		if eng.owner != null and eng.owner.id in focus:
+			return 1.0
+		var b := boost(wall, progress(eng))
+		return (RATE_WARM if eng.intense() else RATE_CALM) * b
+
+	## Atlarken: burada durup görüntüye dönülsün mü
+	func seek_found(eng) -> bool:
+		match kind:
+			"hl":
+				if shot_now(eng):
+					return true
+				return eng.t - seg_from > 3.0 and hot(eng) and boost(wall, progress(eng)) < 1.6
+			"moments":
+				return eng.t - seg_from > 40.0 and slot_open(seen_half, half_prog(eng)) and involved(eng)
+			"video":
+				return eng.t - seg_from > 50.0 and involved(eng)
+		return false
+
+	func open(eng) -> void:
+		seg_on = true
+		seg_start = eng.t
+		seg_last = eng.t
+		seen += 1
+		seen_half += 1
+
+	func close(eng) -> void:
+		seg_on = false
+		seg_from = eng.t
+
+	## Görüntülü bölüm sürerken her kare: "" devam, "seek" atlamaya dön, "finish" bitir (video)
+	## busy: gol tekrarı bekliyor / Analist Gözü açık -> bölüm kesilmez
+	func track(eng, busy: bool) -> String:
+		if kind == "full" or not seg_on:
+			return ""
+		var age: float = eng.t - seg_start
+		match kind:
+			"hl":
+				if busy or hot(eng):
+					seg_last = eng.t
+				if (eng.t - seg_last > 2.5 or age > 22.0) and not busy and not shot_now(eng):
+					close(eng)
+					return "seek"
+			"moments":
+				if busy or involved(eng):
+					seg_last = eng.t
+				if ((eng.t - seg_last > 3.0 and age > 8.0) or age > 14.0) and not busy and not shot_now(eng):
+					close(eng)
+					return "seek"
+			"video":
+				if busy:
+					return ""
+				if involved(eng):
+					seg_last = eng.t
+				elif eng.t - seg_last > 6.0 and age > 12.0:
+					close(eng)
+					return "finish" if video_max > 0 and seen >= video_max else "seek"
+		return ""
+
+	## Devre arası: an sayacı sıfırlanır, açık bölüm kapanır (2. yarı atlamayla başlar)
+	func on_half(eng) -> void:
+		second_half = true
+		if kind == "video":
+			return
+		seen_half = 0
+		seg_on = false
+		seg_from = eng.t - 999.0
 
 var data: Dictionary
 var tl: Array
@@ -95,6 +246,13 @@ var moments_seen := 0
 var max_focus := 3
 var moment_start := 0.0
 var seek_from := -999.0
+var pacer: Pacer
+# devre arası seçimi
+var ht_pending := false
+var ht_wait := false
+var ht_t := 0.0
+var ht_panel: Control
+var ht_bar: ColorRect
 
 # HUD
 var hud: Control
@@ -137,6 +295,10 @@ func setup(d: Dictionary, fhead: Font, fbody: Font, initial_focus: Array) -> voi
 			focus.append(pid)
 	for pid in focus:
 		focus_events[pid] = []
+	pacer = Pacer.new()
+	pacer.kind = "video" if video else ("moments" if moments else "full")
+	pacer.video_max = max_moments if video else 0
+	pacer.focus = focus
 
 func _ready() -> void:
 	print("[BC] viewer _ready")
@@ -494,6 +656,19 @@ func _cycle_speed() -> void:
 		speed = 1.0
 		highlights = false
 	speed_btn.text = T.t("mv_hl") if highlights else "%dx" % int(speed)
+	# Normal <-> Özet (Anlar/video kendi temposunda kalır)
+	if pacer.kind in ["full", "hl"] and not done:
+		var want := "hl" if highlights else "full"
+		if want != pacer.kind:
+			pacer.kind = want
+			pacer.seg_on = false
+			moment_on = false
+			if mode == "live" and not skipping and not ht_wait:
+				if want == "hl":
+					_eye_clear()
+					seeking = true
+				elif seeking:
+					_resume_view()
 	paused = false
 	pause_icon.icon = "pause"
 	pause_icon.queue_redraw()
@@ -1748,19 +1923,26 @@ func _process(delta: float) -> void:
 		_vmem_guard()
 		if _frames < 400:
 			Watch.check_screen("mac kare %d" % _frames)
+	# oyun zamanı ham kare süresiyle ilerler (0,1 sn'ye kadar): telefonda kare hızı 20'nin altına
+	# düşünce maç gerçek zamandan yavaş akmasın (eskiden 0,05 sınırı maçı uzatıyordu)
+	var play_dt := minf(delta, 0.1)
 	delta = minf(delta, 0.05)
+	if (mode == "live" or mode == "replay") and not paused and not ht_wait and not done:
+		pacer.wall += play_dt
 	match mode:
 		"intro":
 			_tick_intro(delta)
 		"live":
-			if skipping:
+			if ht_wait:
+				_ht_tick(play_dt)
+			elif skipping:
 				_tick_skip()
 			elif seeking:
 				_tick_seek()
 			else:
-				_tick_live(delta)
+				_tick_live(play_dt)
 		"replay":
-			_tick_replay(delta)
+			_tick_replay(play_dt)
 		"end":
 			_sync_men(1.0, delta * 0.5)
 			_update_camera(delta)
@@ -1779,14 +1961,7 @@ func _tick_intro(delta: float) -> void:
 		_end_intro()
 
 func _current_rate() -> float:
-	if moments:
-		return 1.0
-	if eng.intense() or eng.celebrate_t > 0.0:
-		return 1.0
-	for pid in focus:
-		if eng.owner != null and eng.owner.id == pid:
-			return 1.0
-	return RATE_HL if highlights else RATE_FF
+	return pacer.rate(eng)
 
 func _tick_live(delta: float) -> void:
 	rate = _current_rate()
@@ -1797,7 +1972,7 @@ func _tick_live(delta: float) -> void:
 		gdt = 0.0 if paused else delta * rate
 	acc += gdt
 	var guard := 0
-	while acc >= LiveEngine.DT and not done and guard < 12:
+	while acc >= LiveEngine.DT and not done and guard < Pacer.LIVE_GUARD:
 		guard += 1
 		acc -= LiveEngine.DT
 		_snapshot()
@@ -1811,6 +1986,12 @@ func _tick_live(delta: float) -> void:
 		if eng.finished:
 			_finish()
 			break
+		if ht_pending:
+			break
+	if ht_pending:
+		acc = 0.0
+		_ht_show()
+		return
 	_eye_tick(delta)
 	_moment_track()
 	ff_badge.visible = rate > 1.01 and not done
@@ -1831,33 +2012,39 @@ func _tick_live(delta: float) -> void:
 	stadium.set_excite(clampf(eng.celebrate_t / 4.0, 0.0, 1.0))
 
 func _focus_involved() -> bool:
-	if eng.phase != "play":
-		return false
-	if eng.owner != null and eng.owner.id in focus:
-		return true
-	if not eng.flight.is_empty() and str(eng.flight.get("recv", "")) in focus:
-		return true
-	for pid in focus:
-		if eng.pl.has(pid) and (eng.pl[pid].pos as Vector2).distance_to(eng.ball) < 6.0:
-			return true
-	return false
+	return pacer.involved(eng)
 
 func _tick_seek() -> void:
-	## Oyuncu anları: odak oyuncu topa yaklaşana kadar maçı görüntüsüz hızla koştur
+	## Anlar / Özet: sıradaki an ya da pozisyona kadar maçı görüntüsüz hızla koştur
+	## (kare başına SEEK_MS bütçesi; bu sırada sahne çizilmez, yalnız motor adımlanır)
 	var t0 := Time.get_ticks_msec()
 	var found := false
+	var n := 0
 	skipping = true
-	while not eng.finished and Time.get_ticks_msec() - t0 < 20:
-		eng.step(0.1)
+	while not eng.finished and Time.get_ticks_msec() - t0 < Pacer.SEEK_MS and n < Pacer.SEEK_MAX:
+		n += 1
+		eng.step(LiveEngine.DT)
+		found = pacer.seek_found(eng)
 		_consume()
-		# anlar arası en az ~50 sn oyun zamanı (aynı pozisyon tekrar tekrar açılmasın)
-		if eng.t - seek_from > 50.0 and _focus_involved():
-			found = true
+		if ht_pending:
+			found = false
+			break
+		if found:
 			break
 	skipping = false
 	fader.color.a = 0.55
-	intro_lbl.text = T.t("mv_seeking", [int(eng.clock / 60.0)])
+	intro_lbl.text = T.t("mv_hl_seek" if pacer.kind == "hl" else "mv_seeking", [int(eng.clock / 60.0)])
 	lbl_clock.text = "%02d:%02d" % [int(eng.clock / 60.0), int(eng.clock) % 60]
+	if ht_pending and not eng.finished:
+		intro_lbl.text = ""
+		fader.color.a = 0.0
+		_snapshot()
+		_sync_men(1.0, 0.0)
+		_update_chips()
+		_update_score()
+		_snap_camera()
+		_ht_show()
+		return
 	if eng.finished:
 		seeking = false
 		intro_lbl.text = ""
@@ -1869,36 +2056,117 @@ func _tick_seek() -> void:
 		_finish()
 		return
 	if found:
-		seeking = false
+		pacer.open(eng)
 		moment_on = true
 		moment_last = eng.t
 		moment_start = eng.t
-		moments_seen += 1
-		intro_lbl.text = ""
-		_snapshot()
-		_sync_men(1.0, 0.0)
-		_update_chips()
-		_update_score()
-		replay_buf.clear()
-		_snap_camera()
-		var tw := create_tween()
-		tw.tween_property(fader, "color:a", 0.0, 0.35)
-		_push_ticker(T.t("mv_moment", [moments_seen]) + " — %d'" % (int(eng.clock / 60.0) + 1), C_ACCENT)
-		Sfx.play("blip", -10.0)
+		moments_seen = pacer.seen
+		_resume_view()
+		if pacer.kind != "hl":
+			_push_ticker(T.t("mv_moment", [moments_seen]) + " — %d'" % (int(eng.clock / 60.0) + 1), C_ACCENT)
+			Sfx.play("blip", -10.0)
+
+## Atlamadan görüntülü oynatıma dönüş (an / Özet pozisyonu başlar)
+func _resume_view() -> void:
+	seeking = false
+	acc = 0.0
+	intro_lbl.text = ""
+	_snapshot()
+	_sync_men(1.0, 0.0)
+	_update_chips()
+	_update_score()
+	replay_buf.clear()
+	_snap_camera()
+	var tw := create_tween()
+	tw.tween_property(fader, "color:a", 0.0, 0.35)
 
 func _moment_track() -> void:
-	## Oyuncu anları modunda an bitince tekrar sarmaya dön
-	if not moments or not moment_on or eye_state != "" or mode != "live":
+	## Anlar / Özet / video: görüntülü bölüm bitince tekrar atlamaya dön (video: 5 an sonra bitir)
+	if pacer.kind == "full" or not pacer.seg_on or mode != "live" or done:
 		return
-	if _focus_involved():
-		moment_last = eng.t
-	elif eng.t - moment_last > 6.0 and eng.t - moment_start > 12.0:
-		moment_on = false
+	var r := pacer.track(eng, goal_pending_replay or eye_state != "")
+	moment_on = pacer.seg_on
+	if r == "finish":
+		_finish()
+	elif r == "seek":
 		seek_from = eng.t
-		if video and max_moments > 0 and moments_seen >= max_moments:
-			_finish()
-		else:
+		seeking = true
+
+# ================================================================ devre arası
+
+func _ht_show() -> void:
+	## Devre arası: "2. yarıyı izle / özetle / atla" (HT_WAIT sn dokunulmazsa izle)
+	ht_pending = false
+	ht_wait = true
+	ht_t = 0.0
+	_eye_clear()
+	if ht_panel == null:
+		ht_panel = PanelContainer.new()
+		ht_panel.add_theme_stylebox_override("panel", _sb(Color(0.03, 0.06, 0.05, 0.86), 22, 26, 1, Color(1, 1, 1, 0.14)))
+		ht_panel.set_anchors_preset(Control.PRESET_CENTER)
+		ht_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		ht_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+		ht_panel.custom_minimum_size = Vector2(620, 0)
+		hud.add_child(ht_panel)
+	for c in ht_panel.get_children():
+		c.queue_free()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	var t := _lbl(T.t("mv_half").to_upper(), 44, C_ACCENT, true)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	var s := _lbl("%s  %d - %d  %s" % [Game.club(m.h).short, score[0], score[1], Game.club(m.a).short], 30, C_TEXT, true)
+	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(s)
+	var q := _lbl(T.t("mv_ht_q"), 20, C_MUTED)
+	q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(q)
+	var bw := _btn(T.t("mv_ht_watch"), _ht_choose.bind("watch"), 26)
+	bw.add_theme_stylebox_override("normal", _sb(C_ACCENT, 14, 14))
+	bw.add_theme_color_override("font_color", C_INK)
+	v.add_child(bw)
+	if pacer.kind != "hl":
+		v.add_child(_btn(T.t("mv_ht_summary"), _ht_choose.bind("summary"), 24))
+	v.add_child(_btn(T.t("mv_ht_skip"), _ht_choose.bind("skip"), 24))
+	ht_bar = ColorRect.new()
+	ht_bar.color = Color(C_ACCENT, 0.7)
+	ht_bar.custom_minimum_size = Vector2(0, 4)
+	v.add_child(ht_bar)
+	ht_panel.add_child(v)
+	ht_panel.visible = true
+	ff_badge.visible = false
+	Sfx.play("whistle", -4.0)
+
+func _ht_tick(dt: float) -> void:
+	_update_camera(dt)
+	if paused:
+		return
+	ht_t += dt
+	if ht_bar:
+		ht_bar.pivot_offset = Vector2.ZERO
+		ht_bar.scale.x = clampf(1.0 - ht_t / HT_WAIT, 0.0, 1.0)
+	if ht_t >= HT_WAIT:
+		_ht_choose("watch")
+
+func _ht_choose(c: String) -> void:
+	if not ht_wait:
+		return
+	ht_wait = false
+	if ht_panel:
+		ht_panel.visible = false
+	match c:
+		"summary":
+			# 2. yarı Özet: yalnız şut / gol / büyük fırsat
+			moments = false
+			highlights = true
+			speed = 1.0
+			pacer.kind = "hl"
+			speed_btn.text = T.t("mv_hl")
 			seeking = true
+		"skip":
+			_skip_to_end()
+		_:
+			seeking = pacer.starts_seeking()
 
 func _tick_skip() -> void:
 	## Sona atla: motoru kare başına parça parça koştur
@@ -2118,7 +2386,8 @@ func _after_replay() -> void:
 
 func _on_event(e: Dictionary) -> void:
 	# oyuncu anları: yalnızca gerçekten izlenen anlardaki olaylar bilgiye dönüşür
-	if not (moments and (seeking or not moment_on)):
+	# (Özet / Anlar / video: atlanan bölümdeki olaylar görülmedi sayılır)
+	if not (seeking or (pacer.kind != "full" and not pacer.seg_on)):
 		for pid in focus:
 			if e.pid == pid or e.tgt == pid:
 				focus_events[pid].append(ev_seen - 1)
@@ -2137,7 +2406,12 @@ func _on_event(e: Dictionary) -> void:
 			_push_ticker("%d' %s — %s" % [mins, T.t("mv_corner"), Game.club(m.h if e.side == "h" else m.a).short], C_MUTED)
 		"half":
 			_push_ticker("— %s —" % T.t("mv_half"), C_ACCENT)
-			if not skipping:
+			pacer.on_half(eng)
+			if pacer.kind != "video" and (seeking or not skipping) and not done:
+				# devre arası seçimi (_tick_live / _tick_seek döngüsü kırılıp panel açılır)
+				ht_pending = true
+				moment_on = false
+			elif not skipping:
 				Sfx.play("whistle", -4.0)
 				_show_banner(T.t("mv_half").to_upper(), "%s %d - %d %s" % [Game.club(m.h).short, score[0], score[1], Game.club(m.a).short])
 		"foul":
@@ -2281,6 +2555,12 @@ func _skip_to_end() -> void:
 		_set_letterbox(false)
 		mode = "live"
 	_eye_clear()
+	seeking = false
+	ht_pending = false
+	ht_wait = false
+	if ht_panel:
+		ht_panel.visible = false
+	fader.color.a = 0.0
 	skipping = true
 	paused = false
 
