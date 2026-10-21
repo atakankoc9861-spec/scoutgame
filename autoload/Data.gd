@@ -182,24 +182,38 @@ func _load_world() -> void:
 		return country_strength(a) > country_strength(b))
 
 ## Bölgeler (yurtdışı izni, ekip bölgeleri, itibar ağı)
+## v0.24 (4B): coğrafya sınavı olmasın. Anahtarlar kayıtlarda (board.abroad, staff.region, arep) ve
+## stadyum hava tablosunda saklı olduğundan AYNI kaldı; yalnız üyeler ve adlar düzeldi:
+##   PL central -> east (Ukrayna/Belarus ile doğu ağı), SI central -> balkan (eski Yugoslav ligleri),
+##   MD balkan -> east. Baltık "İskandinavya + Baltık" (NB8 gibi yerleşik scout bölgesi), İsrail
+##   "İtalya, Yunanistan + Doğu Akdeniz" içinde (UEFA, Kıbrıs/Yunanistan ile aynı ağ).
+## Eski kayıtta taşınan ülkenin eski bölgesine izin varsa o ÜLKE izni korunur (Game.board abroad_cc).
 const ZONES := {
 	"tr": ["TR"],
 	"brit": ["EN", "SCO", "WAL", "NIR", "IE"],
 	"west": ["FR", "BE", "NL", "LU", "ES", "PT", "AD", "GI"],
-	"central": ["DE", "AT", "CH", "CZ", "SK", "PL", "HU", "SI"],
-	"south": ["IT", "SM", "MT", "GR", "CY", "IL"],
-	"mena": ["SA", "EG", "MA", "TN", "DZ", "QA", "AE"],
-	"africa": ["SN", "NG", "GH", "CI", "CM", "ML"],
-	"balkan": ["HR", "RS", "BA", "ME", "MK", "AL", "XK", "BG", "RO", "MD"],
+	"central": ["DE", "AT", "CH", "CZ", "SK", "HU"],
 	"nordic": ["DK", "SE", "NO", "FI", "IS", "FO", "EE", "LV", "LT"],
-	"east": ["RU", "UA", "BY", "KZ", "GE", "AM", "AZ"],
+	"east": ["PL", "UA", "BY", "MD", "RU", "KZ", "GE", "AM", "AZ"],
+	"balkan": ["SI", "HR", "BA", "RS", "ME", "XK", "MK", "AL", "BG", "RO"],
+	"south": ["IT", "SM", "MT", "GR", "CY", "IL"],
+	"mena": ["SA", "QA", "AE", "EG", "MA", "TN", "DZ"],
+	"africa": ["SN", "ML", "CI", "GH", "NG", "CM"],
 	"sa": ["BR", "AR"],
 }
+## v0.23 ve öncesinde başka bölgedeydi: ülke -> eski bölge (kayıt uyumu)
+const ZONE_MOVED := {"PL": "central", "SI": "central", "MD": "balkan"}
 const ZONE_NAMES := {
-	"tr": ["Türkiye", "Türkiye"], "brit": ["Britanya & İrlanda", "Britain & Ireland"], "west": ["Batı Avrupa", "Western Europe"],
-	"central": ["Orta Avrupa", "Central Europe"], "south": ["Akdeniz", "Mediterranean"], "balkan": ["Balkanlar", "Balkans"],
-	"nordic": ["Kuzey Avrupa", "Northern Europe"], "east": ["Doğu Avrupa", "Eastern Europe"], "sa": ["Güney Amerika", "South America"],
-	"mena": ["Orta Doğu & K. Afrika", "Middle East & N. Africa"], "africa": ["Batı & Orta Afrika", "West & Central Africa"],
+	"tr": ["Türkiye", "Türkiye"], "brit": ["Britanya + İrlanda", "Britain + Ireland"],
+	"west": ["Fransa, Benelüks + İberya", "France, Benelux + Iberia"],
+	"central": ["Almanya + Orta Avrupa", "Germany + Central Europe"],
+	"nordic": ["İskandinavya + Baltık", "Nordics + Baltics"],
+	"east": ["Doğu Avrupa + Kafkasya", "Eastern Europe + Caucasus"],
+	"balkan": ["Balkanlar", "Balkans"],
+	"south": ["İtalya, Yunanistan + Doğu Akdeniz", "Italy, Greece + East Med"],
+	"mena": ["Körfez + Kuzey Afrika", "Gulf + North Africa"],
+	"africa": ["Batı Afrika", "West Africa"],
+	"sa": ["Güney Amerika", "South America"],
 }
 
 func zone_of(cc: String) -> String:
