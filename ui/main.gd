@@ -4441,8 +4441,12 @@ func _learn_modal(card: Dictionary) -> void:
 	st.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(st)
 	_learn_card_ui(v, card, 0)
+	# video akışı _busy iken açılır; _btn meşgulken dokunuşu yutar -> Devam çalışmıyordu
+	var was := _busy
+	_busy = false
 	_btn(T.t("learn_cont"), func(): _learn_done.emit(), "primary", v, "arrow")
 	await _learn_done
+	_busy = was
 	_close_modal(lv[0])
 
 func _scr_result() -> void:

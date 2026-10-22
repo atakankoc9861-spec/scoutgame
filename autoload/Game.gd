@@ -948,7 +948,16 @@ func attr_range(pid: String, a: String) -> Array:
 	var p := player(pid)
 	var est := float(p.attrs[a]) + float(kn.e[a])
 	var u := (1.0 - float(kn.k[a])) * 5.8 * (1.15 - float(s.scout.eye) / 40.0)
-	return [clampi20(est - u), clampi20(est + u)]
+	# sınıra dayanan tahmin aralığı tek sayıya ezilmesin ("? -> 20" kesinlik gibi okunuyordu): genişliği koru
+	var lo := est - u
+	var hi := est + u
+	if hi > 20.0:
+		lo -= hi - 20.0
+		hi = 20.0
+	elif lo < 1.0:
+		hi += 1.0 - lo
+		lo = 1.0
+	return [clampi20(lo), clampi20(hi)]
 
 func known_fraction(pid: String) -> float:
 	var kn: Dictionary = s.scout.knowledge.get(pid, {})
