@@ -1,0 +1,10 @@
+{
+  "learn_title": ["Bu maçta öğrendiklerin", "What you learned this match"],
+  "learn_title_vid": ["Videodan öğrendiklerin", "What the tape showed you"],
+  "learn_know": ["Bilgi", "Known"],
+  "learn_new": ["Yeni açılan", "Newly revealed"],
+  "learn_pa": ["Potansiyel", "Potential"],
+  "learn_eye_n": ["Analist gözü: %s doğru okuma dosyaya işlendi", "Analyst eye: %s correct reads added to the file"],
+  "learn_none": ["Bu kez dosyada pek bir şey değişmedi. Tekrar izlemek ya da antrenman ziyareti daha fazlasını gösterir.", "Not much changed in the file this time. Another watch or a training visit will show more."],
+  "learn_cont": ["Devam", "Continue"]
+}
