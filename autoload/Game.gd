@@ -1073,6 +1073,7 @@ func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec")
 	var p := player(pid)
 	if p.is_empty():
 		return {"ok": false, "msg": "no_footage"}
+	var snap0 := know_snap(pid)
 	_take_day("video", pid)
 	var kn := know(pid)
 	kn.vid += 1
@@ -1098,8 +1099,9 @@ func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec")
 		if not ag2.attr.is_empty():
 			_learn_from_agg(pid, ag2, 1.4)
 	var hits: int = int(fe.get("_eye_hits", {}).get(pid, 0))
-	if hits > 0:
+	if hits > 0 and not fe.has("_eye_reads"):
 		_gain_xp("eye", 2 * hits)
+	var eye_done := apply_eye_reads(fe, [pid])
 	var m: Dictionary = data.m
 	var notes := Timeline.notes_for(self, pid, agg[pid], m)
 	kn.notes.push_front({"season": s.season, "week": s.week, "vs": data.get("vs", ""), "r": 0.0, "n": notes,
@@ -1108,7 +1110,125 @@ func finish_video(pid: String, data: Dictionary, fe: Dictionary, focus := "tec")
 		kn.notes.resize(8)
 	_gain_xp("eye", 1)
 	changed.emit()
-	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sp, 2)), "sparks": sp, "notes": notes}
+	return {"ok": true, "msg": "video_done", "lines": _obs_lines(pid, groups, 3 + mini(sp, 2)), "sparks": sp, "notes": notes,
+		"learned": learn_card(pid, snap0, eye_done.get(pid, []))}
+
+# ================================================================ v0.24 (5B) "Bu maçta öğrendiklerin"
+## İzlenen maç / video analizi sonrası odak oyuncuların bilgi farkı: hangi özelliğin aralığı daraldı,
+## ne yeni açıldı, bilgi yüzdesi kaç → kaç. Analist Gözü (5A) maç sonunda fe["_eye_reads"] =
+## [{pid, attr, ok}] yazar; doğru okuma o özelliğe ek bilgi verir, yanlış okuma hiçbir şey vermez
+## (ceza yok: Atakan "kısılmasın" dedi). Liste yoksa / bozuksa sessizce atlanır.
+## Denge (izlemek her şeyi bedavaya açmasın):
+## - EYE_READ_CAP: maç başına en çok 3 doğru okuma işlenir (5A maçta 4–5 soru sorar; hepsi doğru olsa da 3).
+## - EYE_READ_PER_ATTR: aynı oyuncu+özellik için maçta en çok 2 okuma.
+## - EYE_READ_GAIN: bir okuma kalan belirsizliğin %30'unu kapatır (göz 9'da 7 genişlikli aralık → ~5).
+## - EYE_READ_K_MAX: göz bonusu bilgiyi 0,80'in üstüne çıkaramaz (aralık ≥ ~2 puan kalır; maç
+##   kanıtı 0,97'ye kadar gider). Tam netlik yine tekrar izleme / antrenman / görüşmeyle gelir.
+## - İşlenen her okuma +2 göz XP'si. _eye_reads varken eski _eye_hits bonusu çalışmaz (çift sayım yok).
+const EYE_READ_CAP := 3
+const EYE_READ_PER_ATTR := 2
+const EYE_READ_GAIN := 0.30
+const EYE_READ_K_MAX := 0.80
+const LEARN_ROWS_MAX := 6
+
+func learn_focus(fe: Dictionary) -> Array:
+	## fe içindeki odak oyuncular (olay listesi boş olmayan, "_" ile başlamayan anahtarlar)
+	var out := []
+	for k in fe:
+		var ks := str(k)
+		if ks.begins_with("_") or not (fe[k] is Array) or fe[k].is_empty() or player(ks).is_empty():
+			continue
+		out.append(ks)
+	return out
+
+func know_snap(pid: String) -> Dictionary:
+	## Bilginin o anki fotoğrafı (bilgi kaydı yoksa oluşturmaz)
+	var kn: Dictionary = s.scout.knowledge.get(pid, {})
+	var r := {}
+	for a in Data.ATTRS:
+		r[a] = attr_range(pid, a)
+	var hk: Array = []
+	if not kn.is_empty():
+		hk = (kn.get("hid", {}) as Dictionary).keys()
+	return {"rng": r, "pct": known_fraction(pid), "pa": pa_range(pid), "hid": hk}
+
+func apply_eye_reads(fe: Dictionary, focus: Array) -> Dictionary:
+	## Doğru Analist Gözü okumalarını bilgiye çevirir. Dönüş: pid -> [işlenen özellikler]
+	var out := {}
+	var reads: Variant = fe.get("_eye_reads", [])
+	if not (reads is Array):
+		return out
+	var used := 0
+	var per := {}
+	for r in reads:
+		if used >= EYE_READ_CAP:
+			break
+		if not (r is Dictionary) or not bool(r.get("ok", false)):
+			continue
+		var pid := str(r.get("pid", ""))
+		var a := str(r.get("attr", ""))
+		if not (pid in focus) or not (a in Data.ATTRS) or player(pid).is_empty():
+			continue
+		var key := pid + ":" + a
+		if int(per.get(key, 0)) >= EYE_READ_PER_ATTR:
+			continue
+		per[key] = int(per.get(key, 0)) + 1
+		used += 1
+		var kn := know(pid)
+		var k0 := float(kn.k[a])
+		if k0 < EYE_READ_K_MAX:
+			kn.k[a] = snappedf(minf(EYE_READ_K_MAX, k0 + EYE_READ_GAIN * (1.0 - k0)), 0.001)
+		# doğru okuma tahmini gerçeğe yaklaştırır (küçük gürültüyle)
+		kn.e[a] = snappedf(lerpf(float(kn.e[a]), rng.randfn(0.0, 0.8), 0.35), 0.01)
+		if not out.has(pid):
+			out[pid] = []
+		if not (a in out[pid]):
+			out[pid].append(a)
+		_gain_xp("eye", 2)
+	return out
+
+func learn_card(pid: String, before: Dictionary, eye_attrs: Array = []) -> Dictionary:
+	## Öğrendiklerin kartı: en çok daralan 3–6 özellik (göz okumaları önde), yeni açılan gizli
+	## özellikler, potansiyel aralığı ve bilgi yüzdesi önce → sonra. last_obs ile kayda girer.
+	var after := know_snap(pid)
+	var rows := []
+	for a in Data.ATTRS:
+		var r0: Array = before.rng.get(a, [])
+		var r1: Array = after.rng[a]
+		if r1.is_empty():
+			continue
+		var w0 := 19 if r0.is_empty() else int(r0[1]) - int(r0[0])
+		var nar := w0 - (int(r1[1]) - int(r1[0]))
+		var eye: bool = a in eye_attrs
+		if nar <= 0 and not eye:
+			continue
+		rows.append({"a": a, "lo0": -1 if r0.is_empty() else int(r0[0]), "hi0": -1 if r0.is_empty() else int(r0[1]),
+			"lo1": int(r1[0]), "hi1": int(r1[1]), "n": nar, "eye": eye})
+	rows.sort_custom(func(x, y):
+		if x.eye != y.eye:
+			return x.eye
+		if x.n != y.n:
+			return x.n > y.n
+		return str(x.a) < str(y.a))
+	if rows.size() > LEARN_ROWS_MAX:
+		rows.resize(LEARN_ROWS_MAX)
+	var hid := []
+	var kn: Dictionary = s.scout.knowledge.get(pid, {})
+	for t in kn.get("hid", {}):
+		if not (t in before.get("hid", [])):
+			hid.append([str(t), int(kn.hid[t].get("lvl", 1))])
+	var pa := []
+	var p0: Array = before.get("pa", [])
+	var p1: Array = after.pa
+	if not p1.is_empty() and (p0.is_empty() or (int(p0[1]) - int(p0[0])) - (int(p1[1]) - int(p1[0])) >= 2):
+		pa = [-1 if p0.is_empty() else int(p0[0]), -1 if p0.is_empty() else int(p0[1]), int(p1[0]), int(p1[1])]
+	return {"pid": pid, "k0": int(round(float(before.pct) * 100.0)), "k1": int(round(float(after.pct) * 100.0)),
+		"rows": rows, "hid": hid, "pa": pa, "eye": eye_attrs.size()}
+
+static func learn_has(card: Dictionary) -> bool:
+	## Ekranda gösterilecek bir şey var mı
+	return not card.is_empty() and (not card.get("rows", []).is_empty() or not card.get("hid", []).is_empty()
+		or not card.get("pa", []).is_empty() or int(card.get("k1", 0)) > int(card.get("k0", 0)))
 
 const FOCUS_GROUPS := {"phy": ["phy"], "men": ["men"], "tec": ["tec", "gk"], "all": ["phy", "men", "tec", "gk"]}
 
@@ -2175,6 +2295,11 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	var tl: Array = data.tl
 	var youth: bool = data.youth
 	var all: Array = m.xi_h + m.xi_a
+	# v0.24 (5B): odak oyuncuların bilgisinin maç öncesi fotoğrafı ("Bu maçta öğrendiklerin")
+	var focus_l := learn_focus(focus_events)
+	var snaps := {}
+	for fpid in focus_l:
+		snaps[fpid] = know_snap(fpid)
 	s.scout.stats.watched += 1
 	tut_event("watched")
 	s.scout["season_watched"] = int(s.scout.get("season_watched", 0)) + 1
@@ -2251,6 +2376,8 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 					_learn_from_agg(pid, ag3, 1.5)
 				notes.push_front(["nt_eye_def", [str(deyes.filter(func(x): return bool(x[0])).size()), str(deyes.size())]])
 			var hits: int = int(focus_events.get("_eye_hits", {}).get(pid, 0))
+			if focus_events.has("_eye_reads"):
+				hits = 0   # 5A okumaları eski isabet bonusunun yerine geçer (çift sayım yok)
 			if hits > 0:
 				var smul := 1.0 + minf(float(s.scout.get("eye_streak", 0)), 10.0) * 0.06
 				_learn_from_agg(pid, agg[pid], 0.12 * hits * smul)
@@ -2267,6 +2394,10 @@ func apply_watch(data: Dictionary, focus_events: Dictionary) -> Dictionary:
 	for pid in ranked.slice(0, 4):
 		if not obs.notes.has(pid):
 			obs.standouts.append(pid)
+	var eye_done := apply_eye_reads(focus_events, focus_l)
+	obs.learned = []
+	for fpid in focus_l:
+		obs.learned.append(learn_card(fpid, snaps[fpid], eye_done.get(fpid, [])))
 	s.last_obs.append(obs)
 	changed.emit()
 	return obs
