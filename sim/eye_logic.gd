@@ -38,7 +38,7 @@ const TEXT_KEYS := ["eye_rs_ok", "eye_rs_no", "eye_rs_best", "eye_rb_free", "eye
 	"eye_rw_safe", "eye_rw_long", "eye_rw_less", "eye_rw_shot_block", "eye_rw_shot_far", "eye_rw_crowd",
 	"eye_rw_slow", "eye_pause", "eye_resume", "eye_noans", "eye_gain2",
 	"eye_g_good", "eye_g_ok", "eye_g_bad", "eye_watch3", "eye_judge", "eye_did", "eye_rs_why", "eye_rs_alt",
-	"eye_v_hit", "eye_v_miss", "eye_v_none", "eye_lbl_his", "eye_lbl_best", "eye_howto3"]
+	"eye_v_hit", "eye_v_miss", "eye_v_none", "eye_lbl_his", "eye_lbl_best", "eye_howto3", "eye_rb_tight"]
 
 # ================================================================ değerlendirme
 
@@ -225,9 +225,11 @@ static func _why_good(o: Dictionary) -> Array:
 			return ["eye_rb_carry", []]
 	if bool(o.through) and o.lane == "open":
 		return ["eye_rb_through", [o.name]]
-	if o.mark == "free":
+	if o.mark == "free" and o.lane == "open":
 		return ["eye_rb_free", [o.name]]
-	return ["eye_rb_open", [o.name]]
+	if o.lane == "open":
+		return ["eye_rb_open", [o.name]]
+	return ["eye_rb_tight", [o.name]]
 
 static func _why_bad(o: Dictionary, b: Dictionary) -> Array:
 	match str(o.k):

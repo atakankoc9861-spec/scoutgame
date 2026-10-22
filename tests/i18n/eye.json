@@ -146,5 +146,9 @@
   "eye_howto3": [
     "Sen gözcüsün: kararı o verir, sen onu yargılarsın. Doğru okuman not defterine işlenir.",
     "You're the scout: he decides, you judge. Correct reads go into your notebook."
+  ],
+  "eye_rb_tight": [
+    "yol dardı ama en çok şeyi vaat eden pas buydu (%s)",
+    "the lane was tight, but it was the most promising pass (%s)"
   ]
 }

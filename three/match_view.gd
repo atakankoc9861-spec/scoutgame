@@ -1498,9 +1498,7 @@ func _eye_opt_lane(i: int, col: Color, label: String) -> void:
 	_eye_lane(cpos, tp, col, i, op.k != "pass")
 	if label == "":
 		return
-	var at3 := Vector3(tp.x, 0.0, tp.y)
-	if op.k == "pass" and men.has(op.to):
-		at3 = men[op.to].fb.position
+	var at3 := Vector3(tp.x, 0.0, tp.y)      # karar anındaki diziliş: yol ucu ile aynı yer
 	var l := Label3D.new()
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
@@ -1545,11 +1543,11 @@ func _eye_reveal() -> void:
 		eye_nodes.append(disc)
 	var n_free := 0
 	for x: Dictionary in eye.all:
-		if n_free >= 5 or x.k != "pass" or x.mark != "free" or not men.has(x.to):
+		if n_free >= 5 or x.k != "pass" or x.mark != "free":
 			continue
 		n_free += 1
-		var fpos: Vector3 = men[x.to].fb.position
-		_eye_ring(Vector3(fpos.x, 0.05, fpos.z), 1.1, 1.6, _eye_mat("free", Color(0.3, 0.95, 0.5, 0.9)), -1)
+		var fpos: Vector2 = x.tp
+		_eye_ring(Vector3(fpos.x, 0.05, fpos.y), 1.1, 1.6, _eye_mat("free", Color(0.3, 0.95, 0.5, 0.9)), -1)
 	_eye_ring(Vector3(cpos.x, 0.05, cpos.y), 0.8, 1.05, _eye_mat("carrier", Color(C_ACCENT, 0.95)), -1)
 	for i: int in eye.opts.size():
 		var op: Dictionary = eye.opts[i]
