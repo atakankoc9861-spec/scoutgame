@@ -1404,15 +1404,15 @@ func _eye_tick(delta: float) -> void:
 	var r: String = eye.tick(0.0 if paused else delta, eng, pacer)
 	match r:
 		"start":
-			_eye_show()
+			_eye_watch_show()
+		"judge":
+			_eye_judge_show()
 		"verdict":
 			_eye_verdict()
 		"clear":
 			_eye_clear()
-	if eye.state == "choose":
+	if eye.state == "judge" and eye_bar:
 		eye_bar.scale.x = clampf(1.0 - eye.t / EyeLogic.CHOOSE_MAX, 0.0, 1.0)
-	if eye.state != "":
-		_eye_pulse()
 
 func _eye_mat(k: String, col: Color) -> StandardMaterial3D:
 	if _eye_mats.has(k):
@@ -1430,11 +1430,97 @@ func _lane_col(lane: String, k: String) -> Color:
 		return Color("#6ad7ff") if lane != "blocked" else Color("#ff5a4a")
 	return {"open": Color("#4be37a"), "tight": Color("#f2d024")}.get(lane, Color("#ff5a4a"))
 
-func _eye_show() -> void:
-	## Soru başladı: üst açı kamera + yerdeki işaretler + panel
+func _eye_free_nodes() -> void:
+	for n in eye_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	eye_nodes = []
+
+func _eye_watch_show() -> void:
+	## 1) İzle: yalnız taşıyıcı halkası, hiçbir ipucu yok. Oyuncu kararını kendisi verecek.
+	_eye_free_nodes()
+	var cpos: Vector2 = eye.sit.pos
+	_eye_ring(Vector3(cpos.x, 0.05, cpos.y), 0.8, 1.05, _eye_mat("carrier", Color(C_ACCENT, 0.95)), -1)
+	_eye_ui()
+	var nm := Game.short_name(Game.player(eye.pid))
+	eye_title.text = T.t("eye_title")
+	eye_sub.text = _etx("eye_watch3", [nm]) + ("" if eye_intro_done else "\n" + _etx("eye_howto3"))
+	eye_intro_done = true
+	eye_btns.visible = false
+	eye_bar.get_parent().visible = false
+	eye_pause_btn.visible = false
+	Sfx.play("spark", -6.0)
+	if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(40)
+	_push_ticker(T.t("eye_title") + " — " + nm, C_ACCENT)
+
+func _eye_act_txt() -> String:
+	var r: Dictionary = eye.res
+	if str(r.get("k", "")) == "pass":
+		return T.t("eye_pass_to", [Game.short_name(Game.player(str(r.to)))])
+	return T.t("eye_" + str(r.get("k", "")))
+
+func _eye_judge_show() -> void:
+	## 2) Yargıla: hamle anında top yolda süzülür; yalnız oyuncunun seçtiği yol (nötr beyaz)
+	_eye_free_nodes()
+	var cpos: Vector2 = eye.sit.pos
+	_eye_ring(Vector3(cpos.x, 0.05, cpos.y), 0.8, 1.05, _eye_mat("carrier", Color(C_ACCENT, 0.95)), -1)
+	if eye.act >= 0:
+		_eye_opt_lane(eye.act, Color(1, 1, 1, 0.9), "")
+	var nm := Game.short_name(Game.player(eye.pid))
+	eye_sub.text = _etx("eye_judge", [nm, _eye_act_txt()])
+	for c in eye_btns.get_children():
+		c.queue_free()
+	var cols := [Color("#4be37a"), Color("#f2d024"), Color("#ff5a4a")]
+	for g: int in 3:
+		var gi := g
+		var b := _btn(_etx("eye_g_" + EyeLogic.GRADES[g]), func(): _eye_choose(gi), 24)
+		b.custom_minimum_size = Vector2(250, 60)
+		var stripe := ColorRect.new()
+		stripe.color = cols[g]
+		stripe.position = Vector2(0, 8)
+		stripe.size = Vector2(7, 44)
+		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		b.add_child(stripe)
+		eye_btns.add_child(b)
+	eye_btns.visible = true
+	eye_bar.get_parent().visible = true
+	eye_bar.scale.x = 1.0
+	eye_pause_btn.visible = true
+	eye_pause_btn.text = _etx("eye_resume" if paused else "eye_pause")
+	Sfx.play("blip", -8.0)
+
+func _eye_opt_lane(i: int, col: Color, label: String) -> void:
+	var cpos: Vector2 = eye.sit.pos
+	var op: Dictionary = eye.opts[i]
+	var tp: Vector2 = op.tp
+	if op.k == "shot":
+		tp = Vector2(tp.x, clampf(cpos.y * 0.3, -3.0, 3.0))
+	_eye_lane(cpos, tp, col, i, op.k != "pass")
+	if label == "":
+		return
+	var at3 := Vector3(tp.x, 0.0, tp.y)
+	if op.k == "pass" and men.has(op.to):
+		at3 = men[op.to].fb.position
+	var l := Label3D.new()
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.fixed_size = true
+	l.pixel_size = 0.0007
+	l.font_size = 40
+	l.outline_size = 14
+	l.text = label
+	l.font = font_head
+	l.modulate = C_ACCENT if i == eye.best else Color.WHITE
+	world.add_child(l)
+	l.position = at3 + Vector3(0, 2.7 if i == eye.act else 3.6, 0)
+	l.set_meta("opt", i)
+	eye_nodes.append(l)
+
+func _eye_reveal() -> void:
+	## 3) Açıklama: baskı alanları, boş adamlar, yollar (renkli) — ancak şimdi
+	_eye_free_nodes()
 	var s: Dictionary = eye.sit
 	var cpos: Vector2 = s.pos
-	# baskı alanları: topa yakın rakipler
 	var n_press := 0
 	for o: Dictionary in s.opps:
 		if n_press >= 6 or o.gk:
@@ -1457,43 +1543,29 @@ func _eye_show() -> void:
 		disc.position = Vector3(op.x, 0.04, op.y)
 		disc.set_meta("opt", -1)
 		eye_nodes.append(disc)
-	# boş adamlar (seçenek olmasalar da): yeşil halka
 	var n_free := 0
 	for x: Dictionary in eye.all:
-		if n_free >= 6 or x.k != "pass" or x.mark != "free" or not men.has(x.to):
+		if n_free >= 5 or x.k != "pass" or x.mark != "free" or not men.has(x.to):
 			continue
 		n_free += 1
 		var fpos: Vector3 = men[x.to].fb.position
 		_eye_ring(Vector3(fpos.x, 0.05, fpos.z), 1.1, 1.6, _eye_mat("free", Color(0.3, 0.95, 0.5, 0.9)), -1)
-	# taşıyıcı
 	_eye_ring(Vector3(cpos.x, 0.05, cpos.y), 0.8, 1.05, _eye_mat("carrier", Color(C_ACCENT, 0.95)), -1)
-	# seçenekler: yol + hedef halkası + numara
 	for i: int in eye.opts.size():
 		var op: Dictionary = eye.opts[i]
-		var tp: Vector2 = op.tp
-		if op.k == "shot":
-			tp = Vector2(tp.x, clampf(cpos.y * 0.3, -3.0, 3.0))
-		_eye_lane(cpos, tp, _lane_col(str(op.lane), str(op.k)), i, op.k != "pass")
-		var at3 := Vector3(tp.x, 0.0, tp.y)
-		if op.k == "pass" and men.has(op.to):
-			at3 = men[op.to].fb.position
-		var l := Label3D.new()
-		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		l.no_depth_test = true
-		l.fixed_size = true
-		l.pixel_size = 0.0007
-		l.font_size = 64
-		l.outline_size = 18
-		l.text = str(i + 1)
-		l.font = font_head
-		world.add_child(l)
-		l.position = at3 + Vector3(0, 2.7, 0)
-		l.set_meta("opt", i)
-		eye_nodes.append(l)
-	_eye_ui()
-	Sfx.play("spark", -6.0)
-	if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(40)
-	_push_ticker(T.t("eye_title") + " — " + Game.short_name(Game.player(eye.pid)), C_ACCENT)
+		var lab := ""
+		if i == eye.act:
+			lab = _etx("eye_lbl_his")
+		elif i == eye.best:
+			lab = _etx("eye_lbl_best")
+		_eye_opt_lane(i, _lane_col(str(op.lane), str(op.k)), lab)
+	# seçim + en iyisi öne çıkar, diğerleri soluk
+	for n in eye_nodes:
+		if not is_instance_valid(n) or not (n is MeshInstance3D):
+			continue
+		var i: int = n.get_meta("opt", -1)
+		if i >= 0 and i != eye.act and i != eye.best:
+			(n as MeshInstance3D).transparency = 0.7
 
 func _eye_ring(at: Vector3, r0: float, r1: float, mat: Material, i: int) -> void:
 	var ring := MeshInstance3D.new()
@@ -1518,7 +1590,7 @@ func _eye_lane(from: Vector2, to: Vector2, col: Color, i: int, thin: bool) -> vo
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.5 if thin else 0.85, 0.02, maxf(0.1, a.distance_to(b)))
 	mi.mesh = bm
-	mi.material_override = _eye_mat("lane_" + col.to_html(false), Color(col, 0.85))
+	mi.material_override = _eye_mat("lane_" + col.to_html(true), col if col.a < 0.99 else Color(col, 0.85))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	world.add_child(mi)
 	mi.position = (a + b) * 0.5
@@ -1528,59 +1600,43 @@ func _eye_lane(from: Vector2, to: Vector2, col: Color, i: int, thin: bool) -> vo
 	eye_nodes.append(mi)
 	_eye_ring(b + Vector3(0, -0.06, 0), 0.7, 0.95, mi.material_override, i)
 
-func _eye_pulse() -> void:
-	var g := eye.pick if eye.state != "verdict" else eye.best
-	for n in eye_nodes:
-		if not is_instance_valid(n):
-			continue
-		var i: int = n.get_meta("opt", -1)
-		if i < 0:
-			continue
-		var chosen := i == g and g >= 0
-		if n is Label3D:
-			n.modulate = C_ACCENT if chosen else Color(1, 1, 1, 0.95)
-			n.scale = Vector3.ONE * (1.35 if chosen else 1.0)
-		elif g >= 0 and eye.state != "choose":
-			(n as MeshInstance3D).transparency = 0.0 if chosen else 0.78
-
 func _eye_ui() -> void:
+	## İnce alt şerit: başlık satırı + tek metin + (yargıda) 3 düğme yan yana
 	if eye_panel == null:
-		eye_panel = _glass_panel(20.0, Color(0.02, 0.05, 0.04, 0.86))
+		eye_panel = _glass_panel(14.0, Color(0.02, 0.05, 0.04, 0.84))
 		eye_panel.anchor_left = 0.5
 		eye_panel.anchor_right = 0.5
 		eye_panel.anchor_top = 1.0
 		eye_panel.anchor_bottom = 1.0
-		eye_panel.offset_left = -470
-		eye_panel.offset_right = 470
-		eye_panel.offset_bottom = -12
-		eye_panel.offset_top = -12 - 200
+		eye_panel.offset_left = -420
+		eye_panel.offset_right = 420
+		eye_panel.offset_bottom = -10
+		eye_panel.offset_top = -10 - 120
 		eye_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 		hud.add_child(eye_panel)
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", 6)
 		eye_panel.add_child(v)
 		var th := HBoxContainer.new()
-		th.alignment = BoxContainer.ALIGNMENT_CENTER
 		th.add_theme_constant_override("separation", 10)
 		v.add_child(th)
-		th.add_child(Icon.new().setup("eye", C_ACCENT, 30))
-		eye_title = _lbl("", 28, C_ACCENT, true)
+		th.add_child(Icon.new().setup("eye", C_ACCENT, 26))
+		eye_title = _lbl("", 24, C_ACCENT, true)
+		eye_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		th.add_child(eye_title)
-		eye_pause_btn = _btn("", _eye_pause, 20)
-		eye_pause_btn.custom_minimum_size = Vector2(120, 44)
+		eye_pause_btn = _btn("", _eye_pause, 18)
+		eye_pause_btn.custom_minimum_size = Vector2(110, 40)
 		th.add_child(eye_pause_btn)
 		eye_sub = _lbl("", 20, C_TEXT)
-		eye_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		eye_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(eye_sub)
 		eye_btns = GridContainer.new()
-		eye_btns.columns = 2
-		eye_btns.add_theme_constant_override("h_separation", 8)
-		eye_btns.add_theme_constant_override("v_separation", 8)
+		eye_btns.columns = 3
+		eye_btns.add_theme_constant_override("h_separation", 10)
 		v.add_child(eye_btns)
 		var bar_bg := ColorRect.new()
 		bar_bg.color = Color(1, 1, 1, 0.12)
-		bar_bg.custom_minimum_size = Vector2(0, 6)
+		bar_bg.custom_minimum_size = Vector2(0, 5)
 		v.add_child(bar_bg)
 		eye_bar = ColorRect.new()
 		eye_bar.color = C_ACCENT
@@ -1589,32 +1645,7 @@ func _eye_ui() -> void:
 	eye_panel.visible = true
 	bottom_left.visible = false
 	minimap.visible = false
-	var left: int = eye.total() - (eye.asked[0] + eye.asked[1]) + 1
-	eye_title.text = T.t("eye_title") + "  (%d)" % maxi(left, 1)
-	eye_pause_btn.visible = true
-	eye_pause_btn.text = _etx("eye_resume" if paused else "eye_pause")
-	var nm := Game.short_name(Game.player(eye.pid))
-	eye_sub.text = _etx("eye_ask3", [nm]) + ("" if eye_intro_done else "\n" + _etx("eye_howto2"))
-	eye_intro_done = true
-	for c in eye_btns.get_children():
-		c.queue_free()
-	for i: int in eye.opts.size():
-		var op: Dictionary = eye.opts[i]
-		var idx := i
-		var b := _btn("%d  %s" % [i + 1, _eye_opt_name(op)], func(): _eye_choose(idx), 21)
-		b.custom_minimum_size = Vector2(440, 56)
-		b.clip_text = true
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var stripe := ColorRect.new()
-		stripe.color = _lane_col(str(op.lane), str(op.k))
-		stripe.position = Vector2(0, 6)
-		stripe.size = Vector2(7, 44)
-		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		b.add_child(stripe)
-		eye_btns.add_child(b)
-	eye_btns.visible = true
-	eye_bar.get_parent().visible = true
-	eye_bar.scale.x = 1.0
+	chips.visible = false
 
 func _eye_pause() -> void:
 	## İsteğe bağlı tam duraklatma (yalnız oyuncu isterse)
@@ -1622,41 +1653,12 @@ func _eye_pause() -> void:
 	if eye_pause_btn:
 		eye_pause_btn.text = _etx("eye_resume" if paused else "eye_pause")
 
-func _eye_tap(p: Vector2) -> void:
-	var scale_f := Vector2(sv.size) / svc.size
-	var best := -1
-	var bd := 110.0
-	for i: int in eye.opts.size():
-		var op: Dictionary = eye.opts[i]
-		var dd := 1e9
-		if op.k == "pass" and men.has(op.to):
-			var wp: Vector3 = men[op.to].fb.position + Vector3(0, 1.0, 0)
-			if not cam.is_position_behind(wp):
-				dd = (cam.unproject_position(wp) / scale_f).distance_to(p)
-		var tpp := Vector3(op.tp.x, 0.1, op.tp.y)
-		if not cam.is_position_behind(tpp):
-			dd = minf(dd, (cam.unproject_position(tpp) / scale_f).distance_to(p))
-		if dd < bd:
-			bd = dd
-			best = i
-	if best >= 0:
-		_eye_choose(best)
-
-func _eye_choose(i: int) -> void:
-	if eye == null or eye.state != "choose":
+func _eye_choose(g: int) -> void:
+	if eye == null or eye.state != "judge":
 		return
-	eye.answer(i)
 	if paused:
 		_eye_pause()
-	eye_btns.visible = false
-	eye_bar.get_parent().visible = false
-	eye_sub.text = T.t("eye_your", [_eye_opt_name(eye.opts[i])]) + "\n" + T.t("eye_watch")
-	Sfx.play("blip", -8.0)
-
-func _eye_opt_name(op: Dictionary) -> String:
-	if op.k == "pass":
-		return T.t("eye_pass_to", [str(op.get("name", Game.short_name(Game.player(op.to))))])
-	return T.t("eye_" + str(op.k))
+	eye.answer(g)
 
 func _eye_verdict() -> void:
 	if paused:
@@ -1664,37 +1666,33 @@ func _eye_verdict() -> void:
 	eye_pause_btn.visible = false
 	eye_btns.visible = false
 	eye_bar.get_parent().visible = false
+	_eye_reveal()
 	var res: Dictionary = eye.res
 	var nm := Game.short_name(Game.player(eye.pid))
 	var lines: Array = []
+	var gt := _etx("eye_g_" + EyeLogic.GRADES[eye.truth])
 	var answered := eye.pick >= 0
-	var line1 := EyeLogic.render(eye.parts, _etx)
-	lines.append(("✓ " if eye.ok else ("✗ " if answered else "")) + line1)
 	if not answered:
-		lines.append(_etx("eye_noans"))
+		lines.append(_etx("eye_v_none", [gt]))
+	elif eye.ok:
+		lines.append("✓ " + _etx("eye_v_hit", [gt]))
+	else:
+		lines.append("✗ " + _etx("eye_v_miss", [_etx("eye_g_" + EyeLogic.GRADES[eye.pick]), gt]))
+	lines.append(EyeLogic.render(eye.parts, _etx))
 	if eye.ok:
 		eye_hits[eye.pid] = int(eye_hits.get(eye.pid, 0)) + 1
 		Sfx.play("catch", -4.0)
 		if Game.settings.get("haptic", true) and OS.has_feature("mobile"): Input.vibrate_handheld(25)
-	if answered:
-		lines.append(_streak_line(eye.ok))
-	# oyuncunun gerçek hamlesi -> karar bilgisi (Game.gd _eye)
-	if res.is_empty():
-		lines.append(T.t("eye_lost"))
-	else:
-		var pick_txt: String = T.t("eye_pass_to", [Game.short_name(Game.player(res.to))]) if res.k == "pass" else T.t("eye_" + str(res.k))
-		var b: Dictionary = eye.opts[eye.best]
-		var same: bool = str(res.k) == str(b.k) and (res.k != "pass" or str(res.to) == str(b.get("to", "")))
-		var verdict: String = T.t("eye_p_best") if same else (T.t("eye_p_good") if res.good else T.t("eye_p_bad"))
-		lines.append(T.t("eye_player2", [nm, pick_txt, verdict]))
+		lines.append(_etx("eye_gain2", [T.t("a_" + eye.attr), nm]) + "  •  " + _streak_line(true))
+	elif answered:
+		lines.append(_streak_line(false))
+	# oyuncunun gerçek hamlesi -> karar bilgisi (Game.gd _eye; motorun kendi değerlendirmesi)
+	if not res.is_empty():
 		if not eye_log.has(eye.pid):
 			eye_log[eye.pid] = []
 		eye_log[eye.pid].append([res.good, res.p10, res.sl])
-	if eye.ok:
-		lines.append(_etx("eye_gain2", [T.t("a_" + eye.attr), nm]))
 	eye_title.text = T.t("eye_title_ok") if eye.ok else T.t("eye_title")
 	eye_sub.text = "\n".join(lines)
-	_eye_pulse()
 
 func _streak_line(hit: bool) -> String:
 	## v0.22 okuma serisi: arka arkaya isabetli okumalar gözlem gücünü artırır
@@ -1709,23 +1707,23 @@ func _streak_line(hit: bool) -> String:
 	return T.t("eye_streak_zero")
 
 func _eye_clear() -> void:
-	for n in eye_nodes:
-		if is_instance_valid(n):
-			n.queue_free()
-	eye_nodes = []
+	_eye_free_nodes()
 	if eye != null and eye.state != "":
 		eye.clear(eng)
 	if eye_panel:
 		eye_panel.visible = false
 		bottom_left.visible = true
 		minimap.visible = true
+		chips.visible = true
 
 func _eye_cam() -> Array:
-	## Analist kamerası: üstten (~70°), taşıyıcı + seçenekler kadrajda, alt panel için içerik üstte
+	## Analist kamerası: üstten (~70°), taşıyıcı + yakın seçenekler kadrajda (uzak hedefler kadrajı açmasın)
 	var cpos: Vector2 = eye.sit.pos
 	var lo := cpos
 	var hi := cpos
 	for o2: Dictionary in eye.opts:
+		if (o2.tp as Vector2).distance_to(cpos) > 30.0 and eye.opts.find(o2) != eye.act:
+			continue
 		var tpv: Vector2 = o2.tp
 		if o2.k == "shot":
 			tpv = cpos.lerp(tpv, 0.6)
@@ -1827,8 +1825,8 @@ func _current_rate() -> float:
 func _tick_live(delta: float) -> void:
 	rate = _current_rate()
 	var gdt := 0.0 if paused or done else delta * speed * rate
-	if eye_state == "choose" or eye_state == "wait":
-		# Analist Gözü: maç durmaz, ağır çekim (yalnız "Dur" ile duraklar)
+	if eye_state != "":
+		# Analist Gözü: maç durmaz; izlerken ağır çekim, yargıda top süzülür (yalnız "Dur" ile duraklar)
 		rate = eye.rate(rate)
 		gdt = 0.0 if paused or done else delta * rate
 	acc += gdt
@@ -2067,7 +2065,7 @@ func _update_camera(delta: float) -> void:
 	var fov := 28.0
 	var stiff := 2.4
 	var pd := 1.0 if poss == "h" else -1.0
-	if eye_state == "choose" or eye_state == "wait":
+	if eye_state != "":
 		var ec: Array = _eye_cam()
 		pos = ec[0]
 		look = ec[1]
@@ -2368,8 +2366,7 @@ func _on_view_input(ev: InputEvent) -> void:
 	if mode == "replay":
 		_after_replay()
 		return
-	if eye_state == "choose":
-		_eye_tap(ev.position)
+	if eye_state == "watch" or eye_state == "judge":
 		return
 	if eye_state == "verdict" and eye.t > 0.8:
 		_eye_clear()

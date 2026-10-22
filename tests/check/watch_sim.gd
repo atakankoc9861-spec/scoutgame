@@ -85,7 +85,7 @@ static func watch(game, m: Dictionary, kind: String, sd: int, eye_on := true) ->
 		r.wall += fr
 		r.live_wall += fr
 		pc.wall += fr
-		if dir.state == "choose" or dir.state == "wait":
+		if dir.state != "":
 			r.eye_wall += fr
 		if rate <= 1.001:
 			r.wall_1x += fr
@@ -120,10 +120,10 @@ static func watch(game, m: Dictionary, kind: String, sd: int, eye_on := true) ->
 			continue
 		if eye_on and not e.finished:
 			var evn: String = dir.tick(fr, e, pc)
-			if evn == "start":
+			if evn == "judge":
 				ans_t = urng.randf_range(1.5, 6.0)
-				ans_i = -1 if urng.randf() < 0.15 else urng.randi_range(0, dir.opts.size() - 1)
-			elif dir.state == "choose" and ans_i >= 0 and dir.t >= ans_t:
+				ans_i = -1 if urng.randf() < 0.15 else urng.randi_range(0, 2)
+			elif dir.state == "judge" and ans_i >= 0 and dir.t >= ans_t:
 				dir.answer(ans_i)
 		var tr: String = pc.track(e, goal_t > 0.0 or dir.state != "")
 		if tr == "seek":
@@ -139,6 +139,7 @@ static func watch(game, m: Dictionary, kind: String, sd: int, eye_on := true) ->
 	r["eye_clock"] = dir.asked_at
 	r["eye_min_rate"] = dir.min_rate
 	r["fe"] = {"_eye_reads": dir.reads}
+	r["eye_aborts"] = dir.aborts
 	return r
 
 ## Yeni motor olaylarını işler (izleyicinin _consume/_on_event eşi)
