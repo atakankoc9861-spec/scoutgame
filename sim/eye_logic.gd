@@ -527,6 +527,8 @@ class Director extends RefCounted:
 				if _acted(eng):
 					return _to_judge(eng)
 				if t > EL.WATCH_MAX:
+					if OS.get_environment("EYE_DBG") != "":
+						print("EYE watch timeout owner=", eng.owner.id if eng.owner != null else "-", " pid=", pid, " eye_pid=", eng.eye_pid)
 					aborts += 1
 					clear(eng)
 					return "clear"
@@ -550,6 +552,8 @@ class Director extends RefCounted:
 		if ai < 0:
 			# topu kaptırdı / orta / uzaklaştırma: yargılanacak net karar yok, soru sayılmaz
 			aborts += 1
+			if OS.get_environment("EYE_DBG") != "":
+				print("EYE abort res=", res, " phase=", eng.phase, " opts=", all.map(func(x): return [x.k, x.get("to", "")]))
 			clear(eng)
 			return "clear"
 		truth = EL.grade(all, ai)
