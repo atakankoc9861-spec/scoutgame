@@ -282,6 +282,24 @@ func new_player(pos: String, target: int, age: int, nat: String, cid: String, yo
 		"skin": ri(0, 4), "hair": ri(0, 5), "seed": ri(0, 99999),
 	}
 	var nm := Data.name_pair(nat)
+	# aynı takımda aynı kısa ad olmasın ("GK C. Turner" + "on numara C. Turner")
+	var cl: Dictionary = club(cid) if cid != "" else {}
+	if not cl.is_empty():
+		var taken := {}
+		for q in cl.get("squad", []) + cl.get("u19", []):
+			var qp: Dictionary = s.players.get(q, {})
+			if not qp.is_empty():
+				taken[String(qp.first).substr(0, 1) + "." + str(qp.last)] = true
+		if taken.has(String(nm[0]).substr(0, 1) + "." + str(nm[1])):
+			# yerel RNG ile soyadı yeniden çek: ortak rastgelelik akışı (tohumlu testler) değişmesin
+			var lr := RandomNumberGenerator.new()
+			lr.seed = hash(pid + cid)
+			var pool: String = Data._pool(nat) if Data.LAST.has(Data._pool(nat)) else "TR"
+			var ll: Array = Data.LAST[pool]
+			var tries := 0
+			while (taken.has(String(nm[0]).substr(0, 1) + "." + str(nm[1])) or Data.NAME_BLOCK.has(str(nm[0]) + " " + str(nm[1]))) and tries < 12:
+				nm = [nm[0], ll[lr.randi() % ll.size()]]
+				tries += 1
 	p.first = nm[0]
 	p.last = nm[1]
 	if nat in ["NG", "SN", "GH", "CM"]:

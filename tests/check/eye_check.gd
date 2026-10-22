@@ -13,7 +13,7 @@ const EyeLogic = preload("res://sim/eye_logic.gd")
 const WatchSim = preload("res://tests/check/watch_sim.gd")
 
 const N_MATCH: int = 50
-const COUNT := {"full": [4, 5], "moments": [4, 4], "hl": [2, 2]}
+const COUNT := {"full": [2, 3], "moments": [1, 2], "hl": [1, 1]}
 
 var _tbl: Dictionary = {}
 
@@ -146,6 +146,7 @@ func _check_matches() -> void:
 	var attrs := {}
 	var kinds_b := {}
 	var noans := 0
+	var gaps: Array = []
 	var wall_eye := {"full": 0.0, "moments": 0.0, "hl": 0.0}
 	var nm: int = N_MATCH
 	if OS.get_environment("EYE_N").is_valid_int():
@@ -186,6 +187,7 @@ func _check_matches() -> void:
 			reads_n += 1
 			attrs[str(rd.attr)] = int(attrs.get(str(rd.attr), 0)) + 1
 			kinds_b[str(rd.get("k", ""))] = int(kinds_b.get(str(rd.get("k", "")), 0)) + 1
+			gaps.append([float(rd.get("gap", 0.0)), bool(rd.get("blk", false))])
 			if not bool(rd.get("ans", true)):
 				noans += 1
 			if bool(rd.ok):
@@ -197,5 +199,13 @@ func _check_matches() -> void:
 			s += x
 		log_info("%s: soru sayıları %s (ort %.2f), maç başı göz süresi %.0f sn" % [kind, str(arr), float(s) / maxf(1.0, arr.size()), float(wall_eye[kind]) / maxf(1.0, arr.size())])
 	log_info("okumalar: %d, rastgele kullanıcı isabeti %d (%.0f%%), soru sırasında en düşük hız %.2f" % [reads_n, reads_ok, 100.0 * reads_ok / maxf(1.0, reads_n), min_rate])
+	gaps.sort()
 	log_info("attr dağılımı %s, doğru cevap türü %s, cevapsız %d" % [str(attrs), str(kinds_b), noans])
-	check(min_rate >= EyeLogic.SLOW - 0.001, "soru sırasında hız ağır çekimin altına düştü: %.2f" % min_rate)
+	check(min_rate >= EyeLogic.JUDGE_RATE - 0.001, "soru sırasında hız yargı hızının altına düştü: %.2f" % min_rate)
+	# v2: gerçek notların dağılımı tek cevaba yığılmasın ("hep İyi" ezberi olmasın)
+	var gtot := 0
+	for g: String in EyeLogic.GRADES:
+		gtot += int(kinds_b.get(g, 0))
+	for g: String in EyeLogic.GRADES:
+		var sh := float(kinds_b.get(g, 0)) / maxf(1.0, gtot)
+		check(sh >= 0.15 and sh <= 0.55, "not dağılımı dengesiz: %s %%%d" % [g, int(sh * 100.0)])

@@ -14,21 +14,31 @@ const L := 52.5
 const W := 34.0
 ## Soru hangi özelliği ölçer (Data.ATTRS anahtarları)
 const ATTR_KEYS := ["passing", "vision", "decisions", "composure", "finishing", "dribbling"]
-## Mod -> [1. yarı, 2. yarı] soru kotası (Normal 5, Anlar 4, Özet 2; video 3)
-const QUOTA := {"full": [3, 2], "moments": [2, 2], "hl": [1, 1], "video": [2, 1]}
-const GAP := 480.0          # iki soru arası en az 8 oyun dakikası (maç saati, sn)
-const SLOW := 0.25          # karar verilirken ağır çekim
-const WAIT_RATE := 0.5      # cevap verildi, oyuncunun hamlesi bekleniyor
-const CHOOSE_MAX := 9.0     # seçim süresi (gerçek sn)
-const HOLD := 2.0           # oyuncunun kararını en çok bu kadar sim sn geciktir (ağır çekimde ~8 sn)
-const WAIT_MAX := 3.0
-const VERDICT_T := 5.5
+## v0.24 göz v2 — "Önce izle, sonra yargıla": soru oyuncunun GERÇEK kararı üzerine.
+## watch: odak oyuncu topu aldı, ağır çekim, hiçbir ipucu yok -> oyuncu kendi kararını verir
+## judge: hamle anında oyun neredeyse durur (top yolda süzülür); "Kararı nasıldı? İyi / Makul / Kötü"
+## verdict: pas yolları / boş adamlar / baskı ancak şimdi açılır + gerekçe; doğru okuma bilgiye işlenir.
+## Mod -> [1. yarı, 2. yarı] soru kotası (Normal 3, Anlar 2, Özet 1, video 2)
+const QUOTA := {"full": [2, 1], "moments": [1, 1], "hl": [1, 0], "video": [1, 1]}
+const GAP := 600.0          # iki soru arası en az 10 oyun dakikası (maç saati, sn)
+const SLOW := 0.35          # izleme ağır çekimi
+const JUDGE_RATE := 0.06    # yargılarken top yolda yavaşça süzülür (oyun durmaz)
+const VERDICT_RATE := 0.15  # açıklama okunurken
+const CHOOSE_MAX := 10.0    # yargı süresi (gerçek sn)
+const HOLD := 1.0           # oyuncunun kararını en çok bu kadar sim sn geciktir (izleyene zaman)
+const WATCH_MAX := 8.0      # gerçek sn: oyuncu karar vermezse soru iptal (sayılmaz)
+const VERDICT_T := 6.0
+const GOOD_GAP := 0.02      # en iyiye bu kadar yakın karar "İyi" (ölçüm: ~%33 iyi, ~%28 makul, ~%38 kötü)
+const BAD_GAP := 0.10      # en iyiden bu kadar uzak (ya da kapalı yola pas) "Kötü"
+const GRADES := ["good", "ok", "bad"]
 const TOL := 0.012          # en iyiye bu kadar yakın seçenek de doğru sayılır
 const MAX_OPTS := 4
 const TEXT_KEYS := ["eye_rs_ok", "eye_rs_no", "eye_rs_best", "eye_rb_free", "eye_rb_open", "eye_rb_through",
 	"eye_rb_shot", "eye_rb_shot2", "eye_rb_carry", "eye_rw_blocked", "eye_rw_traffic", "eye_rw_marked",
 	"eye_rw_safe", "eye_rw_long", "eye_rw_less", "eye_rw_shot_block", "eye_rw_shot_far", "eye_rw_crowd",
-	"eye_rw_slow", "eye_ask3", "eye_howto2", "eye_pause", "eye_resume", "eye_noans", "eye_gain2"]
+	"eye_rw_slow", "eye_pause", "eye_resume", "eye_noans", "eye_gain2",
+	"eye_g_good", "eye_g_ok", "eye_g_bad", "eye_watch3", "eye_judge", "eye_did", "eye_rs_why", "eye_rs_alt",
+	"eye_v_hit", "eye_v_miss", "eye_v_none", "eye_lbl_his", "eye_lbl_best", "eye_howto3", "eye_rb_tight"]
 
 # ================================================================ değerlendirme
 
@@ -215,9 +225,11 @@ static func _why_good(o: Dictionary) -> Array:
 			return ["eye_rb_carry", []]
 	if bool(o.through) and o.lane == "open":
 		return ["eye_rb_through", [o.name]]
-	if o.mark == "free":
+	if o.mark == "free" and o.lane == "open":
 		return ["eye_rb_free", [o.name]]
-	return ["eye_rb_open", [o.name]]
+	if o.lane == "open":
+		return ["eye_rb_open", [o.name]]
+	return ["eye_rb_tight", [o.name]]
 
 static func _why_bad(o: Dictionary, b: Dictionary) -> Array:
 	match str(o.k):
@@ -253,7 +265,10 @@ static func render(parts: Array, tr_fn: Callable) -> String:
 	## tr_fn(anahtar, argümanlar) -> metin. İlk parça ön ek, sonrakiler "; " ile
 	var s := ""
 	for i: int in parts.size():
-		var txt: String = tr_fn.call(str(parts[i][0]), parts[i][1])
+		var args: Array = []
+		for a: Variant in parts[i][1]:
+			args.append(tr_fn.call(str(a[0]), a[1]) if a is Array else a)
+		var txt: String = tr_fn.call(str(parts[i][0]), args)
 		if i == 0:
 			s = txt + " "
 		elif i == 1:
@@ -261,6 +276,58 @@ static func render(parts: Array, tr_fn: Callable) -> String:
 		else:
 			s += "; " + txt
 	return s
+
+# ================================================================ v2: oyuncunun kararını yargıla
+
+static func find_actual(all: Array, res: Dictionary) -> int:
+	## Motorun kaydettiği gerçek hamle hangi seçenek (çapraz/uzaklaştırma -> -1, soru iptal)
+	if res.is_empty():
+		return -1
+	for i: int in all.size():
+		var o: Dictionary = all[i]
+		if str(o.k) != str(res.get("k", "")):
+			continue
+		if o.k != "pass" or str(o.to) == str(res.get("to", "")):
+			return i
+	return -1
+
+static func grade(all: Array, ai: int) -> int:
+	## 0 iyi, 1 makul, 2 kötü — bizim futbol mantığımıza göre (motorun iç puanı değil)
+	var b: Dictionary = all[best_index(all)]
+	var o: Dictionary = all[ai]
+	var gap := float(b.score) - float(o.score)
+	if gap <= GOOD_GAP:
+		return 0
+	if gap >= BAD_GAP or (o.k == "pass" and o.lane == "blocked"):
+		return 2
+	return 1
+
+static func read_attr(all: Array, ai: int) -> String:
+	## Bu karar oyuncunun neyini gösterir
+	var o: Dictionary = all[ai]
+	if o.k == "pass" and (float(o.fwd) >= 12.0 or float(o.dist) >= 30.0):
+		return "vision"
+	if float(o.get("press", 99.0)) < 2.5:
+		return "composure"
+	return "decisions"
+
+static func verdict_parts(all: Array, ai: int) -> Array:
+	## "Neden: <iyi/kötü sebebi>; daha iyisi: <en iyi seçenek>"
+	var bi := best_index(all)
+	var o: Dictionary = all[ai]
+	var g := grade(all, ai)
+	if g == 0 or bi == ai:
+		return [["eye_rs_why", []], _why_good(o)]
+	return [["eye_rs_why", []], _why_bad(o, all[bi]), ["eye_rs_alt", [_why_good(all[bi])]]]
+
+static func reveal_set(all: Array, ai: int) -> Array:
+	## Açıklamada gösterilecek yollar: oyuncunun seçimi + en iyi + 2 alternatif
+	var out: Array = pick_set(all)
+	if ai >= 0 and not out.has(all[ai]):
+		if out.size() >= MAX_OPTS:
+			out.pop_back()
+		out.append(all[ai])
+	return out
 
 # ================================================================ maç içi akış
 
@@ -286,23 +353,29 @@ class Director extends RefCounted:
 	var asked: Array = [0, 0]
 	var asked_at: Array = []      # [[maç saati, yarı]]
 	var last_clock := -99999.0
-	var state := ""               # "" | choose | wait | verdict
+	var state := ""               # "" | watch | judge | verdict
 	var t := 0.0
 	var hold := 0.0
 	var pid := ""
 	var sit := {}
-	var all: Array = []
-	var opts: Array = []          # ekrandaki seçenekler (en çok 4)
-	var best := -1
-	var pick := -1
+	var all: Array = []           # oyuncunun tüm seçenekleri (karar anındaki dizilişle)
+	var opts: Array = []          # açıklamada gösterilen yollar (en çok 4)
+	var best := -1                # opts içinde en iyi
+	var act := -1                 # opts içinde oyuncunun gerçek seçimi
+	var truth := -1               # gerçek not: 0 iyi, 1 makul, 2 kötü
+	var pick := -1                # kullanıcının notu
 	var ok := false
 	var attr := ""
 	var res := {}                 # oyuncunun gerçek hamlesi (motorun eye_res kaydı)
-	var reads: Array = []         # [{pid, attr, ok, ans}]
+	var reads: Array = []         # [{pid, attr, ok, ans, k}]
 	var prev_owner := ""
 	var fresh := false
+	var pending := ""             # tick'in bir sonraki dönüşü (answer -> "verdict")
 	var min_rate := 99.0
 	var parts: Array = []
+	var aborts := 0
+	var gap := 0.0
+	var blocked := false
 
 	func quota(h: int) -> int:
 		var q: Array = EL.QUOTA.get(kind, [0, 0])
@@ -321,9 +394,9 @@ class Director extends RefCounted:
 		if i >= k or eng.clock - last_clock < EL.GAP:
 			return false
 		var hp: float = pacer.half_prog(eng)
-		var start := 0.04 + 0.86 * float(i) / float(k)
+		var start := 0.08 + 0.8 * float(i) / float(k)
 		if k == 1:
-			start = 0.12
+			start = 0.15
 		return hp >= start
 
 	func urgent(eng, pacer) -> bool:
@@ -369,22 +442,23 @@ class Director extends RefCounted:
 		return candidate(eng, pacer)
 
 	func _start(eng, s: Dictionary, al: Array, shown: Array) -> void:
-		state = "choose"
+		state = "watch"
 		fresh = true
+		pending = ""
 		t = 0.0
 		hold = EL.HOLD
 		pid = str(s.pid)
 		sit = s
 		all = al
-		var b: Dictionary = al[EL.best_index(al)]
-		shown.shuffle()
 		opts = shown
-		best = opts.find(b)
+		best = -1
+		act = -1
+		truth = -1
 		pick = -1
 		ok = false
 		res = {}
 		parts = []
-		attr = EL.attr_for(opts, best)
+		attr = ""
 		asked_at.append([eng.clock, -1])
 		last_clock = eng.clock
 		eng.eye_pid = pid
@@ -398,9 +472,8 @@ class Director extends RefCounted:
 			asked[h] += 1
 
 	func pre_step(eng) -> void:
-		## Seçim sürerken oyuncunun kararını geciktir; bu kısa sürede rakip top kapma denemez
-		## (kullanıcının düşünme süresi oyuncunun aleyhine sonuç doğurmasın)
-		if state != "choose" or hold <= 0.0 or eng.owner == null or eng.owner.id != pid:
+		## İzlerken oyuncunun kararını biraz geciktir (göze zaman); bu kısa sürede rakip top kapma denemez
+		if state != "watch" or hold <= 0.0 or eng.owner == null or eng.owner.id != pid:
 			return
 		eng.owner.decide_t = maxf(eng.owner.decide_t, 0.3)
 		for q in eng.team[eng.other(eng.owner.side)]:
@@ -409,21 +482,23 @@ class Director extends RefCounted:
 
 	func rate(base: float) -> float:
 		var r := base
-		if state == "choose":
-			r = EL.SLOW
-		elif state == "wait":
-			r = EL.WAIT_RATE
-		if state == "choose" or state == "wait":
+		match state:
+			"watch":
+				r = EL.SLOW
+			"judge":
+				r = EL.JUDGE_RATE
+			"verdict":
+				r = EL.VERDICT_RATE
+		if state != "":
 			min_rate = minf(min_rate, r)
 		return r
 
-	func answer(i: int) -> void:
-		if state != "choose":
+	func answer(g: int) -> void:
+		if state != "judge":
 			return
-		pick = i
-		state = "wait"
-		t = 0.0
-		hold = 0.0
+		pick = g
+		_verdict()
+		pending = "verdict"
 
 	func _acted(eng) -> bool:
 		if not eng.eye_res.is_empty():
@@ -432,27 +507,37 @@ class Director extends RefCounted:
 			return true
 		return eng.owner == null and eng.flight.is_empty() or (eng.owner != null and eng.owner.id != pid)
 
-	## Kare başına: dt gerçek süre (duraklatılmışsa 0). Dönüş: "" | "start" | "verdict" | "clear"
+	## Kare başına: dt gerçek süre (duraklatılmışsa 0).
+	## Dönüş: "" | "start" (izle) | "judge" | "verdict" | "clear"
 	func tick(dt: float, eng, pacer) -> String:
+		if pending != "":
+			var p := pending
+			pending = ""
+			return p
 		match state:
 			"":
 				if candidate(eng, pacer):
 					mark_half(pacer)
 					fresh = false
 					return "start"
-			"choose":
+			"watch":
 				if fresh:
 					fresh = false
 					mark_half(pacer)
 					return "start"
 				t += dt
-				if t > EL.CHOOSE_MAX or _acted(eng):
-					_verdict(eng)
-					return "verdict"
-			"wait":
+				if _acted(eng):
+					return _to_judge(eng)
+				if t > EL.WATCH_MAX:
+					if OS.get_environment("EYE_DBG") != "":
+						print("EYE watch timeout owner=", eng.owner.id if eng.owner != null else "-", " pid=", pid, " eye_pid=", eng.eye_pid)
+					aborts += 1
+					clear(eng)
+					return "clear"
+			"judge":
 				t += dt
-				if _acted(eng) or t > EL.WAIT_MAX:
-					_verdict(eng)
+				if t > EL.CHOOSE_MAX:
+					_verdict()
 					return "verdict"
 			"verdict":
 				t += dt
@@ -461,32 +546,58 @@ class Director extends RefCounted:
 					return "clear"
 		return ""
 
-	func _verdict(eng) -> void:
+	func _to_judge(eng) -> String:
 		res = eng.eye_res.duplicate()
 		eng.eye_pid = ""
 		eng.eye_res = {}
+		var ai := EL.find_actual(all, res)
+		if ai < 0:
+			# topu kaptırdı / orta / uzaklaştırma: yargılanacak net karar yok, soru sayılmaz
+			aborts += 1
+			if OS.get_environment("EYE_DBG") != "":
+				print("EYE abort res=", res, " phase=", eng.phase, " opts=", all.map(func(x): return [x.k, x.get("to", "")]))
+			clear(eng)
+			return "clear"
+		truth = EL.grade(all, ai)
+		gap = float(all[EL.best_index(all)].score) - float(all[ai].score)
+		blocked = all[ai].k == "pass" and all[ai].lane == "blocked"
+		attr = EL.read_attr(all, ai)
+		parts = EL.verdict_parts(all, ai)
+		opts = EL.reveal_set(all, ai)
+		act = opts.find(all[ai])
+		best = opts.find(all[EL.best_index(all)])
+		state = "judge"
+		t = 0.0
+		hold = 0.0
+		return "judge"
+
+	func _verdict() -> void:
 		var answered := pick >= 0
-		ok = answered and EL.judge(opts, pick)
-		parts = EL.reason(opts, pick, not answered)
-		reads.append({"pid": pid, "attr": attr, "ok": ok, "ans": answered, "k": str(opts[best].k)})
+		ok = answered and pick == truth
+		reads.append({"pid": pid, "attr": attr, "ok": ok, "ans": answered, "k": EL.GRADES[truth], "gap": snappedf(gap, 0.001), "blk": blocked})
 		state = "verdict"
 		t = 0.0
 		hold = 0.0
 
 	func clear(eng) -> void:
-		## Soru kapanır (devre arası / atlama / bitiş): cevaplanmamışsa kayıt düşmez
-		if state == "choose" or state == "wait":
-			if not asked_at.is_empty():
-				# yarıda kesilen soru sayılmaz
+		## Soru kapanır (devre arası / atlama / bitiş / iptal): yargılanmadıysa sayılmaz
+		if state == "watch" or state == "judge":
+			if state == "judge":
+				_verdict()       # yargı ekranındayken kesildi: cevapsız sayılır
+			elif not asked_at.is_empty():
 				var h := int(asked_at[-1][1])
 				if h >= 0:
 					asked[h] -= 1
 				asked_at.pop_back()
 				last_clock = float(asked_at[-1][0]) if not asked_at.is_empty() else -99999.0
+				if eng != null:
+					# iptal: hemen yeni soru açılmasın (1,5 oyun dakikası nefes)
+					last_clock = maxf(last_clock, float(eng.clock) - EL.GAP + 90.0)
 		if eng != null:
 			eng.eye_pid = ""
 			eng.eye_res = {}
 		state = ""
 		fresh = false
+		pending = ""
 		t = 0.0
 		hold = 0.0

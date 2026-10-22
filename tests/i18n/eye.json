@@ -1,27 +1,154 @@
 {
-  "eye_rs_ok": ["Doğru:", "Correct:"],
-  "eye_rs_no": ["Doğrusu:", "Better:"],
-  "eye_rs_best": ["En doğrusu:", "Best read:"],
-  "eye_rb_free": ["%s boştu, pas yolu açıktı", "%s was free and the lane was open"],
-  "eye_rb_open": ["pas yolu açıktı (%s)", "the lane to %s was open"],
-  "eye_rb_through": ["ara pası yolu açıktı (%s), arkada boş alan vardı", "the through ball to %s was on, space behind"],
-  "eye_rb_shot": ["iyi açı, önü boş: şut en iyisiydi", "good angle, nobody in front: the shot was on"],
-  "eye_rb_shot2": ["şut açısı vardı, pas daha az vaat ediyordu", "there was a shooting angle, passes offered less"],
-  "eye_rb_carry": ["önü boştu, topla ilerlemek en iyisiydi", "space ahead, carrying it was best"],
-  "eye_rw_blocked": ["pas yolu kapalıydı (%s)", "the lane to %s was blocked"],
-  "eye_rw_traffic": ["ara pası kalabalığa gidiyordu, riskliydi", "the through ball went into traffic, too risky"],
-  "eye_rw_marked": ["%s sıkı markajdaydı", "%s was tightly marked"],
-  "eye_rw_safe": ["geri pas (%s) fazla temkinliydi", "the pass to %s was too safe, it went backwards"],
-  "eye_rw_long": ["pas çok uzundu, araya girilirdi", "the pass was too long, it would be cut out"],
-  "eye_rw_less": ["pas (%s) daha az şey vaat ediyordu", "the pass to %s offered less"],
-  "eye_rw_shot_block": ["şut yolunda adam vardı", "there was a body in the way of the shot"],
-  "eye_rw_shot_far": ["şut için çok uzak ya da açı dardı", "too far or too tight an angle to shoot"],
-  "eye_rw_crowd": ["topla çıkmak için alan yoktu", "no room to carry it"],
-  "eye_rw_slow": ["topla ilerlemek oyunu yavaşlatırdı", "carrying it would have slowed the play"],
-  "eye_ask3": ["Ağır çekim. Top %s'de. Sence en doğru hamle hangisi?", "Slow motion. %s has the ball. What's the right move?"],
-  "eye_howto2": ["Üstten bak: yeşil yol açık, sarı dar, kırmızı kapalı. Yeşil halka boş adam, kırmızı alan baskı. Düşünmek için DUR'a basabilirsin.", "Read it from above: green lane open, yellow tight, red blocked. Green ring = free man, red zone = pressure. Tap PAUSE to think."],
-  "eye_pause": ["Dur", "Pause"],
-  "eye_resume": ["Devam", "Resume"],
-  "eye_noans": ["Cevap vermedin.", "You didn't answer."],
-  "eye_gain2": ["Not defterine: %s okuması (%s)", "Notebook: %s read (%s)"]
+  "eye_rs_ok": [
+    "Doğru:",
+    "Correct:"
+  ],
+  "eye_rs_no": [
+    "Doğrusu:",
+    "Better:"
+  ],
+  "eye_rs_best": [
+    "En doğrusu:",
+    "Best read:"
+  ],
+  "eye_rb_free": [
+    "%s boştu, pas yolu açıktı",
+    "%s was free and the lane was open"
+  ],
+  "eye_rb_open": [
+    "pas yolu açıktı (%s)",
+    "the lane to %s was open"
+  ],
+  "eye_rb_through": [
+    "ara pası yolu açıktı (%s), arkada boş alan vardı",
+    "the through ball to %s was on, space behind"
+  ],
+  "eye_rb_shot": [
+    "iyi açı, önü boş: şut en iyisiydi",
+    "good angle, nobody in front: the shot was on"
+  ],
+  "eye_rb_shot2": [
+    "şut açısı vardı, pas daha az vaat ediyordu",
+    "there was a shooting angle, passes offered less"
+  ],
+  "eye_rb_carry": [
+    "önü boştu, topla ilerlemek en iyisiydi",
+    "space ahead, carrying it was best"
+  ],
+  "eye_rw_blocked": [
+    "pas yolu kapalıydı (%s)",
+    "the lane to %s was blocked"
+  ],
+  "eye_rw_traffic": [
+    "ara pası kalabalığa gidiyordu, riskliydi",
+    "the through ball went into traffic, too risky"
+  ],
+  "eye_rw_marked": [
+    "%s sıkı markajdaydı",
+    "%s was tightly marked"
+  ],
+  "eye_rw_safe": [
+    "geri pas (%s) fazla temkinliydi",
+    "the pass to %s was too safe, it went backwards"
+  ],
+  "eye_rw_long": [
+    "pas çok uzundu, araya girilirdi",
+    "the pass was too long, it would be cut out"
+  ],
+  "eye_rw_less": [
+    "pas (%s) daha az şey vaat ediyordu",
+    "the pass to %s offered less"
+  ],
+  "eye_rw_shot_block": [
+    "şut yolunda adam vardı",
+    "there was a body in the way of the shot"
+  ],
+  "eye_rw_shot_far": [
+    "şut için çok uzak ya da açı dardı",
+    "too far or too tight an angle to shoot"
+  ],
+  "eye_rw_crowd": [
+    "topla çıkmak için alan yoktu",
+    "no room to carry it"
+  ],
+  "eye_rw_slow": [
+    "topla ilerlemek oyunu yavaşlatırdı",
+    "carrying it would have slowed the play"
+  ],
+  "eye_pause": [
+    "Dur",
+    "Pause"
+  ],
+  "eye_resume": [
+    "Devam",
+    "Resume"
+  ],
+  "eye_noans": [
+    "Cevap vermedin.",
+    "You didn't answer."
+  ],
+  "eye_gain2": [
+    "Not defterine: %s okuması (%s)",
+    "Notebook: %s read (%s)"
+  ],
+  "eye_g_good": [
+    "İyi karar",
+    "Good decision"
+  ],
+  "eye_g_ok": [
+    "Makul",
+    "Reasonable"
+  ],
+  "eye_g_bad": [
+    "Kötü karar",
+    "Poor decision"
+  ],
+  "eye_watch3": [
+    "Top %s'de. Gözünü ondan ayırma: ne yapacak?",
+    "%s has the ball. Keep your eyes on him: what will he do?"
+  ],
+  "eye_judge": [
+    "%s kararını verdi: %s. Sence nasıl bir karardı?",
+    "%s made his call: %s. How good was it?"
+  ],
+  "eye_did": [
+    "%s'in seçimi: %s",
+    "%s chose: %s"
+  ],
+  "eye_rs_why": [
+    "Neden:",
+    "Why:"
+  ],
+  "eye_rs_alt": [
+    "daha iyisi: %s",
+    "better: %s"
+  ],
+  "eye_v_hit": [
+    "Doğru okudun: %s",
+    "You read it right: %s"
+  ],
+  "eye_v_miss": [
+    "Senin okuman: %s. Gerçekte: %s",
+    "Your read: %s. Actually: %s"
+  ],
+  "eye_v_none": [
+    "Cevap vermedin. Gerçekte: %s",
+    "No answer. Actually: %s"
+  ],
+  "eye_lbl_his": [
+    "ONUN SEÇİMİ",
+    "HIS CHOICE"
+  ],
+  "eye_lbl_best": [
+    "EN İYİSİ",
+    "BEST"
+  ],
+  "eye_howto3": [
+    "Sen gözcüsün: kararı o verir, sen onu yargılarsın. Doğru okuman not defterine işlenir.",
+    "You're the scout: he decides, you judge. Correct reads go into your notebook."
+  ],
+  "eye_rb_tight": [
+    "yol dardı ama en çok şeyi vaat eden pas buydu (%s)",
+    "the lane was tight, but it was the most promising pass (%s)"
+  ]
 }
