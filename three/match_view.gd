@@ -2291,7 +2291,9 @@ func _on_event(e: Dictionary) -> void:
 				_show_banner(T.t("mv_penalty").to_upper() + "!", Game.club(m.h if e.side == "h" else m.a).name)
 	if skipping:
 		return
-	if e.pid in focus and e.ty in ["pass", "dribble", "shot", "cross", "header", "press", "sprint", "save", "tackle"]:
+	if e.pid in focus and e.ty in ["pass", "dribble", "shot", "cross", "header", "press", "sprint", "save", "tackle"] \
+			and not (e.pid == eye_owner and (eye_state == "watch" or eye_state == "judge")):
+		# Analist Gözü yargısı sürerken sonucu (✓/✗) önceden söyleme
 		_popup(e.pid, ("✓ " if e.ok else "✗ ") + T.t("ev_" + e.ty), C_GOOD if e.ok else C_BAD)
 		# kıvılcım anı: odaktaki oyuncunun nadir parlak hareketi
 		if e.ok and spark_pid == "" and spark_n < 4 and e.ty in ["dribble", "shot", "cross", "tackle", "header"] and randf() < 0.22:
