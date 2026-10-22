@@ -503,6 +503,8 @@ func _do_action(pid: String, kind: String) -> void:
 			var vfe = await m._run_viewer(vdata, [pid])
 			m._landscape(false)
 			var vres := Game.finish_video(pid, vdata, vfe, vf)
+			if vres.ok:
+				await m._learn_modal(vres.get("learned", {}))   # v0.24 (5B) öğrendiklerin
 			_scene_open("video", T.t("sc_place_video"))
 			m.stage.wide()
 			if vres.ok:

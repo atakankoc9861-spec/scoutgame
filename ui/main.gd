@@ -2068,6 +2068,7 @@ func _play_weekend() -> void:
 			await _story("first_signing")
 			break
 	_busy = false
+	_learn_ack = false
 	_show("result", null, false)
 
 func _landscape(on: bool) -> void:
@@ -4326,9 +4327,139 @@ func _scr_obs() -> void:
 		_obs_card(pending_obs)
 	_btn(T.t("ok"), func(): _goto_tab("week"), "primary", page, "check")
 
-func _scr_result() -> void:
+# ---------------------------------------------------------------- v0.24 (5B) "Bu maçta öğrendiklerin"
+## Hafta raporundan önce: izlenen maçlarda odak oyuncuların dosyası ne kadar netleşti (aralıklar daralır,
+## bilgi % sayar, yeni açılan gizli özellik mühürle gelir). Devam → normal hafta raporu.
+## Video analizi sonrası aynı kart _learn_modal ile (training.gd tek satır çağırır).
+var _learn_ack := true
+signal _learn_done
+
+func _learn_pct(v: int) -> String:
+	return ("%%%d" if T.lang == "tr" else "%d%%") % v
+
+func _learn_rng(lo: int, hi: int) -> String:
+	if lo < 0:
+		return "?"
+	return str(lo) if lo == hi else "%d–%d" % [lo, hi]
+
+func _learn_card_ui(parent: Control, card: Dictionary, idx := 0) -> Control:
+	var p := Game.player(str(card.pid))
+	var c := _card(parent, "memo", 18)
+	if p.is_empty():
+		return c
+	var hh := _h(c, 12)
+	hh.add_child(_avatar(p, 56))
+	var nv := VBoxContainer.new()
+	nv.add_theme_constant_override("separation", 0)
+	nv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nv.add_child(_head(Game.pname(p), 24))
+	nv.add_child(_typed(TV.upper(T.t("learn_know"), T.lang) + "  " + _learn_pct(int(card.k0)) + " → " + _learn_pct(int(card.k1)), 14, C_INK2))
+	hh.add_child(nv)
+	var big := _lbl(_learn_pct(int(card.k1)), 34, C_GREEN if int(card.k1) > int(card.k0) else C_INK2, false, F_HEAD)
+	hh.add_child(big)
+	Motion.count_up(big, float(card.k1), func(v: float) -> String: return _learn_pct(int(round(v))), Motion.COUNT, float(card.k0))
+	var rows: Array = card.get("rows", [])
+	# tek satırlık scout notu: en çok daralan özellik
+	if not rows.is_empty():
+		var r0: Dictionary = rows[0]
+		c.add_child(_hand("%s: %s → %s" % [T.t("a_" + str(r0.a)), _learn_rng(int(r0.lo0), int(r0.hi0)), _learn_rng(int(r0.lo1), int(r0.hi1))], 27, C_BLUE))
+	var bars := []
+	for r in rows:
+		var row := _h(c, 8)
+		var nl := _lbl(T.t("a_" + str(r.a)), 18, C_INK, false, F_SEMI)
+		nl.custom_minimum_size = Vector2(170, 0)
+		nl.clip_text = true
+		row.add_child(nl)
+		var ic := Icon.new().setup("eye", C_BLUE if bool(r.get("eye", false)) else Color(0, 0, 0, 0), 20)
+		row.add_child(ic)   # göz okuması işareti; diğer satırlarda boş yer (çubuklar hizalı kalsın)
+		var rb := RangeBar.new()
+		rb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rb.setup([int(r.lo1), int(r.hi1)])
+		row.add_child(rb)
+		bars.append([rb, [] if int(r.lo0) < 0 else [int(r.lo0), int(r.hi0)]])
+		var vl := _lbl("%s → %s" % [_learn_rng(int(r.lo0), int(r.hi0)), _learn_rng(int(r.lo1), int(r.hi1))], 17, C_INK, false, F_TYPEB)
+		vl.custom_minimum_size = Vector2(150, 0)
+		vl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(vl)
+	var pa: Array = card.get("pa", [])
+	if not pa.is_empty():
+		var row2 := _h(c, 8)
+		var pl := _lbl(T.t("learn_pa"), 18, C_INK, false, F_SEMI)
+		pl.custom_minimum_size = Vector2(170, 0)
+		row2.add_child(pl)
+		var rb2 := RangeBar.new()
+		rb2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rb2.setup([int(pa[2]), int(pa[3])], 99.0)
+		row2.add_child(rb2)
+		bars.append([rb2, [] if int(pa[0]) < 0 else [int(pa[0]), int(pa[1])]])
+		var pv := _lbl("%s → %s" % [_learn_rng(int(pa[0]), int(pa[1])), _learn_rng(int(pa[2]), int(pa[3]))], 17, C_INK, false, F_TYPEB)
+		pv.custom_minimum_size = Vector2(150, 0)
+		pv.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row2.add_child(pv)
+	for i in bars.size():
+		bars[i][0].narrow_from(bars[i][1], 0.25 + idx * 0.3 + i * 0.07)
+	for hd in card.get("hid", []):
+		var hr := _h(c, 8)
+		hr.add_child(_stamp(T.t("learn_new"), C_RED, -4.0, 16))
+		hr.add_child(_lbl("%s — %s" % [T.t("h_" + str(hd[0])), T.t("lvl_%d" % int(hd[1]))], 19, C_RED, true, F_SEMI))
+	if int(card.get("eye", 0)) > 0:
+		c.add_child(_typed(T.t("learn_eye_n", [int(card.eye)]), 14, C_BLUE))
+	if rows.is_empty() and pa.is_empty() and card.get("hid", []).is_empty():
+		c.add_child(_typed(T.t("learn_none"), 14, C_INK2))
+	return c
+
+func _scr_learned(cards: Array) -> void:
 	_sheet()
+	var st := _stamp(T.t("learn_title"), C_RED, -5.0, 30)
+	st.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	page.add_child(st)
+	_stamp_slam.call_deferred(st)
+	var shown_obs := []
+	var dealt := []
+	var i := 0
+	for e in cards:
+		var obs: Dictionary = e[1]
+		if not (obs in shown_obs):
+			shown_obs.append(obs)
+			var ml := _typed("%s  %d – %d  %s" % [Game.club(obs.h).get("short", "?"), int(obs.gh), int(obs.ga), Game.club(obs.a).get("short", "?")], 16, C_INK2)
+			ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			page.add_child(ml)
+		dealt.append(_learn_card_ui(page, e[0], i))
+		i += 1
+	Motion.deal_in(dealt)
+	_btn(T.t("learn_cont"), func():
+		_learn_ack = true
+		_show("result", null, false), "primary", page, "arrow")
+
+func _learn_modal(card: Dictionary) -> void:
+	## Video analizi sonrası: aynı kart, modal içinde
+	if not Game.learn_has(card):
+		return
+	var lv := _modal_layer(0.08, 0.92)
+	var v: VBoxContainer = lv[1]
+	var st := _stamp(T.t("learn_title_vid"), C_RED, -5.0, 26)
+	st.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(st)
+	_learn_card_ui(v, card, 0)
+	_btn(T.t("learn_cont"), func(): _learn_done.emit(), "primary", v, "arrow")
+	await _learn_done
+	_close_modal(lv[0])
+
+func _scr_result() -> void:
 	var r := pending_result
+	if not _learn_ack:
+		var cards := []
+		for obs in r.get("obs", []):
+			if obs.get("youth", false):
+				continue
+			for lc in obs.get("learned", []):
+				if Game.learn_has(lc):
+					cards.append([lc, obs])
+		if not cards.is_empty():
+			_scr_learned(cards)
+			return
+		_learn_ack = true
+	_sheet()
 	var mast := _lbl(T.t("week_report"), 44, C_INK, true, F_HEAD)
 	mast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	page.add_child(mast)
